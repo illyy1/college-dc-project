@@ -4,7 +4,14 @@ import time
 import threading
 import tkinter as tk
 import cv2
+import os
+from dotenv import load_dotenv
+ENCRYPTION_KEY = b'fal5g1zICme2xJh7BYcPE80JXg-kzv6aVzqm6KVpcNg='
+# Load the environment variables from the .env file
+load_dotenv()
 
+# Fetch the token securely
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 # --- Configuration ---
 SILENCE_THRESHOLD = 0.005  # Adjust based on room's ambient noise
 SILENCE_DURATION = 15  # Seconds of silence before warning
