@@ -6,7 +6,7 @@ import tkinter as tk
 import cv2
 import os
 from dotenv import load_dotenv
-ENCRYPTION_KEY = b'fal5g1zICme2xJh7BYcPE80JXg-kzv6aVzqm6KVpcNg='
+ENCRYPTION_KEY = b'ABv3YwffNTB0VLZaGsvZyobktNe6IhOuU4nelR1WIGw='
 # Load the environment variables from the .env file
 load_dotenv()
 
