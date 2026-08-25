@@ -15,21 +15,20 @@ from cryptography.fernet import Fernet
 # --- SECURE TOKEN DECRYPTION BLOCK ---
 # ==========================================
 
-# 1. Load the encrypted string from the .env file
+# 1. Load the environment variables from the .env file
 load_dotenv()
 encrypted_token = os.getenv("GITHUB_TOKEN")
+crypt_key = os.getenv("ENCRYPTION_KEY")
 
-# 2. Your specific generated encryption key
-ENCRYPTION_KEY = b'ABv3YwffNTB0VLZaGsvZyobktNe6IhOuU4nelR1WIGw='
-
-# 3. Decrypt the token to use with the GitHub API
+# 2. Decrypt the token to use with the GitHub API
 try:
-    if encrypted_token:
-        cipher_suite = Fernet(ENCRYPTION_KEY)
-        GITHUB_TOKEN = cipher_suite.decrypt(encrypted_token.encode()).decode()
+    if encrypted_token and crypt_key:
+        # Fernet requires keys and tokens to be bytes, so we must .encode() the strings from os.getenv
+        cipher_suite = Fernet(crypt_key.encode('utf-8'))
+        GITHUB_TOKEN = cipher_suite.decrypt(encrypted_token.encode('utf-8')).decode('utf-8')
     else:
         GITHUB_TOKEN = None
-        print("Warning: GITHUB_TOKEN not found in .env file.")
+        print("Warning: GITHUB_TOKEN or ENCRYPTION_KEY not found in .env file.")
 except Exception as e:
     print(f"Decryption failed. Check your .env file and key. Error: {e}")
     GITHUB_TOKEN = None
@@ -153,7 +152,7 @@ class HardwareMonitor:
         def audio_callback(indata, frames, time_info, status):
             if self.is_paused: return
 
-            # FIX: Use RMS for accurate volume mapping regardless of frame size
+            # Use RMS for accurate volume mapping regardless of frame size
             volume = np.sqrt(np.mean(indata ** 2))
 
             if volume < SILENCE_THRESHOLD:
@@ -161,14 +160,14 @@ class HardwareMonitor:
                     self.silence_start = time.time()
                     self.is_silent = True
                 elif time.time() - self.silence_start > SILENCE_DURATION:
-                    # FIX: Only trigger show_alert if the alert isn't already active
+                    # Only trigger show_alert if the alert isn't already active
                     if self.active_alerts.get('mic_silence') is None:
                         self.show_alert('mic_silence', "Microphone Silence Detected",
                                         "No input registered. Is the mic muted?")
             else:
                 self.is_silent = False
                 self.silence_start = time.time()
-                # FIX: Only call hide_alert if the alert is currently active to prevent UI freezing
+                # Only call hide_alert if the alert is currently active to prevent UI freezing
                 if self.active_alerts.get('mic_silence') is not None:
                     self.hide_alert('mic_silence')
 
