@@ -1,0 +1,100 @@
+"""Data structures & operations: alert history (list), grouping (dict),
+unique error types (set), FIFO maintenance queue (deque) and a critical
+priority queue (heapq)."""
+
+import json
+import heapq
+from collections import deque
+from datetime import datetime
+from itertools import count
+
+from .config import LOG_PATH
+
+_id_counter = count(1)
+
+
+class Alert:
+    def __init__(self, component_id, workstation_id, error_type, message,
+                 priority=5, resolved=False, timestamp=None):
+        self.alert_id = next(_id_counter)
+        self.component_id = component_id
+        self.workstation_id = workstation_id
+        self.error_type = error_type
+        self.message = message
+        self.priority = priority  # lower number = more critical
+        self.resolved = resolved
+        self.timestamp = timestamp or datetime.now()
+
+    def to_dict(self):
+        return {
+            "alert_id": self.alert_id,
+            "component_id": self.component_id,
+            "workstation_id": self.workstation_id,
+            "error_type": self.error_type,
+            "message": self.message,
+            "priority": self.priority,
+            "resolved": self.resolved,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+    def __repr__(self):
+        state = "resolved" if self.resolved else "unresolved"
+        return f"<Alert #{self.alert_id} [{self.error_type}] prio={self.priority} {state}>"
+
+
+class AlertManager:
+    """Owns the alert history plus the routine/critical processing queues."""
+
+    CRITICAL_PRIORITY_THRESHOLD = 2
+
+    def __init__(self):
+        self.alert_history = []            # list — ordered history
+        self.maintenance_queue = deque()   # deque — FIFO routine maintenance
+        self._critical_heap = []           # heapq — priority queue of critical alerts
+        self._heap_tiebreak = count()
+
+    def log_alert(self, alert, persist=True):
+        self.alert_history.append(alert)
+        if alert.priority <= self.CRITICAL_PRIORITY_THRESHOLD:
+            heapq.heappush(self._critical_heap, (alert.priority, next(self._heap_tiebreak), alert))
+        else:
+            self.maintenance_queue.append(alert)
+        if persist:
+            self._persist_to_log(alert)
+        return alert
+
+    def process_next_critical(self):
+        if not self._critical_heap:
+            return None
+        _, _, alert = heapq.heappop(self._critical_heap)
+        return alert
+
+    def process_next_maintenance(self):
+        if not self.maintenance_queue:
+            return None
+        return self.maintenance_queue.popleft()
+
+    def group_by_workstation(self):
+        """dict comprehension: workstation_id -> list of its alerts."""
+        return {
+            ws_id: [a for a in self.alert_history if a.workstation_id == ws_id]
+            for ws_id in {a.workstation_id for a in self.alert_history}
+        }
+
+    def unique_error_types(self):
+        """set comprehension: every distinct error type seen so far."""
+        return {a.error_type for a in self.alert_history}
+
+    def unresolved_alerts(self):
+        return [a for a in self.alert_history if not a.resolved]
+
+    def sorted_by_priority(self):
+        """sorted() with a lambda key: most critical (lowest priority) first,
+        ties broken by earliest timestamp."""
+        return sorted(self.alert_history, key=lambda a: (a.priority, a.timestamp))
+
+    def _persist_to_log(self, alert):
+        """Appends the alert to the on-disk history log using a context
+        manager, so the record survives past this process's lifetime."""
+        with open(LOG_PATH, "a", encoding="utf-8") as log_file:
+            log_file.write(json.dumps(alert.to_dict()) + "\n")

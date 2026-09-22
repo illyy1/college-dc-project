@@ -1,8 +1,23 @@
+
 # Room Hardware Monitor (IT Asset & Alert System)
 
 ## Prerequisites & Installation
 Install the required dependencies using the following command in your PyCharm terminal:
-`pip install sounddevice numpy opencv-python pyinstaller`
+`pip install requests python-dotenv cryptography pyinstaller`
+
+## Running the project
+`python main.py` runs the OOP information-system demonstration (data loading, queues, iterators, lazy pipeline, context manager) and then launches the live monitoring dashboard, which drives its microphone/camera alerts off synthetic simulated signals (see `hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behavior can be tested on demand.
+
+## Project layout
+- `main.py` — orchestrator only; no class definitions.
+- `hardware_monitor/models.py` — `HardwareComponent`, `Camera`, `Microphone`, `Workstation` (OOP).
+- `hardware_monitor/processing.py` — `Alert`, `AlertManager` (list/dict/set, deque, heapq, comprehensions, sorting).
+- `hardware_monitor/repository.py` — loads `data/sample_data.jsonl` line-by-line into objects.
+- `hardware_monitor/iterators.py` — `AlertHistory`/`ActiveAlertIterator`, a generator, and a 3-step lazy pipeline.
+- `hardware_monitor/context_managers.py` — `HardwareDiagnosticSession`.
+- `hardware_monitor/dashboard.py` — the live Tkinter UI, mic/camera monitoring threads, and GitHub alerting.
+- `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signal generators used by the dashboard for testing.
+- `hardware_monitor/config.py` — constants and GitHub token decryption.
 
 ## הצעת הפרויקט (Project Proposal)
 *   **Description:** An IT information system that manages computer workstations and tracks hardware components to process automated alerts for failures.
@@ -10,7 +25,9 @@ Install the required dependencies using the following command in your PyCharm te
 *   **Users:** IT Administrator (manages inventory/alerts) and Automated System Monitor (generates real-time alerts).
 *   **Process & Data Flow:** Component fails -> Alert generated and placed in priority queue -> IT Admin processes alert -> Status updated. Synthetic data is loaded from a `.jsonl` file.
 *   **Primary Use Cases:** 1. Prioritizing critical camera disconnections over standard microphone silence. 2. Filtering "active" alerts by specific workstations using lazy evaluation.
-*   **Future Expansion:** Adding capabilities to send alerts when a monitor disconnects, when the system is set to mute, or when the wrong microphone is set as the default communication device.
+*   **Future Expansion:**
+    *   Adding capabilities to send alerts when a monitor disconnects, when the system is set to mute, or when the wrong microphone is set as the default communication device.
+    *   Swapping the dashboard's synthetic mic/camera signal generators (`hardware_monitor/synthetic_sources.py`) back for real-time hardware monitoring — reading actual microphone input via `sounddevice`/`numpy` (RMS volume against `SILENCE_THRESHOLD`) and polling the physical camera via `opencv-python` (`cv2.VideoCapture`) — once physical devices are available for continuous testing.
 
 ## Object-Oriented Programming (OOP)
 *   **Composition (הרכבה):** The `Workstation` class contains and manages a list of `HardwareComponent` objects, providing methods to add/remove devices[cite: 1].
