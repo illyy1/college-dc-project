@@ -52,6 +52,7 @@ class AlertManager:
         self.maintenance_queue = deque()   # deque — FIFO routine maintenance
         self._critical_heap = []           # heapq — priority queue of critical alerts
         self._heap_tiebreak = count()
+        self.acknowledged_alert_ids = set()  # set — alert ids a technician has acknowledged
 
     def log_alert(self, alert, persist=True):
         self.alert_history.append(alert)
@@ -73,6 +74,22 @@ class AlertManager:
         if not self.maintenance_queue:
             return None
         return self.maintenance_queue.popleft()
+
+    def acknowledge_alert(self, alert_id):
+        """set.add: marks an alert as seen by a technician."""
+        self.acknowledged_alert_ids.add(alert_id)
+
+    def unacknowledge_alert(self, alert_id):
+        """set.discard: reverts an acknowledgement (no-op if it wasn't set)."""
+        self.acknowledged_alert_ids.discard(alert_id)
+
+    def critical_and_routine_common_error_types(self):
+        """set intersection: error types currently sitting in BOTH the
+        critical heap and the routine maintenance queue at the same time —
+        useful to spot a systemic issue rather than an isolated one."""
+        critical_types = {alert.error_type for _, _, alert in self._critical_heap}
+        routine_types = {alert.error_type for alert in self.maintenance_queue}
+        return critical_types & routine_types
 
     def group_by_workstation(self):
         """dict comprehension: workstation_id -> list of its alerts."""
