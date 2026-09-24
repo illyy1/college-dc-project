@@ -1,5 +1,8 @@
-"""OOP core: HardwareComponent hierarchy (inheritance/polymorphism) and the
-Workstation class, which composes components (composition)."""
+"""OOP core: HardwareComponent hierarchy (inheritance/polymorphism), the
+Workstation class, which composes components (composition), and the
+Technician / MaintenanceRequest classes used for maintenance workflow."""
+
+from datetime import datetime
 
 
 class HardwareComponent:
@@ -125,16 +128,24 @@ class Technician:
         return f"Technician(id='{self.tech_id}', name='{self.name}', specialty='{self.specialty}')"
 
     def __str__(self):
-        return f"טכנאי: {self.name} | התמחות: {self.specialty} | משימות פתוחות: {len(self.assigned_requests)}"
+        open_count = sum(1 for r in self.assigned_requests if r.status != "RESOLVED")
+        return f"טכנאי: {self.name} | התמחות: {self.specialty} | משימות פתוחות: {open_count}"
 
 
 class MaintenanceRequest:
     VALID_STATUSES = {"OPEN", "IN_PROGRESS", "RESOLVED"}
 
-    def __init__(self, request_id: str, alert_id: str, priority: int):
+    def __init__(self, request_id: str, alert_id: int, priority: int,
+                 error_type: str = "", workstation_id: str = "", component_id: str = "",
+                 opened_at: datetime | None = None):
         self.request_id = request_id
         self.alert_id = alert_id
         self.priority = priority
+        self.error_type = error_type
+        self.workstation_id = workstation_id
+        self.component_id = component_id
+        self.opened_at = opened_at or datetime.now()
+        self.resolved_at = None
         self._status = "OPEN"
         self.assigned_tech_id = None
 
@@ -144,6 +155,7 @@ class MaintenanceRequest:
 
     @status.setter
     def status(self, new_status: str):
+        new_status = str(new_status).upper()
         if new_status not in self.VALID_STATUSES:
             raise ValueError(f"סטטוס לא חוקי: {new_status}. סטטוסים מותרים: {self.VALID_STATUSES}")
         self._status = new_status
@@ -154,9 +166,24 @@ class MaintenanceRequest:
 
     def resolve(self):
         self.status = "RESOLVED"
+        self.resolved_at = datetime.now()
+
+    def to_dict(self) -> dict:
+        return {
+            "request_id": self.request_id,
+            "alert_id": self.alert_id,
+            "priority": self.priority,
+            "error_type": self.error_type,
+            "workstation_id": self.workstation_id,
+            "component_id": self.component_id,
+            "status": self.status,
+            "assigned_tech_id": self.assigned_tech_id,
+            "opened_at": self.opened_at.isoformat(),
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+        }
 
     def __repr__(self):
-        return f"MaintenanceRequest(id='{self.request_id}', alert_id='{self.alert_id}', status='{self.status}')"
+        return f"MaintenanceRequest(id='{self.request_id}', alert_id={self.alert_id}, status='{self.status}')"
 
     def __str__(self):
         return f"בקשת תחזוקה #{self.request_id} [עדיפות: {self.priority}] - סטטוס: {self.status}"

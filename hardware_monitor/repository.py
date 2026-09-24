@@ -1,8 +1,11 @@
-"""Loads synthetic workstation/component records from data/sample_data.jsonl."""
+"""Loads synthetic workstation/component records from data/sample_data.jsonl,
+technicians from data/technicians.jsonl, and the maintenance request history
+from logs/maintenance_requests.jsonl."""
 
 import json
+import os
 
-from .models import Camera, Microphone, Workstation
+from .models import Camera, Microphone, Workstation, Technician
 
 COMPONENT_CLASSES = {
     "camera": Camera,
@@ -54,3 +57,43 @@ def load_workstations_from_jsonl(path):
             workstations[ws_id].add_component(component)
 
     return list(workstations.values())
+
+
+def load_technicians_from_jsonl(path):
+    """Reads technician records line-by-line and returns a dict of
+    tech_id -> Technician."""
+    technicians = {}
+
+    with open(path, "r", encoding="utf-8") as data_file:
+        for line in data_file:
+            line = line.strip()
+            if not line:
+                continue
+
+            record = json.loads(line)
+            technicians[record["tech_id"]] = Technician(
+                tech_id=record["tech_id"],
+                name=record["name"],
+                specialty=record["specialty"],
+            )
+
+    return technicians
+
+
+def load_maintenance_history(path):
+    """Reads the append-only maintenance log line-by-line. Every state change
+    of a request is its own line, so the last line seen per request_id is its
+    current state. Returns those latest records ordered by request_id."""
+    if not os.path.exists(path):
+        return []
+
+    latest = {}
+    with open(path, "r", encoding="utf-8") as log_file:
+        for line in log_file:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            latest[record["request_id"]] = record
+
+    return sorted(latest.values(), key=lambda r: r["request_id"])

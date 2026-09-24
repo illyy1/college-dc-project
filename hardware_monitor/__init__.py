@@ -1,8 +1,16 @@
 """Room hardware monitoring package: OOP hardware model, alert data
 structures/queues, iterators, a lazy pipeline, a diagnostic context manager,
-and the live monitoring dashboard."""
+a maintenance desk that assigns calls to technicians, workload/history
+reports, and the live monitoring dashboard."""
 
-from .models import HardwareComponent, Camera, Microphone, Workstation
+from .models import (
+    HardwareComponent,
+    Camera,
+    Microphone,
+    Workstation,
+    Technician,
+    MaintenanceRequest,
+)
 from .processing import Alert, AlertManager
 from .iterators import (
     AlertHistory,
@@ -11,7 +19,18 @@ from .iterators import (
     lazy_disconnected_pipeline,
 )
 from .context_managers import HardwareDiagnosticSession
-from .repository import load_workstations_from_jsonl
+from .repository import (
+    load_workstations_from_jsonl,
+    load_technicians_from_jsonl,
+    load_maintenance_history,
+)
+from .reports import (
+    validate_and_assign_request,
+    generate_technician_workload_report,
+    generate_maintenance_history_report,
+    export_maintenance_history_csv,
+)
+from .maintenance import MaintenanceDesk
 from .dashboard import HardwareMonitorApp
 
 __all__ = [
@@ -19,6 +38,8 @@ __all__ = [
     "Camera",
     "Microphone",
     "Workstation",
+    "Technician",
+    "MaintenanceRequest",
     "Alert",
     "AlertManager",
     "AlertHistory",
@@ -27,5 +48,12 @@ __all__ = [
     "lazy_disconnected_pipeline",
     "HardwareDiagnosticSession",
     "load_workstations_from_jsonl",
+    "load_technicians_from_jsonl",
+    "load_maintenance_history",
+    "validate_and_assign_request",
+    "generate_technician_workload_report",
+    "generate_maintenance_history_report",
+    "export_maintenance_history_csv",
+    "MaintenanceDesk",
     "HardwareMonitorApp",
 ]

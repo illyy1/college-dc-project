@@ -4,3 +4,4 @@
 __pycache__/
 *.pyc
 logs/*.jsonl
+logs/*.csv

@@ -2,12 +2,27 @@
 
 Loads the synthetic workstation fleet from data/sample_data.jsonl, runs a
 linear demonstration of the OOP model, data structures/queues, iterators,
-lazy pipeline and context manager working together, then launches the live
-hardware-monitoring dashboard for this machine.
+lazy pipeline, context manager and maintenance workflow working together,
+then launches the live hardware-monitoring dashboard for this machine. When
+the dashboard is closed, the maintenance history report is printed and
+exported to CSV.
+
+    python main.py            demo + live dashboard + history report
+    python main.py --report   only print/export the maintenance history report
 """
 
-from hardware_monitor.config import SAMPLE_DATA_PATH
-from hardware_monitor.repository import load_workstations_from_jsonl
+import argparse
+
+from hardware_monitor.config import (
+    SAMPLE_DATA_PATH,
+    TECHNICIANS_PATH,
+    MAINTENANCE_LOG_PATH,
+    MAINTENANCE_REPORT_CSV_PATH,
+)
+from hardware_monitor.repository import (
+    load_workstations_from_jsonl,
+    load_technicians_from_jsonl,
+)
 from hardware_monitor.processing import Alert, AlertManager
 from hardware_monitor.iterators import (
     AlertHistory,
@@ -15,6 +30,14 @@ from hardware_monitor.iterators import (
     lazy_disconnected_pipeline,
 )
 from hardware_monitor.context_managers import HardwareDiagnosticSession
+from hardware_monitor.models import MaintenanceRequest
+from hardware_monitor.maintenance import MaintenanceDesk
+from hardware_monitor.reports import (
+    validate_and_assign_request,
+    generate_technician_workload_report,
+    generate_maintenance_history_report,
+    export_maintenance_history_csv,
+)
 from hardware_monitor.dashboard import HardwareMonitorApp
 
 
@@ -80,15 +103,65 @@ def demonstrate_information_system():
             break
         print(f"  Lazy pipeline id: {component_id}")
 
+    print("\nSTEP 8 — Maintenance calls opened and assigned to technicians")
+    maintenance_desk = demonstrate_maintenance_workflow(alert_manager)
+
     print("=" * 70)
+    return maintenance_desk
+
+
+def demonstrate_maintenance_workflow(alert_manager):
+    """Loads the technicians, opens a maintenance call for every unresolved
+    alert (auto-assigned by specialty and workload, and saved to the
+    maintenance log), resolves one, and prints the workload report."""
+    technicians = load_technicians_from_jsonl(TECHNICIANS_PATH)
+    maintenance_desk = MaintenanceDesk(technicians)
+
+    requests = [
+        maintenance_desk.open_request_for_alert(alert)
+        for alert in AlertHistory(alert_manager.alert_history)
+    ]
+
+    if requests:
+        resolved = maintenance_desk.resolve_request(requests[0].request_id)
+        print(f"  Resolved: {resolved!r} by {maintenance_desk.technician_for(resolved).name}")
+
+    try:
+        validate_and_assign_request(MaintenanceRequest("MR-X", 0, 5), "T99", technicians)
+    except ValueError as error:
+        print(f"  Validation rejected unknown technician: {error}")
+
+    for tech in technicians.values():
+        print(f"  {tech}")
+
+    generate_technician_workload_report(technicians)
+    return maintenance_desk
+
+
+def show_maintenance_reports():
+    generate_maintenance_history_report(MAINTENANCE_LOG_PATH)
+    export_maintenance_history_csv(MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH)
 
 
 def main():
-    demonstrate_information_system()
+    parser = argparse.ArgumentParser(description="Room hardware monitor")
+    parser.add_argument("--report", action="store_true",
+                        help="only print and export the maintenance history report")
+    args = parser.parse_args()
+
+    if args.report:
+        show_maintenance_reports()
+        return
+
+    maintenance_desk = demonstrate_information_system()
 
     print("\nLaunching live hardware monitoring dashboard for this workstation...")
-    app = HardwareMonitorApp()
-    app.start()
+    app = HardwareMonitorApp(maintenance_desk)
+    try:
+        app.start()
+    finally:
+        # also runs on Ctrl+C; the CSV itself is already refreshed on every call change
+        show_maintenance_reports()
 
 
 if __name__ == "__main__":

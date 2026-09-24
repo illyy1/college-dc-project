@@ -1,8 +1,29 @@
-from models import MaintenanceRequest, Technician
+"""Business reports: validated assignment of maintenance requests to
+technicians, a per-technician workload report, and the full maintenance
+history report (who handled which error) with a CSV export."""
+
+import csv
+
+from .models import MaintenanceRequest, Technician
+from .repository import load_maintenance_history
+
+HISTORY_CSV_FIELDS = [
+    "request_id", "status", "priority", "error_type", "workstation_id",
+    "component_id", "assigned_tech_id", "assigned_tech_name",
+    "opened_at", "resolved_at", "alert_id",
+]
+
 
 def validate_and_assign_request(request: MaintenanceRequest, tech_id: str, technicians_dict: dict[str, Technician]):
     if tech_id not in technicians_dict:
         raise ValueError(f"שגיאת אימות נתונים: טכנאי שמזהה '{tech_id}' אינו קיים במערכת!")
+    if request.status == "RESOLVED":
+        raise ValueError(f"שגיאת אימות נתונים: בקשה {request.request_id} כבר טופלה ולא ניתן לשייך אותה מחדש!")
+
+    # אם הבקשה כבר שויכה לטכנאי אחר - מסירים אותה מהרשימה שלו
+    previous_tech = technicians_dict.get(request.assigned_tech_id)
+    if previous_tech is not None and request in previous_tech.assigned_requests:
+        previous_tech.assigned_requests.remove(request)
 
     request.assign_to(tech_id)
     technicians_dict[tech_id].assigned_requests.append(request)
@@ -21,3 +42,50 @@ def generate_technician_workload_report(technicians_dict: dict[str, Technician])
         for task in open_tasks:
             print(f"    - {task}")
     print("=" * 40 + "\n")
+
+
+def generate_maintenance_history_report(log_path):
+    """Prints every call ever opened (open and resolved) with the technician
+    that handled it, read from the persisted maintenance log."""
+    history = load_maintenance_history(log_path)
+
+    print("\n" + "=" * 60)
+    print("      דוח היסטוריה: קריאות שירות וטכנאי מטפל")
+    print("=" * 60)
+
+    if not history:
+        print("  אין קריאות שירות בהיסטוריה.")
+
+    for record in history:
+        tech = record.get("assigned_tech_name") or record.get("assigned_tech_id") or "לא שויך"
+        print(f"• {record['request_id']} | {record['error_type']} | עמדה: {record['workstation_id']}"
+              f" | רכיב: {record['component_id']}")
+        print(f"    טכנאי מטפל: {tech} | סטטוס: {record['status']} | עדיפות: {record['priority']}")
+        print(f"    נפתחה: {record['opened_at']} | נסגרה: {record.get('resolved_at') or '—'}")
+
+    by_tech = {}
+    for record in history:
+        tech = record.get("assigned_tech_name") or "לא שויך"
+        by_tech[tech] = by_tech.get(tech, 0) + 1
+    if by_tech:
+        print("-" * 60)
+        print("  סה\"כ קריאות לפי טכנאי:")
+        for tech, total in sorted(by_tech.items(), key=lambda item: item[1], reverse=True):
+            print(f"    {tech}: {total}")
+    print("=" * 60 + "\n")
+    return history
+
+
+def export_maintenance_history_csv(log_path, csv_path, verbose=True):
+    """Writes the maintenance history to a CSV file (opens in Excel)."""
+    history = load_maintenance_history(log_path)
+
+    # utf-8-sig so Excel displays the Hebrew/technician names correctly
+    with open(csv_path, "w", encoding="utf-8-sig", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=HISTORY_CSV_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(history)
+
+    if verbose:
+        print(f"[REPORT] Maintenance history exported to {csv_path} ({len(history)} call(s))")
+    return csv_path

@@ -16,6 +16,9 @@ COMPUTER_NAME = socket.gethostname()
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLE_DATA_PATH = os.path.join(_PROJECT_ROOT, "data", "sample_data.jsonl")
 LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "hardware_history.jsonl")
+TECHNICIANS_PATH = os.path.join(_PROJECT_ROOT, "data", "technicians.jsonl")
+MAINTENANCE_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "maintenance_requests.jsonl")
+MAINTENANCE_REPORT_CSV_PATH = os.path.join(_PROJECT_ROOT, "logs", "maintenance_report.csv")
 
 
 def get_github_token():
