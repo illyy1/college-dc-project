@@ -13,14 +13,29 @@ import requests
 
 from .config import (
     SILENCE_THRESHOLD, SILENCE_DURATION,
-    GITHUB_REPO, COMPUTER_NAME, get_github_token,
+    GITHUB_REPO, COMPUTER_NAME, TECHNICIANS_PATH, get_github_token,
 )
+from .maintenance import MaintenanceDesk
+from .processing import Alert, AlertManager
+from .repository import load_technicians_from_jsonl
 from .synthetic_sources import SyntheticMicrophoneSource, SyntheticCameraSource
+
+# alert_key -> (component_id, error_type, priority) used when opening a maintenance call
+ALERT_DETAILS = {
+    "camera": ("CAM-LOCAL", "CAMERA_FAILURE", 1),
+    "mic_conn": ("MIC-LOCAL", "MICROPHONE_DISCONNECTED", 2),
+    "mic_silence": ("MIC-LOCAL", "MICROPHONE_SILENCE", 4),
+}
 
 
 class HardwareMonitorApp:
-    def __init__(self):
+    def __init__(self, maintenance_desk=None):
         self.github_token = get_github_token()
+        self.alert_manager = AlertManager()
+        self.maintenance_desk = maintenance_desk or MaintenanceDesk(
+            load_technicians_from_jsonl(TECHNICIANS_PATH)
+        )
+        self.open_requests = {}  # alert_key -> MaintenanceRequest still being handled
 
         self.root = tk.Tk()
         self.root.title("Room Hardware Monitor")
@@ -50,13 +65,47 @@ class HardwareMonitorApp:
             self.status_lbl.config(text="Monitoring Paused", fg="orange")
             self.pause_btn.config(text="Resume Monitoring")
             for key in self.active_alerts:
-                self.hide_alert(key)
+                # a break only hides the popups; the fault (and its call) is still open
+                self.hide_alert(key, resolve_call=False)
         else:
             self.status_lbl.config(text="Monitoring Active", fg="green")
             self.pause_btn.config(text="Pause for Break")
             self.silence_start = time.time()
 
-    def send_github_alert(self, alert_key, title, message):
+    def open_maintenance_call(self, alert_key, message):
+        """Logs an Alert for the fault and opens a maintenance call assigned to
+        a technician. Reuses the call already open for this fault, if any."""
+        request = self.open_requests.get(alert_key)
+        if request is not None:
+            return request
+
+        component_id, error_type, priority = ALERT_DETAILS[alert_key]
+        alert = self.alert_manager.log_alert(Alert(
+            component_id=component_id,
+            workstation_id=COMPUTER_NAME,
+            error_type=error_type,
+            message=message,
+            priority=priority,
+        ))
+        try:
+            request = self.maintenance_desk.open_request_for_alert(alert)
+        except ValueError as e:
+            print(f"Could not open a maintenance call for {alert_key}: {e}")
+            return None
+
+        self.open_requests[alert_key] = request
+        return request
+
+    def resolve_maintenance_call(self, alert_key):
+        request = self.open_requests.pop(alert_key, None)
+        if request is None:
+            return
+        self.maintenance_desk.resolve_request(request.request_id)
+        technician = self.maintenance_desk.technician_for(request)
+        print(f"Maintenance call {request.request_id} resolved "
+              f"(handled by {technician.name if technician else 'unassigned'}).")
+
+    def send_github_alert(self, alert_key, title, message, request=None):
         """Sends the alert payload to GitHub Issues in a background thread."""
 
         def _post():
@@ -70,9 +119,14 @@ class HardwareMonitorApp:
                 "Accept": "application/vnd.github.v3+json",
             }
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            body = f"### Hardware Alert Triggered\n- **Computer:** `{COMPUTER_NAME}`\n- **Time:** {timestamp}\n- **Component:** `{alert_key}`\n- **Details:** {message}"
+            if request is not None:
+                technician = self.maintenance_desk.technician_for(request)
+                body += (f"\n- **Maintenance Call:** `{request.request_id}`"
+                         f"\n- **Assigned Technician:** {technician.name if technician else 'unassigned'}")
             payload = {
                 "title": f"\U0001f6a8 [{COMPUTER_NAME}] {title}",
-                "body": f"### Hardware Alert Triggered\n- **Computer:** `{COMPUTER_NAME}`\n- **Time:** {timestamp}\n- **Component:** `{alert_key}`\n- **Details:** {message}",
+                "body": body,
                 "labels": ["hardware-alert", alert_key],
             }
 
@@ -92,24 +146,33 @@ class HardwareMonitorApp:
             return
 
         self.active_alerts[alert_key] = "pending"
+        request = self.open_maintenance_call(alert_key, message)
 
         def _create():
-            self.send_github_alert(alert_key, title, message)
+            self.send_github_alert(alert_key, title, message, request)
 
             alert_win = tk.Toplevel(self.root)
             alert_win.title(title)
-            alert_win.geometry("400x150")
+            alert_win.geometry("400x180")
             alert_win.attributes("-topmost", True)
             alert_win.configure(bg="#ffcccc")
 
             tk.Label(alert_win, text=title, font=("Arial", 14, "bold"), bg="#ffcccc", fg="red").pack(pady=10)
             tk.Label(alert_win, text=message, font=("Arial", 12), bg="#ffcccc").pack(pady=10)
+            if request is not None:
+                technician = self.maintenance_desk.technician_for(request)
+                tk.Label(alert_win, font=("Arial", 11), bg="#ffcccc",
+                         text=f"Call {request.request_id} assigned to "
+                              f"{technician.name if technician else 'unassigned'}").pack()
 
             self.active_alerts[alert_key] = alert_win
 
         self.root.after(0, _create)
 
-    def hide_alert(self, alert_key):
+    def hide_alert(self, alert_key, resolve_call=True):
+        if resolve_call:
+            self.resolve_maintenance_call(alert_key)
+
         if self.active_alerts.get(alert_key) is None:
             return
 
