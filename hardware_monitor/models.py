@@ -111,3 +111,52 @@ class Workstation:
 
     def __repr__(self):
         return f"<Workstation {self.workstation_id} '{self.name}' components={len(self._components)}>"
+
+# ( חבר 4: רחל )
+
+class Technician:
+    def __init__(self, tech_id: str, name: str, specialty: str):
+        self.tech_id = tech_id
+        self.name = name
+        self.specialty = specialty
+        self.assigned_requests = []  # רשימת בקשות התחזוקה המשויכות לטכנאי
+
+    def __repr__(self):
+        return f"Technician(id='{self.tech_id}', name='{self.name}', specialty='{self.specialty}')"
+
+    def __str__(self):
+        return f"טכנאי: {self.name} | התמחות: {self.specialty} | משימות פתוחות: {len(self.assigned_requests)}"
+
+
+class MaintenanceRequest:
+    VALID_STATUSES = {"OPEN", "IN_PROGRESS", "RESOLVED"}
+
+    def __init__(self, request_id: str, alert_id: str, priority: int):
+        self.request_id = request_id
+        self.alert_id = alert_id
+        self.priority = priority
+        self._status = "OPEN"
+        self.assigned_tech_id = None
+
+    @property
+    def status(self) -> str:
+        return self._status
+
+    @status.setter
+    def status(self, new_status: str):
+        if new_status not in self.VALID_STATUSES:
+            raise ValueError(f"סטטוס לא חוקי: {new_status}. סטטוסים מותרים: {self.VALID_STATUSES}")
+        self._status = new_status
+
+    def assign_to(self, tech_id: str):
+        self.assigned_tech_id = tech_id
+        self.status = "IN_PROGRESS"
+
+    def resolve(self):
+        self.status = "RESOLVED"
+
+    def __repr__(self):
+        return f"MaintenanceRequest(id='{self.request_id}', alert_id='{self.alert_id}', status='{self.status}')"
+
+    def __str__(self):
+        return f"בקשת תחזוקה #{self.request_id} [עדיפות: {self.priority}] - סטטוס: {self.status}"
