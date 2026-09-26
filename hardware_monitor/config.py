@@ -19,6 +19,8 @@ LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "hardware_history.jsonl")
 TECHNICIANS_PATH = os.path.join(_PROJECT_ROOT, "data", "technicians.jsonl")
 MAINTENANCE_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "maintenance_requests.jsonl")
 MAINTENANCE_REPORT_CSV_PATH = os.path.join(_PROJECT_ROOT, "logs", "maintenance_report.csv")
+# the main.py demo writes its calls here so they never mix with the real history
+DEMO_MAINTENANCE_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "demo_maintenance_requests.jsonl")
 
 
 def get_github_token():

@@ -12,12 +12,14 @@ exported to CSV.
 """
 
 import argparse
+import os
 
 from hardware_monitor.config import (
     SAMPLE_DATA_PATH,
     TECHNICIANS_PATH,
     MAINTENANCE_LOG_PATH,
     MAINTENANCE_REPORT_CSV_PATH,
+    DEMO_MAINTENANCE_LOG_PATH,
 )
 from hardware_monitor.repository import (
     load_workstations_from_jsonl,
@@ -29,7 +31,7 @@ from hardware_monitor.iterators import (
     iter_disconnected_components,
     lazy_disconnected_pipeline,
 )
-from hardware_monitor.context_managers import HardwareDiagnosticSession
+from hardware_monitor.context_managers import DiagnosticConnection
 from hardware_monitor.models import MaintenanceRequest
 from hardware_monitor.maintenance import MaintenanceDesk
 from hardware_monitor.reports import (
@@ -46,8 +48,12 @@ def run_diagnostics_and_log_alerts(workstations, alert_manager):
     logs an Alert for anything unhealthy."""
     for workstation in workstations:
         for component in workstation.components:
-            with HardwareDiagnosticSession(component) as tested:
-                healthy = tested.run_diagnostics()
+            try:
+                with DiagnosticConnection(component) as tested:
+                    healthy = tested.run_diagnostics()
+            except Exception:
+                healthy = False  # DiagnosticConnection already marked it ERROR
+                tested = component
 
             if healthy:
                 continue
@@ -70,7 +76,7 @@ def demonstrate_information_system():
     for workstation in workstations:
         print(f"  {workstation}")
 
-    print("\nSTEP 2 — Polymorphic diagnostics inside HardwareDiagnosticSession")
+    print("\nSTEP 2 — Polymorphic diagnostics inside DiagnosticConnection")
     alert_manager = AlertManager()
     run_diagnostics_and_log_alerts(workstations, alert_manager)
     print(f"  Logged {len(alert_manager.alert_history)} alert(s) from failed diagnostics.")
@@ -104,18 +110,23 @@ def demonstrate_information_system():
         print(f"  Lazy pipeline id: {component_id}")
 
     print("\nSTEP 8 — Maintenance calls opened and assigned to technicians")
-    maintenance_desk = demonstrate_maintenance_workflow(alert_manager)
+    demonstrate_maintenance_workflow(alert_manager)
 
     print("=" * 70)
-    return maintenance_desk
 
 
 def demonstrate_maintenance_workflow(alert_manager):
     """Loads the technicians, opens a maintenance call for every unresolved
     alert (auto-assigned by specialty and workload, and saved to the
-    maintenance log), resolves one, and prints the workload report."""
+    demo maintenance log), resolves one, and prints the workload report.
+
+    The demo fleet is synthetic, so its calls go to a separate log that is
+    reset every run and never reach the real maintenance history."""
+    if os.path.exists(DEMO_MAINTENANCE_LOG_PATH):
+        os.remove(DEMO_MAINTENANCE_LOG_PATH)
     technicians = load_technicians_from_jsonl(TECHNICIANS_PATH)
-    maintenance_desk = MaintenanceDesk(technicians)
+    maintenance_desk = MaintenanceDesk(technicians, log_path=DEMO_MAINTENANCE_LOG_PATH,
+                                       report_csv_path=None)
 
     requests = [
         maintenance_desk.open_request_for_alert(alert)
@@ -135,7 +146,6 @@ def demonstrate_maintenance_workflow(alert_manager):
         print(f"  {tech}")
 
     generate_technician_workload_report(technicians)
-    return maintenance_desk
 
 
 def show_maintenance_reports():
@@ -153,10 +163,10 @@ def main():
         show_maintenance_reports()
         return
 
-    maintenance_desk = demonstrate_information_system()
+    demonstrate_information_system()
 
     print("\nLaunching live hardware monitoring dashboard for this workstation...")
-    app = HardwareMonitorApp(maintenance_desk)
+    app = HardwareMonitorApp()  # uses the real maintenance log, not the demo one
     try:
         app.start()
     finally:

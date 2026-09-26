@@ -36,6 +36,7 @@ class HardwareMonitorApp:
             load_technicians_from_jsonl(TECHNICIANS_PATH)
         )
         self.open_requests = {}  # alert_key -> MaintenanceRequest still being handled
+        self._adopt_leftover_calls()
 
         self.root = tk.Tk()
         self.root.title("Room Hardware Monitor")
@@ -72,12 +73,28 @@ class HardwareMonitorApp:
             self.pause_btn.config(text="Pause for Break")
             self.silence_start = time.time()
 
+    def _adopt_leftover_calls(self):
+        """Takes over calls this machine left open when it last shut down, so
+        they are resolved as soon as the fault is seen to be gone. If older
+        versions left several calls open for the same fault, the oldest is
+        kept and the rest are closed as duplicates."""
+        for alert_key, (component_id, error_type, _) in ALERT_DETAILS.items():
+            leftovers = self.maintenance_desk.find_open_requests(COMPUTER_NAME, component_id, error_type)
+            if not leftovers:
+                continue
+            self.open_requests[alert_key] = leftovers[0]
+            for duplicate in leftovers[1:]:
+                self.maintenance_desk.resolve_request(duplicate.request_id)
+                print(f"Closed duplicate maintenance call {duplicate.request_id} "
+                      f"(same fault as {leftovers[0].request_id}).")
+
     def open_maintenance_call(self, alert_key, message):
         """Logs an Alert for the fault and opens a maintenance call assigned to
-        a technician. Reuses the call already open for this fault, if any."""
+        a technician. Reuses the call already open for this fault, if any.
+        Returns (request, is_new)."""
         request = self.open_requests.get(alert_key)
         if request is not None:
-            return request
+            return request, False
 
         component_id, error_type, priority = ALERT_DETAILS[alert_key]
         alert = self.alert_manager.log_alert(Alert(
@@ -91,10 +108,10 @@ class HardwareMonitorApp:
             request = self.maintenance_desk.open_request_for_alert(alert)
         except ValueError as e:
             print(f"Could not open a maintenance call for {alert_key}: {e}")
-            return None
+            return None, True
 
         self.open_requests[alert_key] = request
-        return request
+        return request, True
 
     def resolve_maintenance_call(self, alert_key):
         request = self.open_requests.pop(alert_key, None)
@@ -142,14 +159,16 @@ class HardwareMonitorApp:
         threading.Thread(target=_post, daemon=True).start()
 
     def show_alert(self, alert_key, title, message):
-        if self.active_alerts.get(alert_key) is not None:
+        # a monitor thread may have checked is_paused just before Pause was pressed
+        if self.is_paused or self.active_alerts.get(alert_key) is not None:
             return
 
         self.active_alerts[alert_key] = "pending"
-        request = self.open_maintenance_call(alert_key, message)
+        request, is_new = self.open_maintenance_call(alert_key, message)
 
         def _create():
-            self.send_github_alert(alert_key, title, message, request)
+            if is_new:  # a popup re-shown after a break is the same fault — no duplicate issue
+                self.send_github_alert(alert_key, title, message, request)
 
             alert_win = tk.Toplevel(self.root)
             alert_win.title(title)
@@ -214,8 +233,8 @@ class HardwareMonitorApp:
             else:
                 self.is_silent = False
                 self.silence_start = time.time()
-                if self.active_alerts.get("mic_silence") is not None:
-                    self.hide_alert("mic_silence")
+                # unconditional: also resolves a silence call adopted from a previous run
+                self.hide_alert("mic_silence")
 
             time.sleep(1)
 

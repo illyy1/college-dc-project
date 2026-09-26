@@ -18,7 +18,7 @@ from .iterators import (
     iter_disconnected_components,
     lazy_disconnected_pipeline,
 )
-from .context_managers import HardwareDiagnosticSession
+from .context_managers import DiagnosticConnection
 from .repository import (
     load_workstations_from_jsonl,
     load_technicians_from_jsonl,
@@ -46,7 +46,7 @@ __all__ = [
     "ActiveAlertIterator",
     "iter_disconnected_components",
     "lazy_disconnected_pipeline",
-    "HardwareDiagnosticSession",
+    "DiagnosticConnection",
     "load_workstations_from_jsonl",
     "load_technicians_from_jsonl",
     "load_maintenance_history",

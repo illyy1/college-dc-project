@@ -4,14 +4,13 @@ every state change to logs/maintenance_requests.jsonl so the history of who
 handled what survives past this process. The CSV report is refreshed on every
 change, so it is current even if the program is killed rather than closed."""
 
-import json
-import os
 import threading
+from datetime import datetime
 
 from .config import MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH
 from .models import MaintenanceRequest
 from .reports import validate_and_assign_request, export_maintenance_history_csv
-from .repository import load_maintenance_history
+from .repository import append_jsonl_record, load_maintenance_history, request_number
 
 # error_type prefix -> technician specialty
 ERROR_PREFIX_TO_SPECIALTY = {
@@ -33,16 +32,45 @@ class MaintenanceDesk:
         self.report_csv_path = report_csv_path
         self.requests = {}
         self._lock = threading.Lock()  # the dashboard opens/resolves calls from several threads
-        self._next_number = self._last_request_number() + 1
 
-    def _last_request_number(self):
-        """Continues numbering after the highest request id already in the
-        log, so ids stay unique across runs."""
-        numbers = [
-            int(record["request_id"].split("-")[1])
-            for record in load_maintenance_history(self.log_path)
-        ]
-        return max(numbers, default=0)
+        history = load_maintenance_history(self.log_path)
+        # continue numbering after the highest id already in the log, so ids stay unique across runs
+        self._next_number = max((request_number(r["request_id"]) for r in history), default=0) + 1
+        self._restore_open_requests(history)
+
+    def _restore_open_requests(self, history):
+        """Reloads calls a previous run left open, so they can still be
+        resolved and still count towards their technician's workload."""
+        for record in history:
+            if record.get("status") == "RESOLVED":
+                continue
+            opened_at = record.get("opened_at")
+            request = MaintenanceRequest(
+                request_id=record["request_id"],
+                alert_id=record.get("alert_id"),
+                priority=record.get("priority", 5),
+                error_type=record.get("error_type", ""),
+                workstation_id=record.get("workstation_id", ""),
+                component_id=record.get("component_id", ""),
+                opened_at=datetime.fromisoformat(opened_at) if opened_at else None,
+            )
+            request.status = record.get("status", "OPEN")
+            request.assigned_tech_id = record.get("assigned_tech_id")
+            technician = self.technicians.get(request.assigned_tech_id)
+            if technician is not None:
+                technician.assigned_requests.append(request)
+            self.requests[request.request_id] = request
+
+    def open_requests(self):
+        return [r for r in self.requests.values() if r.status != "RESOLVED"]
+
+    def find_open_requests(self, workstation_id, component_id, error_type):
+        """Unresolved calls already open for this exact fault, oldest first."""
+        return sorted(
+            (r for r in self.open_requests()
+             if (r.workstation_id, r.component_id, r.error_type) == (workstation_id, component_id, error_type)),
+            key=lambda r: r.opened_at,
+        )
 
     def pick_technician(self, specialty):
         """Least-busy technician with the given specialty; if there is none,
@@ -95,9 +123,7 @@ class MaintenanceDesk:
         technician = self.technician_for(request)
         record["assigned_tech_name"] = technician.name if technician else None
 
-        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
-        with open(self.log_path, "a", encoding="utf-8") as log_file:
-            log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        append_jsonl_record(self.log_path, record)
 
         self._refresh_csv_report()
 

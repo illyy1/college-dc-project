@@ -16,6 +16,7 @@ class HardwareComponent:
         self.workstation_id = workstation_id
         self._connection_status = None
         self.connection_status = connection_status  # goes through the validating setter
+        self._status_before_test = None  # set while a DiagnosticConnection is open
 
     @property
     def connection_status(self):
@@ -34,9 +35,33 @@ class HardwareComponent:
     def component_type(self):
         return self.__class__.__name__
 
+    def begin_test(self):
+        """Remembers the real status and switches to TESTING."""
+        self._status_before_test = self.connection_status
+        self.connection_status = "TESTING"
+
+    def end_test(self, final_status=None):
+        """Leaves TESTING: uses final_status if given, otherwise keeps whatever
+        run_diagnostics() set, or restores the pre-test status if it set nothing."""
+        if final_status is not None:
+            self.connection_status = final_status
+        elif self.connection_status == "TESTING":
+            self.connection_status = self._status_before_test
+        self._status_before_test = None
+
+    def _is_disconnected(self):
+        """True if the component is disconnected, looking past a TESTING lock."""
+        status = self.connection_status
+        if status == "TESTING" and self._status_before_test is not None:
+            status = self._status_before_test
+        return status == "DISCONNECTED"
+
     def run_diagnostics(self):
         """Overridden by subclasses. Returns True if the component is healthy."""
         raise NotImplementedError("Subclasses must implement run_diagnostics().")
+
+    def __str__(self):
+        return f"{self.component_type} '{self.name}' ({self.component_id}) on {self.workstation_id} — {self.connection_status}"
 
     def __repr__(self):
         return f"<{self.component_type} id={self.component_id} status={self.connection_status}>"
@@ -57,9 +82,12 @@ class Camera(HardwareComponent):
         except (ValueError, AttributeError):
             resolution_ok = False
 
-        healthy = resolution_ok and self.connection_status != "DISCONNECTED"
+        healthy = resolution_ok and not self._is_disconnected()
         self.connection_status = "ACTIVE" if healthy else "DISCONNECTED"
         return healthy
+
+    def __str__(self):
+        return f"{super().__str__()} [camera #{self.camera_index}, {self.resolution}]"
 
 
 class Microphone(HardwareComponent):
@@ -74,9 +102,12 @@ class Microphone(HardwareComponent):
     def run_diagnostics(self):
         """Microphone-specific health check: sane sample rate and not disconnected."""
         rate_ok = isinstance(self.sample_rate, (int, float)) and self.sample_rate >= self.MIN_SAMPLE_RATE
-        healthy = rate_ok and self.connection_status != "DISCONNECTED"
+        healthy = rate_ok and not self._is_disconnected()
         self.connection_status = "ACTIVE" if healthy else "DISCONNECTED"
         return healthy
+
+    def __str__(self):
+        return f"{super().__str__()} [{self.sample_rate} Hz, {self.sensitivity_db} dB]"
 
 
 class Workstation:
@@ -111,6 +142,10 @@ class Workstation:
         """Polymorphic sweep: calls run_diagnostics() on every component
         without ever checking what concrete type it is."""
         return {c.component_id: c.run_diagnostics() for c in self._components}
+
+    def __str__(self):
+        location = f" @ {self.location}" if self.location else ""
+        return f"Workstation {self.workstation_id} '{self.name}'{location} — {len(self._components)} component(s)"
 
     def __repr__(self):
         return f"<Workstation {self.workstation_id} '{self.name}' components={len(self._components)}>"

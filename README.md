@@ -14,7 +14,7 @@ Install the required dependencies using the following command in your PyCharm te
 - `hardware_monitor/processing.py` — `Alert`, `AlertManager` (list/dict/set, deque, heapq, comprehensions, sorting).
 - `hardware_monitor/repository.py` — loads `data/sample_data.jsonl` line-by-line into objects.
 - `hardware_monitor/iterators.py` — `AlertHistory`/`ActiveAlertIterator`, a generator, and a 3-step lazy pipeline.
-- `hardware_monitor/context_managers.py` — `HardwareDiagnosticSession`.
+- `hardware_monitor/context_managers.py` — `DiagnosticConnection`.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, mic/camera monitoring threads, and GitHub alerting.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signal generators used by the dashboard for testing.
 - `hardware_monitor/maintenance.py` — `MaintenanceDesk`: opens a maintenance call for each alert, assigns it to the least-busy technician with the matching specialty, and saves every change.
@@ -55,7 +55,7 @@ Install the required dependencies using the following command in your PyCharm te
 *   **Lazy Pipeline (Generator Expression):** A 3-step lazy pipeline filters disconnected components -> filters by age -> extracts the ID. It evaluates one item at a time (saving memory) and halts execution exactly when the required amount of records is consumed[cite: 1].
 
 ## Context Managers
-*   **`HardwareDiagnosticSession`:** A custom context manager used during component testing. It locks the component status to `TESTING` upon entry and safely restores it to `ACTIVE` upon exit, ensuring the system doesn't freeze even if an exception occurs[cite: 1].
+*   **`DiagnosticConnection`:** A custom context manager used during component testing. On entry it claims a simulated diagnostic port and locks the component status to `TESTING`; on exit it always releases the port and sets a real status (the diagnostic result, or `ERROR` if the test raised), even when an exception occurs.
 
 ## Data Source, Processing & Logging
 *   **Data File:** `data/sample_data.jsonl` contains 15+ synthetic JSON records.
