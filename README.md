@@ -3,7 +3,9 @@
 
 ## Prerequisites & Installation
 Install the required dependencies using the following command in your PyCharm terminal:
-`pip install requests python-dotenv cryptography pyinstaller`
+`pip install -r requirements.txt`
+
+To build a standalone executable, also install PyInstaller: `pip install pyinstaller`
 
 ## Running the project
 `python main.py` runs the OOP information-system demonstration (data loading, queues, iterators, lazy pipeline, context manager) and then launches the live monitoring dashboard, which drives its microphone/camera alerts off synthetic simulated signals (see `hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behavior can be tested on demand.

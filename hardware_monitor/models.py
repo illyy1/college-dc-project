@@ -8,7 +8,7 @@ from datetime import date, datetime
 class HardwareComponent:
     """Base class for any piece of monitored hardware."""
 
-    ALLOWED_STATUSES = {"ACTIVE", "DISCONNECTED", "TESTING", "ERROR"}
+    ALLOWED_STATUSES = {"ACTIVE", "DISCONNECTED", "TESTING", "ERROR", "MAINTENANCE"}
 
     def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE", installed_on=None):
         self.component_id = component_id
@@ -68,11 +68,11 @@ class HardwareComponent:
         """Overridden by subclasses. Returns True if the component is healthy."""
         raise NotImplementedError("Subclasses must implement run_diagnostics().")
 
-    def __str__(self):
-        return f"{self.component_type} '{self.name}' ({self.component_id}) on {self.workstation_id} — {self.connection_status}"
-
     def __repr__(self):
         return f"<{self.component_type} id={self.component_id} status={self.connection_status}>"
+
+    def __str__(self):
+        return f"{self.component_type} '{self.name}' ({self.component_id}) — {self.connection_status}"
 
 
 class Camera(HardwareComponent):

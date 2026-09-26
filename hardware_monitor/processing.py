@@ -45,14 +45,14 @@ class Alert:
             "timestamp": self.timestamp.isoformat(),
         }
 
-    def __str__(self):
-        state = "RESOLVED" if self.resolved else "OPEN"
-        return (f"Alert #{self.alert_id} [{state}] {self.error_type} on "
-                f"{self.workstation_id}/{self.component_id} (priority {self.priority}): {self.message}")
-
     def __repr__(self):
         state = "resolved" if self.resolved else "unresolved"
         return f"<Alert #{self.alert_id} [{self.error_type}] prio={self.priority} {state}>"
+
+    def __str__(self):
+        state = "RESOLVED" if self.resolved else "OPEN"
+        return (f"Alert #{self.alert_id} [{state}] priority {self.priority} — "
+                f"{self.error_type} on {self.component_id} @ {self.workstation_id}: {self.message}")
 
 
 class AlertManager:
