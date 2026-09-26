@@ -30,6 +30,15 @@ def validate_and_assign_request(request: MaintenanceRequest, tech_id: str, techn
     print(f"[SUCCESS] בקשה {request.request_id} שויכה בהצלחה לטכנאי {technicians_dict[tech_id].name}")
 
 
+def find_unknown_technician_references(history, technicians_dict: dict[str, Technician]):
+    """Cross-file validation: maintenance-log records whose assigned_tech_id
+    does not exist in the technician data file."""
+    return [
+        record for record in history
+        if record.get("assigned_tech_id") and record["assigned_tech_id"] not in technicians_dict
+    ]
+
+
 def generate_technician_workload_report(technicians_dict: dict[str, Technician]):
     print("\n" + "=" * 40)
     print("      דוח עסקי: עומס עבודה לפי טכנאי")

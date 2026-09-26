@@ -2,15 +2,23 @@
 unique error types (set), FIFO maintenance queue (deque) and a critical
 priority queue (heapq)."""
 
-import json
 import heapq
 from collections import deque
 from datetime import datetime
 from itertools import count
 
 from .config import LOG_PATH
+from .repository import append_jsonl_record, iter_jsonl_records
 
-_id_counter = count(1)
+
+def _next_alert_id():
+    """Continues after the highest alert id in the history log, so alert ids
+    (also stored on maintenance calls) stay unique across runs."""
+    ids = (r.get("alert_id") for r in iter_jsonl_records(LOG_PATH))
+    return max((i for i in ids if isinstance(i, int)), default=0) + 1
+
+
+_id_counter = count(_next_alert_id())
 
 
 class Alert:
@@ -118,5 +126,4 @@ class AlertManager:
     def _persist_to_log(self, alert):
         """Appends the alert to the on-disk history log using a context
         manager, so the record survives past this process's lifetime."""
-        with open(LOG_PATH, "a", encoding="utf-8") as log_file:
-            log_file.write(json.dumps(alert.to_dict()) + "\n")
+        append_jsonl_record(LOG_PATH, alert.to_dict())

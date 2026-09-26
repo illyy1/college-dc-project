@@ -18,7 +18,7 @@ from .iterators import (
     iter_disconnected_components,
     lazy_disconnected_pipeline,
 )
-from .context_managers import HardwareDiagnosticSession
+from .context_managers import DiagnosticConnection
 from .repository import (
     load_workstations_from_jsonl,
     load_technicians_from_jsonl,
@@ -26,6 +26,7 @@ from .repository import (
 )
 from .reports import (
     validate_and_assign_request,
+    find_unknown_technician_references,
     generate_technician_workload_report,
     generate_maintenance_history_report,
     export_maintenance_history_csv,
@@ -46,11 +47,12 @@ __all__ = [
     "ActiveAlertIterator",
     "iter_disconnected_components",
     "lazy_disconnected_pipeline",
-    "HardwareDiagnosticSession",
+    "DiagnosticConnection",
     "load_workstations_from_jsonl",
     "load_technicians_from_jsonl",
     "load_maintenance_history",
     "validate_and_assign_request",
+    "find_unknown_technician_references",
     "generate_technician_workload_report",
     "generate_maintenance_history_report",
     "export_maintenance_history_csv",

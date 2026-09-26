@@ -2,7 +2,7 @@
 Workstation class, which composes components (composition), and the
 Technician / MaintenanceRequest classes used for maintenance workflow."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 
 class HardwareComponent:
@@ -10,12 +10,21 @@ class HardwareComponent:
 
     ALLOWED_STATUSES = {"ACTIVE", "DISCONNECTED", "TESTING", "ERROR", "MAINTENANCE"}
 
-    def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE"):
+    def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE", installed_on=None):
         self.component_id = component_id
         self.name = name
         self.workstation_id = workstation_id
         self._connection_status = None
         self.connection_status = connection_status  # goes through the validating setter
+        self._status_before_test = None  # set while a DiagnosticConnection is open
+        self.installed_on = date.fromisoformat(installed_on) if isinstance(installed_on, str) else installed_on
+
+    @property
+    def age_years(self):
+        """Years since installation, or None if the install date is unknown."""
+        if self.installed_on is None:
+            return None
+        return (date.today() - self.installed_on).days / 365.25
 
     @property
     def connection_status(self):
@@ -34,6 +43,27 @@ class HardwareComponent:
     def component_type(self):
         return self.__class__.__name__
 
+    def begin_test(self):
+        """Remembers the real status and switches to TESTING."""
+        self._status_before_test = self.connection_status
+        self.connection_status = "TESTING"
+
+    def end_test(self, final_status=None):
+        """Leaves TESTING: uses final_status if given, otherwise keeps whatever
+        run_diagnostics() set, or restores the pre-test status if it set nothing."""
+        if final_status is not None:
+            self.connection_status = final_status
+        elif self.connection_status == "TESTING":
+            self.connection_status = self._status_before_test
+        self._status_before_test = None
+
+    def _is_disconnected(self):
+        """True if the component is disconnected, looking past a TESTING lock."""
+        status = self.connection_status
+        if status == "TESTING" and self._status_before_test is not None:
+            status = self._status_before_test
+        return status == "DISCONNECTED"
+
     def run_diagnostics(self):
         """Overridden by subclasses. Returns True if the component is healthy."""
         raise NotImplementedError("Subclasses must implement run_diagnostics().")
@@ -47,8 +77,8 @@ class HardwareComponent:
 
 class Camera(HardwareComponent):
     def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE",
-                 camera_index=0, resolution="1920x1080"):
-        super().__init__(component_id, name, workstation_id, connection_status)
+                 camera_index=0, resolution="1920x1080", installed_on=None):
+        super().__init__(component_id, name, workstation_id, connection_status, installed_on)
         self.camera_index = camera_index
         self.resolution = resolution
 
@@ -60,26 +90,32 @@ class Camera(HardwareComponent):
         except (ValueError, AttributeError):
             resolution_ok = False
 
-        healthy = resolution_ok and self.connection_status != "DISCONNECTED"
+        healthy = resolution_ok and not self._is_disconnected()
         self.connection_status = "ACTIVE" if healthy else "DISCONNECTED"
         return healthy
+
+    def __str__(self):
+        return f"{super().__str__()} [camera #{self.camera_index}, {self.resolution}]"
 
 
 class Microphone(HardwareComponent):
     MIN_SAMPLE_RATE = 8000
 
     def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE",
-                 sample_rate=44100, sensitivity_db=-40):
-        super().__init__(component_id, name, workstation_id, connection_status)
+                 sample_rate=44100, sensitivity_db=-40, installed_on=None):
+        super().__init__(component_id, name, workstation_id, connection_status, installed_on)
         self.sample_rate = sample_rate
         self.sensitivity_db = sensitivity_db
 
     def run_diagnostics(self):
         """Microphone-specific health check: sane sample rate and not disconnected."""
         rate_ok = isinstance(self.sample_rate, (int, float)) and self.sample_rate >= self.MIN_SAMPLE_RATE
-        healthy = rate_ok and self.connection_status != "DISCONNECTED"
+        healthy = rate_ok and not self._is_disconnected()
         self.connection_status = "ACTIVE" if healthy else "DISCONNECTED"
         return healthy
+
+    def __str__(self):
+        return f"{super().__str__()} [{self.sample_rate} Hz, {self.sensitivity_db} dB]"
 
 
 class Workstation:
@@ -114,6 +150,10 @@ class Workstation:
         """Polymorphic sweep: calls run_diagnostics() on every component
         without ever checking what concrete type it is."""
         return {c.component_id: c.run_diagnostics() for c in self._components}
+
+    def __str__(self):
+        location = f" @ {self.location}" if self.location else ""
+        return f"Workstation {self.workstation_id} '{self.name}'{location} — {len(self._components)} component(s)"
 
     def __repr__(self):
         return f"<Workstation {self.workstation_id} '{self.name}' components={len(self._components)}>"

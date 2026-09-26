@@ -16,7 +16,7 @@ To build a standalone executable, also install PyInstaller: `pip install pyinsta
 - `hardware_monitor/processing.py` — `Alert`, `AlertManager` (list/dict/set, deque, heapq, comprehensions, sorting).
 - `hardware_monitor/repository.py` — loads `data/sample_data.jsonl` line-by-line into objects.
 - `hardware_monitor/iterators.py` — `AlertHistory`/`ActiveAlertIterator`, a generator, and a 3-step lazy pipeline.
-- `hardware_monitor/context_managers.py` — `HardwareDiagnosticSession`.
+- `hardware_monitor/context_managers.py` — `DiagnosticConnection`.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, mic/camera monitoring threads, and GitHub alerting.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signal generators used by the dashboard for testing.
 - `hardware_monitor/maintenance.py` — `MaintenanceDesk`: opens a maintenance call for each alert, assigns it to the least-busy technician with the matching specialty, and saves every change.
@@ -27,6 +27,7 @@ To build a standalone executable, also install PyInstaller: `pip install pyinsta
 - Technicians are loaded from `data/technicians.jsonl` (edit this file to add or change technicians).
 - Every alert (from the demo and from the live dashboard) opens a maintenance call that is assigned automatically: camera errors go to a Camera technician, microphone errors to a Microphone technician, and if no specialist exists the call goes to whoever has the fewest open calls. The dashboard popup and the GitHub issue show the call number and the assigned technician. When the fault clears, the call is marked resolved (pausing for a break does not resolve it).
 - Every call and status change is saved to `logs/maintenance_requests.jsonl`.
+- `python main.py --no-dashboard` runs the full demonstration and the history report from start to finish without opening the dashboard window.
 - `python main.py --report` prints the history report (every call, open and resolved, with the technician who handled it) and exports it to `logs/maintenance_report.csv` (opens in Excel). The same report is also printed automatically when the dashboard is closed.
 
 ## הצעת הפרויקט (Project Proposal)
@@ -53,11 +54,11 @@ To build a standalone executable, also install PyInstaller: `pip install pyinsta
 *   **Comprehensions:** Uses list, dict, and set comprehensions for clean data filtering and indexing[cite: 1].
 
 ## Iterators, Generators & Lazy Pipeline
-*   **Iterables & Iterators:** A custom `AlertHistory` iterable manages the collection, while an `ActiveAlertIterator` maintains state to specifically yield only "Unresolved" alerts[cite: 1].
+*   **Iterables & Iterators:** A custom `AlertHistory` iterable manages the collection, while an `ActiveAlertIterator` maintains state to specifically yield only "Unresolved" alerts[cite: 1]. Every `iter()` call returns a new, independent iterator, so several IT admins can traverse the same history at once without affecting each other's position; an exhausted iterator raises `StopIteration`. Components carry an `installed_on` date (in `data/sample_data.jsonl`) that the pipeline's age filter uses.
 *   **Lazy Pipeline (Generator Expression):** A 3-step lazy pipeline filters disconnected components -> filters by age -> extracts the ID. It evaluates one item at a time (saving memory) and halts execution exactly when the required amount of records is consumed[cite: 1].
 
 ## Context Managers
-*   **`HardwareDiagnosticSession`:** A custom context manager used during component testing. It locks the component status to `TESTING` upon entry and safely restores it to `ACTIVE` upon exit, ensuring the system doesn't freeze even if an exception occurs[cite: 1].
+*   **`DiagnosticConnection`:** A custom context manager used during component testing. On entry it claims a simulated diagnostic port and locks the component status to `TESTING`; on exit it always releases the port and sets a real status (the diagnostic result, or `ERROR` if the test raised), even when an exception occurs.
 
 ## Data Source, Processing & Logging
 *   **Data File:** `data/sample_data.jsonl` contains 15+ synthetic JSON records.
