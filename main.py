@@ -14,6 +14,7 @@ exported to CSV.
 
 import argparse
 import os
+from itertools import islice
 
 from hardware_monitor.config import (
     SAMPLE_DATA_PATH,
@@ -139,16 +140,41 @@ def demonstrate_information_system():
         shown += 1
     print(f"  Skipped {len(history) - shown} resolved alert(s) transparently.")
 
+    # every iter() call gets its own ActiveAlertIterator, so two admins can
+    # walk the same history at once without moving each other's position
+    admin_a, admin_b = iter(history), iter(history)
+    print("  Two IT admins walking the same history, taking turns:")
+    for admin_name, admin_iterator in (("A", admin_a), ("A", admin_a), ("B", admin_b), ("A", admin_a), ("B", admin_b)):
+        alert = next(admin_iterator)
+        print(f"    Admin {admin_name} -> alert #{alert.alert_id}")
+    remaining_for_b = list(admin_b)
+    print(f"    Admin B finishes the rest: {[a.alert_id for a in remaining_for_b]}")
+    try:
+        next(admin_b)
+    except StopIteration:
+        print("    Admin B's iterator is exhausted: next() raised StopIteration")
+    print(f"    Admin A is unaffected and still has {len(list(admin_a))} alert(s) left")
+
     print("\nSTEP 7 — Generator yielding disconnected components")
     for component in iter_disconnected_components(workstations):
         print(f"  Disconnected: {component}")
 
-    print("\nSTEP 8 — 3-step lazy evaluation pipeline (stopping after 3 results)")
-    pipeline = lazy_disconnected_pipeline(workstations)
-    for index, component_id in enumerate(pipeline):
-        if index >= 3:
-            break
-        print(f"  Lazy pipeline id: {component_id}")
+    print("\nSTEP 8 — 3-step lazy pipeline: disconnected -> older than 3 years -> id (first 3 only)")
+    inspected = []
+
+    def tracked(fleet):
+        """Records each workstation the pipeline actually reaches."""
+        for workstation in fleet:
+            inspected.append(workstation.workstation_id)
+            yield workstation
+
+    pipeline = lazy_disconnected_pipeline(tracked(workstations), min_age_years=3)
+    for component_id in islice(pipeline, 3):
+        component = next(c for ws in workstations for c in ws.components if c.component_id == component_id)
+        print(f"  Lazy pipeline id: {component_id} (installed {component.installed_on}, "
+              f"{component.age_years:.1f} years old)")
+    print(f"  Stopped after the 3rd result: inspected {len(inspected)} of {len(workstations)} workstations "
+          f"(last: {inspected[-1]}); the rest were never touched.")
 
     print("\nSTEP 9 — Maintenance calls opened and assigned to technicians")
     demonstrate_maintenance_workflow(alert_manager)

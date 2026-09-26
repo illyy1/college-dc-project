@@ -52,7 +52,7 @@ Install the required dependencies using the following command in your PyCharm te
 *   **Comprehensions:** Uses list, dict, and set comprehensions for clean data filtering and indexing[cite: 1].
 
 ## Iterators, Generators & Lazy Pipeline
-*   **Iterables & Iterators:** A custom `AlertHistory` iterable manages the collection, while an `ActiveAlertIterator` maintains state to specifically yield only "Unresolved" alerts[cite: 1].
+*   **Iterables & Iterators:** A custom `AlertHistory` iterable manages the collection, while an `ActiveAlertIterator` maintains state to specifically yield only "Unresolved" alerts[cite: 1]. Every `iter()` call returns a new, independent iterator, so several IT admins can traverse the same history at once without affecting each other's position; an exhausted iterator raises `StopIteration`. Components carry an `installed_on` date (in `data/sample_data.jsonl`) that the pipeline's age filter uses.
 *   **Lazy Pipeline (Generator Expression):** A 3-step lazy pipeline filters disconnected components -> filters by age -> extracts the ID. It evaluates one item at a time (saving memory) and halts execution exactly when the required amount of records is consumed[cite: 1].
 
 ## Context Managers

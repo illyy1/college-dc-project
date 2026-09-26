@@ -2,7 +2,7 @@
 Workstation class, which composes components (composition), and the
 Technician / MaintenanceRequest classes used for maintenance workflow."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 
 class HardwareComponent:
@@ -10,13 +10,21 @@ class HardwareComponent:
 
     ALLOWED_STATUSES = {"ACTIVE", "DISCONNECTED", "TESTING", "ERROR"}
 
-    def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE"):
+    def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE", installed_on=None):
         self.component_id = component_id
         self.name = name
         self.workstation_id = workstation_id
         self._connection_status = None
         self.connection_status = connection_status  # goes through the validating setter
         self._status_before_test = None  # set while a DiagnosticConnection is open
+        self.installed_on = date.fromisoformat(installed_on) if isinstance(installed_on, str) else installed_on
+
+    @property
+    def age_years(self):
+        """Years since installation, or None if the install date is unknown."""
+        if self.installed_on is None:
+            return None
+        return (date.today() - self.installed_on).days / 365.25
 
     @property
     def connection_status(self):
@@ -69,8 +77,8 @@ class HardwareComponent:
 
 class Camera(HardwareComponent):
     def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE",
-                 camera_index=0, resolution="1920x1080"):
-        super().__init__(component_id, name, workstation_id, connection_status)
+                 camera_index=0, resolution="1920x1080", installed_on=None):
+        super().__init__(component_id, name, workstation_id, connection_status, installed_on)
         self.camera_index = camera_index
         self.resolution = resolution
 
@@ -94,8 +102,8 @@ class Microphone(HardwareComponent):
     MIN_SAMPLE_RATE = 8000
 
     def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE",
-                 sample_rate=44100, sensitivity_db=-40):
-        super().__init__(component_id, name, workstation_id, connection_status)
+                 sample_rate=44100, sensitivity_db=-40, installed_on=None):
+        super().__init__(component_id, name, workstation_id, connection_status, installed_on)
         self.sample_rate = sample_rate
         self.sensitivity_db = sensitivity_db
 
