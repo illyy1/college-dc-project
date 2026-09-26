@@ -41,6 +41,11 @@ class Alert:
         state = "resolved" if self.resolved else "unresolved"
         return f"<Alert #{self.alert_id} [{self.error_type}] prio={self.priority} {state}>"
 
+    def __str__(self):
+        state = "RESOLVED" if self.resolved else "OPEN"
+        return (f"Alert #{self.alert_id} [{state}] priority {self.priority} — "
+                f"{self.error_type} on {self.component_id} @ {self.workstation_id}: {self.message}")
+
 
 class AlertManager:
     """Owns the alert history plus the routine/critical processing queues."""
