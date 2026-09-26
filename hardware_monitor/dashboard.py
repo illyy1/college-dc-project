@@ -13,6 +13,7 @@ import requests
 
 from .config import (
     SILENCE_THRESHOLD, SILENCE_DURATION,
+    MAX_VISIBLE_ALERTS, ALERT_MIN_DISPLAY_SECONDS, ALERT_COOLDOWN_SECONDS, GITHUB_ISSUE_COOLDOWN_SECONDS,
     GITHUB_REPO, COMPUTER_NAME, TECHNICIANS_PATH, get_github_token,
 )
 from .maintenance import MaintenanceDesk
@@ -53,6 +54,11 @@ class HardwareMonitorApp:
             "mic_conn": None,
             "mic_silence": None,
         }
+        self._popup_lock = threading.Lock()  # mic and camera threads can both try to show a popup
+        self._shown_at = {}                  # alert_key -> when its popup appeared
+        self._closed_at = {}                 # alert_key -> when its popup was last closed
+        self._popup_slots = {}               # alert_key -> screen slot (0 = top), so popups don't overlap
+        self._last_issue_at = {}             # alert_key -> when a GitHub issue was last posted for it
 
         self.status_lbl = tk.Label(self.root, text="Monitoring Active", fg="green", font=("Arial", 14, "bold"))
         self.status_lbl.pack(pady=20)
@@ -158,21 +164,58 @@ class HardwareMonitorApp:
 
         threading.Thread(target=_post, daemon=True).start()
 
+    def _reserve_popup_slot(self, alert_key):
+        """Claims a screen slot for a new popup. Returns False if the popup
+        should not be shown now: already showing, same fault closed too
+        recently, or MAX_VISIBLE_ALERTS already on screen (the monitor
+        retries on its next check while the fault lasts)."""
+        with self._popup_lock:
+            if self.active_alerts.get(alert_key) is not None:
+                return False
+            if time.time() - self._closed_at.get(alert_key, 0) < ALERT_COOLDOWN_SECONDS:
+                return False
+            used = set(self._popup_slots.values())
+            free = [slot for slot in range(MAX_VISIBLE_ALERTS) if slot not in used]
+            if not free:
+                return False
+            self._popup_slots[alert_key] = free[0]
+            self._shown_at[alert_key] = time.time()
+            self.active_alerts[alert_key] = "pending"
+            return True
+
+    def _claim_github_issue(self, alert_key):
+        """Rate limit: True (and starts a new window) if no GitHub issue was
+        posted for this fault type in the last GITHUB_ISSUE_COOLDOWN_SECONDS.
+        The popup and maintenance call still happen either way."""
+        with self._popup_lock:
+            last = self._last_issue_at.get(alert_key)
+            if last is not None and time.time() - last < GITHUB_ISSUE_COOLDOWN_SECONDS:
+                minutes_left = (GITHUB_ISSUE_COOLDOWN_SECONDS - (time.time() - last)) / 60
+                print(f"GitHub issue for {alert_key} skipped: one was posted recently "
+                      f"(next allowed in {minutes_left:.0f} min). The maintenance call was still opened.")
+                return False
+            self._last_issue_at[alert_key] = time.time()
+            return True
+
     def show_alert(self, alert_key, title, message):
         # a monitor thread may have checked is_paused just before Pause was pressed
-        if self.is_paused or self.active_alerts.get(alert_key) is not None:
+        if self.is_paused or not self._reserve_popup_slot(alert_key):
             return
 
-        self.active_alerts[alert_key] = "pending"
         request, is_new = self.open_maintenance_call(alert_key, message)
+        slot = self._popup_slots[alert_key]
+        # a popup re-shown after a break is the same fault — no duplicate issue
+        post_issue = is_new and self._claim_github_issue(alert_key)
 
         def _create():
-            if is_new:  # a popup re-shown after a break is the same fault — no duplicate issue
+            if post_issue:
                 self.send_github_alert(alert_key, title, message, request)
 
             alert_win = tk.Toplevel(self.root)
             alert_win.title(title)
-            alert_win.geometry("400x180")
+            # stacked down the right edge of the screen, one slot each
+            x = max(0, alert_win.winfo_screenwidth() - 420)
+            alert_win.geometry(f"400x180+{x}+{40 + slot * 210}")
             alert_win.attributes("-topmost", True)
             alert_win.configure(bg="#ffcccc")
 
@@ -189,17 +232,29 @@ class HardwareMonitorApp:
         self.root.after(0, _create)
 
     def hide_alert(self, alert_key, resolve_call=True):
+        """Closes the popup (and, with resolve_call, its maintenance call)
+        once the fault is gone. A popup younger than ALERT_MIN_DISPLAY_SECONDS
+        is left up; the monitor calls this again on its next check. Pausing
+        passes resolve_call=False and hides immediately."""
+        popup_open = self.active_alerts.get(alert_key) is not None
+        if resolve_call and popup_open:
+            if time.time() - self._shown_at.get(alert_key, 0) < ALERT_MIN_DISPLAY_SECONDS:
+                return
+            self._closed_at[alert_key] = time.time()
+
         if resolve_call:
             self.resolve_maintenance_call(alert_key)
 
-        if self.active_alerts.get(alert_key) is None:
+        if not popup_open:
             return
 
         def _destroy():
             win = self.active_alerts.get(alert_key)
             if isinstance(win, tk.Toplevel) and win.winfo_exists():
                 win.destroy()
-            self.active_alerts[alert_key] = None
+            with self._popup_lock:
+                self.active_alerts[alert_key] = None
+                self._popup_slots.pop(alert_key, None)
 
         self.root.after(0, _destroy)
 
