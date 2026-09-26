@@ -61,7 +61,8 @@ class AlertManager:
 
     CRITICAL_PRIORITY_THRESHOLD = 2
 
-    def __init__(self):
+    def __init__(self, log_path=None):
+        self.log_path = log_path  # None = the real history log (LOG_PATH)
         self.alert_history = []            # list — ordered history
         self.maintenance_queue = deque()   # deque — FIFO routine maintenance
         self._critical_heap = []           # heapq — priority queue of critical alerts
@@ -127,7 +128,7 @@ class AlertManager:
     def _persist_to_log(self, alert):
         """Appends the alert to the on-disk history log using a context
         manager, so the record survives past this process's lifetime."""
-        append_jsonl_record(LOG_PATH, alert.to_dict())
+        append_jsonl_record(self.log_path or LOG_PATH, alert.to_dict())
 
 
 def run_diagnostics_and_log_alerts(workstations, alert_manager):

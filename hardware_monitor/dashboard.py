@@ -197,19 +197,41 @@ class HardwareMonitorApp:
             self._last_issue_at[alert_key] = time.time()
             return True
 
+    def _run_on_ui_thread(self, callback):
+        """Queues callback for the Tk main loop. Once the window is closed the
+        monitor threads may still get here; the callback is then dropped."""
+        if not self.running:
+            return
+        try:
+            self.root.after(0, callback)
+        except (RuntimeError, tk.TclError):
+            if self.running:
+                raise
+
     def show_alert(self, alert_key, title, message):
         # a monitor thread may have checked is_paused just before Pause was pressed
-        if self.is_paused or not self._reserve_popup_slot(alert_key):
+        if self.is_paused or not self.running:
             return
 
+        # the call is opened even when the popup has to wait (too many on screen,
+        # or the same fault closed moments ago), so no fault is left unrecorded
         request, is_new = self.open_maintenance_call(alert_key, message)
-        slot = self._popup_slots[alert_key]
         # a popup re-shown after a break is the same fault — no duplicate issue
-        post_issue = is_new and self._claim_github_issue(alert_key)
+        if is_new and self._claim_github_issue(alert_key):
+            self.send_github_alert(alert_key, title, message, request)
+
+        if not self._reserve_popup_slot(alert_key):
+            return
+        slot = self._popup_slots[alert_key]
 
         def _create():
-            if post_issue:
-                self.send_github_alert(alert_key, title, message, request)
+            with self._popup_lock:
+                # Pause (or a hide) released this reservation before it was drawn
+                if self.is_paused or self.active_alerts.get(alert_key) != "pending":
+                    if self.active_alerts.get(alert_key) == "pending":
+                        self.active_alerts[alert_key] = None
+                        self._popup_slots.pop(alert_key, None)
+                    return
 
             alert_win = tk.Toplevel(self.root)
             alert_win.title(title)
@@ -229,13 +251,15 @@ class HardwareMonitorApp:
 
             self.active_alerts[alert_key] = alert_win
 
-        self.root.after(0, _create)
+        self._run_on_ui_thread(_create)
 
     def hide_alert(self, alert_key, resolve_call=True):
         """Closes the popup (and, with resolve_call, its maintenance call)
         once the fault is gone. A popup younger than ALERT_MIN_DISPLAY_SECONDS
         is left up; the monitor calls this again on its next check. Pausing
         passes resolve_call=False and hides immediately."""
+        if not self.running:
+            return
         popup_open = self.active_alerts.get(alert_key) is not None
         if resolve_call and popup_open:
             if time.time() - self._shown_at.get(alert_key, 0) < ALERT_MIN_DISPLAY_SECONDS:
@@ -256,7 +280,7 @@ class HardwareMonitorApp:
                 self.active_alerts[alert_key] = None
                 self._popup_slots.pop(alert_key, None)
 
-        self.root.after(0, _destroy)
+        self._run_on_ui_thread(_destroy)
 
     def monitor_mic(self):
         mic_source = SyntheticMicrophoneSource()

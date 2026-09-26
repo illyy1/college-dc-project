@@ -14,7 +14,6 @@ import argparse
 
 from hardware_monitor.demo import run_demo
 from hardware_monitor.reports import publish_maintenance_reports
-from hardware_monitor.dashboard import HardwareMonitorApp
 
 
 def main():
@@ -34,6 +33,9 @@ def main():
     if args.no_dashboard:
         publish_maintenance_reports()
         return
+
+    # imported here so --report and --no-dashboard work without tkinter installed
+    from hardware_monitor.dashboard import HardwareMonitorApp
 
     print("\nLaunching live hardware monitoring dashboard for this workstation...")
     app = HardwareMonitorApp()  # uses the real maintenance log, not the demo one
