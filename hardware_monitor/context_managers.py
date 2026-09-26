@@ -13,9 +13,10 @@ class DiagnosticConnection:
     PORT_POOL = ("DIAG-1", "DIAG-2", "DIAG-3")
     _ports_in_use = set()
 
-    def __init__(self, component):
+    def __init__(self, component, verbose=True):
         self.component = component
         self.port = None
+        self.verbose = verbose  # False hides the open/close messages; failures are always reported
 
     @classmethod
     def available_ports(cls):
@@ -27,8 +28,9 @@ class DiagnosticConnection:
             raise RuntimeError(f"No free diagnostic port for {self.component.component_id}.")
         self.port = free[0]
         DiagnosticConnection._ports_in_use.add(self.port)
-        print(f"[DIAGNOSTICS] Opening diagnostic channel {self.port} for component "
-              f"'{self.component.component_id}'...")
+        if self.verbose:
+            print(f"[DIAGNOSTICS] Opening diagnostic channel {self.port} for component "
+                  f"'{self.component.component_id}'...")
         try:
             self.component.begin_test()
         except Exception:
@@ -37,8 +39,9 @@ class DiagnosticConnection:
         return self.component
 
     def __exit__(self, exc_type, exc_value, traceback):
-        print(f"[DIAGNOSTICS] Closing diagnostic channel {self.port} for component "
-              f"'{self.component.component_id}'.")
+        if self.verbose:
+            print(f"[DIAGNOSTICS] Closing diagnostic channel {self.port} for component "
+                  f"'{self.component.component_id}'.")
         try:
             if exc_type is not None:
                 print(f"[DIAGNOSTICS] Session failed with error ({exc_type.__name__}): {exc_value}")

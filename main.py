@@ -53,7 +53,7 @@ def run_diagnostics_and_log_alerts(workstations, alert_manager):
     for workstation in workstations:
         for component in workstation.components:
             try:
-                with DiagnosticConnection(component) as tested:
+                with DiagnosticConnection(component, verbose=False) as tested:  # step 3 shows the messages
                     healthy = tested.run_diagnostics()
             except Exception:
                 healthy = False  # DiagnosticConnection already marked it ERROR
