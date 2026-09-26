@@ -2,22 +2,37 @@
 
 
 class HardwareDiagnosticSession:
-    """Locks a component's status to TESTING for the duration of a diagnostic
-    check and safely restores it afterwards — even if the check raises."""
+    """Simulates locking a hardware diagnostic channel/port and updating component status safely.
+
+    Satisfies context manager requirements (__enter__, __exit__, exception
+    safety).
+    """
 
     def __init__(self, component):
         self.component = component
         self._previous_status = None
 
     def __enter__(self):
+        print(
+            f"[DIAGNOSTICS] Opening diagnostic channel for component '{self.component.component_id}'..."
+        )
         self._previous_status = self.component.connection_status
         self.component.connection_status = "TESTING"
         return self.component
 
     def __exit__(self, exc_type, exc_value, traceback):
+        print(
+            f"[DIAGNOSTICS] Closing diagnostic channel for component '{self.component.component_id}'."
+        )
+
         if exc_type is not None:
-            print(f"Diagnostic session for {self.component.component_id} raised {exc_type.__name__}: {exc_value}")
+            print(
+                f"[DIAGNOSTICS] Session failed with error ({exc_type.__name__}): {exc_value}"
+            )
             self.component.connection_status = "ERROR"
-        else:
-            self.component.connection_status = self._previous_status
-        return True  # exception (if any) was handled safely, don't propagate
+            return False
+
+        if self.component.connection_status == "TESTING":
+            self.component.connection_status = "ACTIVE"
+
+        return False
