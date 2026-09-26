@@ -4,6 +4,8 @@ history report (who handled which error) with a CSV export."""
 
 import csv
 
+from .config import MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH
+
 from .models import MaintenanceRequest, Technician
 from .repository import load_maintenance_history
 
@@ -98,3 +100,9 @@ def export_maintenance_history_csv(log_path, csv_path, verbose=True):
     if verbose:
         print(f"[REPORT] Maintenance history exported to {csv_path} ({len(history)} call(s))")
     return csv_path
+
+
+def publish_maintenance_reports(log_path=MAINTENANCE_LOG_PATH, csv_path=MAINTENANCE_REPORT_CSV_PATH):
+    """Prints the maintenance history report and exports it to CSV."""
+    generate_maintenance_history_report(log_path)
+    export_maintenance_history_csv(log_path, csv_path)
