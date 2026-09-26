@@ -8,6 +8,7 @@ from datetime import datetime
 from itertools import count
 
 from .config import LOG_PATH
+from .context_managers import DiagnosticConnection
 from .repository import append_jsonl_record, iter_jsonl_records
 
 
@@ -127,3 +128,29 @@ class AlertManager:
         """Appends the alert to the on-disk history log using a context
         manager, so the record survives past this process's lifetime."""
         append_jsonl_record(LOG_PATH, alert.to_dict())
+
+
+def run_diagnostics_and_log_alerts(workstations, alert_manager):
+    """Polymorphically tests every component inside a DiagnosticConnection
+    and logs an Alert for anything unhealthy."""
+    for workstation in workstations:
+        for component in workstation.components:
+            try:
+                with DiagnosticConnection(component, verbose=False) as tested:
+                    healthy = tested.run_diagnostics()
+            except Exception:
+                healthy = False  # DiagnosticConnection already marked it ERROR
+                tested = component
+
+            if healthy:
+                continue
+
+            priority = 1 if tested.component_type == "Camera" else 4
+            alert = Alert(
+                component_id=tested.component_id,
+                workstation_id=workstation.workstation_id,
+                error_type=f"{tested.component_type.upper()}_FAILURE",
+                message=f"{tested.component_type} '{tested.name}' failed diagnostics.",
+                priority=priority,
+            )
+            alert_manager.log_alert(alert)

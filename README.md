@@ -11,16 +11,17 @@ To build a standalone executable, also install PyInstaller: `pip install pyinsta
 `python main.py` runs the OOP information-system demonstration (data loading, queues, iterators, lazy pipeline, context manager) and then launches the live monitoring dashboard, which drives its microphone/camera alerts off synthetic simulated signals (see `hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behavior can be tested on demand.
 
 ## Project layout
-- `main.py` — orchestrator only; no class definitions.
+- `main.py` — entry point only: reads the command-line flags and calls the package.
+- `hardware_monitor/demo.py` — the step-by-step demonstration, one function per requirement.
 - `hardware_monitor/models.py` — `HardwareComponent`, `Camera`, `Microphone`, `Workstation` (OOP).
-- `hardware_monitor/processing.py` — `Alert`, `AlertManager` (list/dict/set, deque, heapq, comprehensions, sorting).
+- `hardware_monitor/processing.py` — `Alert`, `AlertManager` (list/dict/set, deque, heapq, comprehensions, sorting), and the polymorphic diagnostics sweep.
 - `hardware_monitor/repository.py` — loads `data/sample_data.jsonl` line-by-line into objects.
 - `hardware_monitor/iterators.py` — `AlertHistory`/`ActiveAlertIterator`, a generator, and a 3-step lazy pipeline.
 - `hardware_monitor/context_managers.py` — `DiagnosticConnection`.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, mic/camera monitoring threads, and GitHub alerting.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signal generators used by the dashboard for testing.
 - `hardware_monitor/maintenance.py` — `MaintenanceDesk`: opens a maintenance call for each alert, assigns it to the least-busy technician with the matching specialty, and saves every change.
-- `hardware_monitor/reports.py` — technician workload report, maintenance history report, CSV export.
+- `hardware_monitor/reports.py` — technician workload report, maintenance history report, CSV export, cross-file technician validation.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
 
 ## Maintenance calls & reports
