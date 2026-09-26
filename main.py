@@ -7,8 +7,9 @@ then launches the live hardware-monitoring dashboard for this machine. When
 the dashboard is closed, the maintenance history report is printed and
 exported to CSV.
 
-    python main.py            demo + live dashboard + history report
-    python main.py --report   only print/export the maintenance history report
+    python main.py                  demo + live dashboard + history report
+    python main.py --no-dashboard   demo + history report, no window (runs start to finish)
+    python main.py --report         only print/export the maintenance history report
 """
 
 import argparse
@@ -24,6 +25,7 @@ from hardware_monitor.config import (
 from hardware_monitor.repository import (
     load_workstations_from_jsonl,
     load_technicians_from_jsonl,
+    load_maintenance_history,
 )
 from hardware_monitor.processing import Alert, AlertManager
 from hardware_monitor.iterators import (
@@ -32,10 +34,11 @@ from hardware_monitor.iterators import (
     lazy_disconnected_pipeline,
 )
 from hardware_monitor.context_managers import DiagnosticConnection
-from hardware_monitor.models import MaintenanceRequest
+from hardware_monitor.models import Camera, MaintenanceRequest
 from hardware_monitor.maintenance import MaintenanceDesk
 from hardware_monitor.reports import (
     validate_and_assign_request,
+    find_unknown_technician_references,
     generate_technician_workload_report,
     generate_maintenance_history_report,
     export_maintenance_history_csv,
@@ -81,35 +84,73 @@ def demonstrate_information_system():
     run_diagnostics_and_log_alerts(workstations, alert_manager)
     print(f"  Logged {len(alert_manager.alert_history)} alert(s) from failed diagnostics.")
 
-    print("\nSTEP 3 — Data-structure operations")
+    print("\nSTEP 3 — Encapsulation and safe diagnostic connections")
+    sample = workstations[0].components[0]
+    try:
+        sample.connection_status = "MELTED"
+    except ValueError as error:
+        print(f"  Rejected illegal status for {sample.component_id}: {error}")
+
+    spare = Camera("CAM-SPARE", "Spare Cam", "BENCH")
+    connection = DiagnosticConnection(spare)
+    try:
+        with connection:
+            print(f"  Testing {spare.component_id} on port {connection.port} (status {spare.connection_status})")
+            raise RuntimeError("probe cable pulled mid-test")
+    except RuntimeError:
+        pass
+    print(f"  After the crash: status {spare.connection_status}, "
+          f"free ports {DiagnosticConnection.available_ports()}")
+
+    print("\nSTEP 4 — Data-structure operations")
     print("  Unique error types (set):", alert_manager.unique_error_types())
     print("  Alerts grouped by workstation (dict):")
     for ws_id, alerts in alert_manager.group_by_workstation().items():
         print(f"    {ws_id}: {len(alerts)} alert(s)")
     print("  Alerts sorted by priority (sorted + lambda key):")
-    for alert in alert_manager.sorted_by_priority():
+    sorted_alerts = alert_manager.sorted_by_priority()
+    for alert in sorted_alerts:
         print(f"    {alert}")
 
-    print("\nSTEP 4 — Draining the queues")
-    print(f"  Next critical alert (heapq):     {alert_manager.process_next_critical()}")
+    for alert in sorted_alerts[:2]:
+        alert_manager.acknowledge_alert(alert.alert_id)
+    if len(sorted_alerts) > 1:
+        alert_manager.unacknowledge_alert(sorted_alerts[1].alert_id)
+    print("  Acknowledged alert ids (set.add, then set.discard):", alert_manager.acknowledged_alert_ids)
+    common = alert_manager.critical_and_routine_common_error_types()
+    print("  Error types in both the critical and routine queues (set &):",
+          common or "none — critical and routine faults are separate issues")
+
+    print("\nSTEP 5 — Draining the queues")
+    critical = alert_manager.process_next_critical()
+    print(f"  Next critical alert (heapq):     {critical}")
     print(f"  Next routine alert (deque FIFO): {alert_manager.process_next_maintenance()}")
+    if critical is not None:
+        critical.resolved = True
+        print(f"  Critical alert #{critical.alert_id} fixed on site and marked resolved.")
 
-    print("\nSTEP 5 — Custom Iterable/Iterator over unresolved alerts")
-    for alert in AlertHistory(alert_manager.alert_history):
+    print("\nSTEP 6 — Custom Iterable/Iterator over unresolved alerts")
+    history = AlertHistory(alert_manager.alert_history)
+    iterator = iter(history)
+    print(f"  iter(AlertHistory) returned an {type(iterator).__name__}")
+    shown = 0
+    for alert in iterator:
         print(f"  Unresolved: {alert}")
+        shown += 1
+    print(f"  Skipped {len(history) - shown} resolved alert(s) transparently.")
 
-    print("\nSTEP 6 — Generator yielding disconnected components")
+    print("\nSTEP 7 — Generator yielding disconnected components")
     for component in iter_disconnected_components(workstations):
         print(f"  Disconnected: {component}")
 
-    print("\nSTEP 7 — 3-step lazy evaluation pipeline (stopping after 3 results)")
+    print("\nSTEP 8 — 3-step lazy evaluation pipeline (stopping after 3 results)")
     pipeline = lazy_disconnected_pipeline(workstations)
     for index, component_id in enumerate(pipeline):
         if index >= 3:
             break
         print(f"  Lazy pipeline id: {component_id}")
 
-    print("\nSTEP 8 — Maintenance calls opened and assigned to technicians")
+    print("\nSTEP 9 — Maintenance calls opened and assigned to technicians")
     demonstrate_maintenance_workflow(alert_manager)
 
     print("=" * 70)
@@ -142,6 +183,15 @@ def demonstrate_maintenance_workflow(alert_manager):
     except ValueError as error:
         print(f"  Validation rejected unknown technician: {error}")
 
+    # cross-file validation: every technician named in the maintenance log must exist in technicians.jsonl
+    history = load_maintenance_history(DEMO_MAINTENANCE_LOG_PATH)
+    unknown = find_unknown_technician_references(history, technicians)
+    print(f"  Cross-file check: {len(history)} call(s) in the log, {len(unknown)} with an unknown technician")
+    tampered = history + [{"request_id": "MR-TAMPERED", "assigned_tech_id": "T42"}]
+    for record in find_unknown_technician_references(tampered, technicians):
+        print(f"  Cross-file check flagged {record['request_id']}: technician "
+              f"'{record['assigned_tech_id']}' is not in technicians.jsonl")
+
     for tech in technicians.values():
         print(f"  {tech}")
 
@@ -157,6 +207,8 @@ def main():
     parser = argparse.ArgumentParser(description="Room hardware monitor")
     parser.add_argument("--report", action="store_true",
                         help="only print and export the maintenance history report")
+    parser.add_argument("--no-dashboard", action="store_true",
+                        help="run the demo and reports without opening the live dashboard window")
     args = parser.parse_args()
 
     if args.report:
@@ -164,6 +216,10 @@ def main():
         return
 
     demonstrate_information_system()
+
+    if args.no_dashboard:
+        show_maintenance_reports()
+        return
 
     print("\nLaunching live hardware monitoring dashboard for this workstation...")
     app = HardwareMonitorApp()  # uses the real maintenance log, not the demo one

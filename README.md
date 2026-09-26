@@ -25,6 +25,7 @@ Install the required dependencies using the following command in your PyCharm te
 - Technicians are loaded from `data/technicians.jsonl` (edit this file to add or change technicians).
 - Every alert (from the demo and from the live dashboard) opens a maintenance call that is assigned automatically: camera errors go to a Camera technician, microphone errors to a Microphone technician, and if no specialist exists the call goes to whoever has the fewest open calls. The dashboard popup and the GitHub issue show the call number and the assigned technician. When the fault clears, the call is marked resolved (pausing for a break does not resolve it).
 - Every call and status change is saved to `logs/maintenance_requests.jsonl`.
+- `python main.py --no-dashboard` runs the full demonstration and the history report from start to finish without opening the dashboard window.
 - `python main.py --report` prints the history report (every call, open and resolved, with the technician who handled it) and exports it to `logs/maintenance_report.csv` (opens in Excel). The same report is also printed automatically when the dashboard is closed.
 
 ## הצעת הפרויקט (Project Proposal)

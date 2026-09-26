@@ -14,6 +14,7 @@ COMPONENT_CLASSES = {
 
 _KNOWN_WORKSTATION_FIELDS = {"workstation_id", "workstation_name", "location"}
 _KNOWN_COMPONENT_FIELDS = {"component_type", "component_id", "name", "connection_status"}
+_REQUIRED_TECHNICIAN_FIELDS = ("tech_id", "name", "specialty")
 
 
 def load_workstations_from_jsonl(path):
@@ -61,16 +62,24 @@ def load_workstations_from_jsonl(path):
 
 def load_technicians_from_jsonl(path):
     """Reads technician records line-by-line and returns a dict of
-    tech_id -> Technician."""
+    tech_id -> Technician. Raises ValueError (with the line number) for a
+    record missing a required field or reusing an existing tech_id, since
+    maintenance calls reference technicians by that id."""
     technicians = {}
 
     with open(path, "r", encoding="utf-8") as data_file:
-        for line in data_file:
+        for line_number, line in enumerate(data_file, start=1):
             line = line.strip()
             if not line:
                 continue
 
             record = json.loads(line)
+            missing = [f for f in _REQUIRED_TECHNICIAN_FIELDS if not str(record.get(f, "")).strip()]
+            if missing:
+                raise ValueError(f"{path} line {line_number}: technician is missing {', '.join(missing)}.")
+            if record["tech_id"] in technicians:
+                raise ValueError(f"{path} line {line_number}: duplicate tech_id '{record['tech_id']}'.")
+
             technicians[record["tech_id"]] = Technician(
                 tech_id=record["tech_id"],
                 name=record["name"],

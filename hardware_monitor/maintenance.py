@@ -59,6 +59,10 @@ class MaintenanceDesk:
             technician = self.technicians.get(request.assigned_tech_id)
             if technician is not None:
                 technician.assigned_requests.append(request)
+            else:
+                # cross-file check: the log names a technician missing from technicians.jsonl
+                print(f"Warning: open call {request.request_id} is assigned to unknown technician "
+                      f"'{request.assigned_tech_id}' (not in the technician data file).")
             self.requests[request.request_id] = request
 
     def open_requests(self):
