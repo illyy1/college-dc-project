@@ -64,4 +64,4 @@ To build a standalone executable, also install PyInstaller: `pip install pyinsta
 ## Data Source, Processing & Logging
 *   **Data File:** `data/sample_data.jsonl` contains 15+ synthetic JSON records.
 *   **Processing:** Reads the file line-by-line using `with open(...)` (strictly avoiding `.read()` or `.readlines()`)[cite: 1]. Converts JSON strings to dictionaries via `json.loads`, validates the data, and instantiates objects using `@classmethod` factories[cite: 1].
-*   **Local Logging:** Processed alerts and system events are safely appended to `logs/hardware_history.jsonl` using a context manager to ensure permanent historical records.
+*   **Local Logging:** Processed alerts and system events are safely appended to `logs/hardware_history.jsonl` using a context manager to ensure permanent historical records. The `main.py` demo writes its synthetic fleet's alerts to `logs/demo_hardware_history.jsonl` instead (reset every run), so they never mix with the real history.

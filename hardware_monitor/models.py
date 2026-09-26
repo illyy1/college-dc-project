@@ -57,12 +57,15 @@ class HardwareComponent:
             self.connection_status = self._status_before_test
         self._status_before_test = None
 
-    def _is_disconnected(self):
-        """True if the component is disconnected, looking past a TESTING lock."""
+    FAULT_STATUSES = {"DISCONNECTED", "ERROR", "MAINTENANCE"}
+
+    def _has_fault_status(self):
+        """True if the component is disconnected, in error or under maintenance,
+        looking past a TESTING lock."""
         status = self.connection_status
         if status == "TESTING" and self._status_before_test is not None:
             status = self._status_before_test
-        return status == "DISCONNECTED"
+        return status in self.FAULT_STATUSES
 
     def run_diagnostics(self):
         """Overridden by subclasses. Returns True if the component is healthy."""
@@ -83,14 +86,14 @@ class Camera(HardwareComponent):
         self.resolution = resolution
 
     def run_diagnostics(self):
-        """Camera-specific health check: valid resolution and not disconnected."""
+        """Camera-specific health check: valid resolution and no fault status."""
         try:
             width, height = (int(part) for part in self.resolution.lower().split("x"))
             resolution_ok = width > 0 and height > 0
         except (ValueError, AttributeError):
             resolution_ok = False
 
-        healthy = resolution_ok and not self._is_disconnected()
+        healthy = resolution_ok and not self._has_fault_status()
         self.connection_status = "ACTIVE" if healthy else "DISCONNECTED"
         return healthy
 
@@ -108,9 +111,9 @@ class Microphone(HardwareComponent):
         self.sensitivity_db = sensitivity_db
 
     def run_diagnostics(self):
-        """Microphone-specific health check: sane sample rate and not disconnected."""
+        """Microphone-specific health check: sane sample rate and no fault status."""
         rate_ok = isinstance(self.sample_rate, (int, float)) and self.sample_rate >= self.MIN_SAMPLE_RATE
-        healthy = rate_ok and not self._is_disconnected()
+        healthy = rate_ok and not self._has_fault_status()
         self.connection_status = "ACTIVE" if healthy else "DISCONNECTED"
         return healthy
 

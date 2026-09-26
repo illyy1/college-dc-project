@@ -32,7 +32,6 @@ from .reports import (
     export_maintenance_history_csv,
 )
 from .maintenance import MaintenanceDesk
-from .dashboard import HardwareMonitorApp
 
 __all__ = [
     "HardwareComponent",
@@ -59,3 +58,11 @@ __all__ = [
     "MaintenanceDesk",
     "HardwareMonitorApp",
 ]
+
+
+def __getattr__(name):
+    # the dashboard needs tkinter, so it is only imported when actually used
+    if name == "HardwareMonitorApp":
+        from .dashboard import HardwareMonitorApp
+        return HardwareMonitorApp
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

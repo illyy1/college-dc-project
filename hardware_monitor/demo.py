@@ -6,7 +6,7 @@ workflow). run_demo() runs them in order without any interactive input."""
 import os
 from itertools import islice
 
-from .config import SAMPLE_DATA_PATH, TECHNICIANS_PATH, DEMO_MAINTENANCE_LOG_PATH
+from .config import SAMPLE_DATA_PATH, TECHNICIANS_PATH, DEMO_LOG_PATH, DEMO_MAINTENANCE_LOG_PATH
 from .context_managers import DiagnosticConnection
 from .iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
 from .maintenance import MaintenanceDesk
@@ -64,7 +64,10 @@ def demo_load_fleet():
 
 
 def demo_polymorphic_diagnostics(workstations):
-    alert_manager = AlertManager()
+    # the demo fleet is synthetic: its alerts go to a separate log, reset every run
+    if os.path.exists(DEMO_LOG_PATH):
+        os.remove(DEMO_LOG_PATH)
+    alert_manager = AlertManager(log_path=DEMO_LOG_PATH)
     run_diagnostics_and_log_alerts(workstations, alert_manager)
     print(f"  Logged {len(alert_manager.alert_history)} alert(s) from failed diagnostics.")
     return alert_manager
