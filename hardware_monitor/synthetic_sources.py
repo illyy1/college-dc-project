@@ -8,7 +8,8 @@ Each fault is an episode with separate chances per check of starting and of
 clearing, so the simulated room is busy — frequent faults — but each fault
 clears within seconds instead of lingering. The mic is checked every second
 and the camera every 3 seconds; with the defaults below the dashboard shows
-a new popup roughly every 15-20 seconds on average.
+a new popup roughly every 15-20 seconds on average. force_fault() lets the
+dashboard start a fault on demand, so a quiet stretch never lasts long.
 """
 
 import random
@@ -39,15 +40,25 @@ class SyntheticMicrophoneSource:
         self.sound_return_chance = sound_return_chance
         self._disconnected = False
         self._silent = False
+        self._forced = False  # a forced fault is always seen by the next check
 
     def is_connected(self):
-        self._disconnected = _next_fault_state(self._disconnected, self.disconnect_chance, self.reconnect_chance)
+        if self._forced:
+            self._forced = False
+        else:
+            self._disconnected = _next_fault_state(self._disconnected, self.disconnect_chance, self.reconnect_chance)
         return not self._disconnected
 
     def read_volume(self):
         self._silent = _next_fault_state(self._silent, self.silence_chance, self.sound_return_chance)
         low, high = _SILENT_VOLUME_RANGE if self._silent else _LOUD_VOLUME_RANGE
         return random.uniform(low, high)
+
+    def force_fault(self):
+        """Starts a disconnect that the next check is guaranteed to see; it
+        then clears on its own like any other."""
+        self._disconnected = True
+        self._forced = True
 
 
 class SyntheticCameraSource:
@@ -62,14 +73,30 @@ class SyntheticCameraSource:
         self.frame_recovery_chance = frame_recovery_chance
         self._disconnected = False
         self._frames_failing = False
+        self._forced = False  # a forced fault is always seen by the next check
 
     def is_connected(self):
-        self._disconnected = _next_fault_state(self._disconnected, self.disconnect_chance, self.reconnect_chance)
+        if self._forced and self._disconnected:
+            self._forced = False
+        else:
+            self._disconnected = _next_fault_state(self._disconnected, self.disconnect_chance, self.reconnect_chance)
         return not self._disconnected
 
     def read_frame_ok(self):
         """Only meaningful while connected: simulates a run of frames that
         fail to read even though the device reports connected."""
-        self._frames_failing = _next_fault_state(
-            self._frames_failing, self.frame_failure_chance, self.frame_recovery_chance)
+        if self._forced and self._frames_failing:
+            self._forced = False
+        else:
+            self._frames_failing = _next_fault_state(
+                self._frames_failing, self.frame_failure_chance, self.frame_recovery_chance)
         return not self._frames_failing
+
+    def force_fault(self):
+        """Starts a disconnect or a run of failing frames that the next check
+        is guaranteed to see; it then clears on its own like any other."""
+        if random.random() < 0.5:
+            self._disconnected = True
+        else:
+            self._frames_failing = True
+        self._forced = True
