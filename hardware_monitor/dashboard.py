@@ -4,6 +4,7 @@ via synthetic_sources.py (rather than real hardware) so the full alert
 pipeline can be exercised and tested on demand. See README.md > Future
 Expansion for swapping this back to real hardware monitoring."""
 
+import random
 import time
 import threading
 import tkinter as tk
@@ -14,6 +15,7 @@ import requests
 from .config import (
     SILENCE_THRESHOLD, SILENCE_DURATION,
     MAX_VISIBLE_ALERTS, ALERT_MIN_DISPLAY_SECONDS, ALERT_COOLDOWN_SECONDS, GITHUB_ISSUE_COOLDOWN_SECONDS,
+    MAX_QUIET_SECONDS,
     GITHUB_REPO, COMPUTER_NAME, TECHNICIANS_PATH, get_github_token,
 )
 from .maintenance import MaintenanceDesk
@@ -59,6 +61,10 @@ class HardwareMonitorApp:
         self._closed_at = {}                 # alert_key -> when its popup was last closed
         self._popup_slots = {}               # alert_key -> screen slot (0 = top), so popups don't overlap
         self._last_issue_at = {}             # alert_key -> when a GitHub issue was last posted for it
+        self._last_popup_at = time.time()    # for the quiet-period watchdog
+
+        self.mic_source = SyntheticMicrophoneSource()
+        self.camera_source = SyntheticCameraSource()
 
         self.status_lbl = tk.Label(self.root, text="Monitoring Active", fg="green", font=("Arial", 14, "bold"))
         self.status_lbl.pack(pady=20)
@@ -180,6 +186,7 @@ class HardwareMonitorApp:
                 return False
             self._popup_slots[alert_key] = free[0]
             self._shown_at[alert_key] = time.time()
+            self._last_popup_at = time.time()
             self.active_alerts[alert_key] = "pending"
             return True
 
@@ -259,7 +266,7 @@ class HardwareMonitorApp:
         self.root.after(0, _destroy)
 
     def monitor_mic(self):
-        mic_source = SyntheticMicrophoneSource()
+        mic_source = self.mic_source
 
         while self.running:
             if self.is_paused:
@@ -294,7 +301,7 @@ class HardwareMonitorApp:
             time.sleep(1)
 
     def monitor_camera(self):
-        camera_source = SyntheticCameraSource()
+        camera_source = self.camera_source
 
         while self.running:
             if self.is_paused:
@@ -312,11 +319,36 @@ class HardwareMonitorApp:
 
             time.sleep(3)
 
+    def keep_room_busy(self):
+        """Quiet-period watchdog: if no popup has appeared for
+        MAX_QUIET_SECONDS, forces a fault on a device that is free to show one
+        (no popup open, not cooling down, a screen slot free), so there is at
+        least one alert a minute. A break doesn't count as quiet time."""
+        while self.running:
+            time.sleep(1)
+            if self.is_paused:
+                self._last_popup_at = time.time()
+                continue
+            if time.time() - self._last_popup_at < MAX_QUIET_SECONDS:
+                continue
+            with self._popup_lock:
+                slot_free = len(self._popup_slots) < MAX_VISIBLE_ALERTS
+                eligible = [
+                    source for key, source in (("mic_conn", self.mic_source), ("camera", self.camera_source))
+                    if self.active_alerts.get(key) is None
+                    and time.time() - self._closed_at.get(key, 0) >= ALERT_COOLDOWN_SECONDS
+                ]
+            if slot_free and eligible:
+                random.choice(eligible).force_fault()
+                self._last_popup_at = time.time()  # give the monitor a moment to notice before forcing again
+
     def start(self):
         mic_thread = threading.Thread(target=self.monitor_mic, daemon=True)
         cam_thread = threading.Thread(target=self.monitor_camera, daemon=True)
+        busy_thread = threading.Thread(target=self.keep_room_busy, daemon=True)
         mic_thread.start()
         cam_thread.start()
+        busy_thread.start()
         self.root.mainloop()
 
     def stop(self):

@@ -15,6 +15,7 @@ MAX_VISIBLE_ALERTS = 2          # further faults wait until a popup closes
 ALERT_MIN_DISPLAY_SECONDS = 5   # a popup stays at least this long, so it never just flashes
 ALERT_COOLDOWN_SECONDS = 10     # the same fault can't pop up again this soon after closing
 GITHUB_ISSUE_COOLDOWN_SECONDS = 600  # at most one GitHub issue per fault type in this window
+MAX_QUIET_SECONDS = 45         # no popup for this long -> a fault is forced, so there is at least one alert a minute
 GITHUB_REPO = "illyy1/college-dc-project"
 COMPUTER_NAME = socket.gethostname()
 
