@@ -5,10 +5,32 @@ Technician / MaintenanceRequest classes used for maintenance workflow."""
 from datetime import date, datetime
 
 
+def _require_fields(record, fields, kind):
+    """Raises ValueError naming every field in `fields` that is missing or blank."""
+    if not isinstance(record, dict):
+        raise ValueError(f"{kind} record must be a JSON object, got {type(record).__name__}.")
+    missing = [f for f in fields if not str(record.get(f, "")).strip()]
+    if missing:
+        raise ValueError(f"{kind} record is missing {', '.join(missing)}.")
+
+
+def _check_number(record, field, kind, integer=False):
+    """Raises ValueError if `field` is present but not a number (bools rejected)."""
+    if field not in record:
+        return
+    value = record[field]
+    allowed = int if integer else (int, float)
+    if isinstance(value, bool) or not isinstance(value, allowed):
+        expected = "an integer" if integer else "a number"
+        raise ValueError(f"{kind} field '{field}' must be {expected}, got {value!r}.")
+
+
 class HardwareComponent:
     """Base class for any piece of monitored hardware."""
 
     ALLOWED_STATUSES = {"ACTIVE", "DISCONNECTED", "TESTING", "ERROR", "MAINTENANCE"}
+    REQUIRED_FIELDS = ("component_type", "component_id", "workstation_id")
+    RECORD_FIELDS = ()  # subclass-specific keys from_dict() passes to __init__
 
     def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE", installed_on=None):
         self.component_id = component_id
@@ -18,6 +40,43 @@ class HardwareComponent:
         self.connection_status = connection_status  # goes through the validating setter
         self._status_before_test = None  # set while a DiagnosticConnection is open
         self.installed_on = date.fromisoformat(installed_on) if isinstance(installed_on, str) else installed_on
+
+    @classmethod
+    def from_dict(cls, record):
+        """Factory: validates a parsed JSONL record and builds the matching
+        subclass. Called on HardwareComponent it picks Camera/Microphone from
+        record["component_type"]; called on a subclass it builds that class.
+        Raises ValueError on a missing field, unknown type or bad value."""
+        _require_fields(record, cls.REQUIRED_FIELDS, "Component")
+
+        component_type = str(record["component_type"]).strip().lower()
+        if cls is HardwareComponent:
+            subclasses = {sub.__name__.lower(): sub for sub in cls.__subclasses__()}
+            if component_type not in subclasses:
+                raise ValueError(
+                    f"Unknown component_type '{record['component_type']}'. "
+                    f"Must be one of {sorted(subclasses)}."
+                )
+            return subclasses[component_type].from_dict(record)
+        if component_type != cls.__name__.lower():
+            raise ValueError(f"{cls.__name__}.from_dict() got a '{record['component_type']}' record.")
+
+        cls._validate_record(record)
+        try:
+            return cls(
+                component_id=record["component_id"],
+                name=record.get("name") or record["component_id"],
+                workstation_id=record["workstation_id"],
+                connection_status=record.get("connection_status", "ACTIVE"),
+                installed_on=record.get("installed_on"),
+                **{key: record[key] for key in cls.RECORD_FIELDS if key in record},
+            )
+        except ValueError as error:  # invalid status or installed_on date
+            raise ValueError(f"Component '{record['component_id']}': {error}") from None
+
+    @classmethod
+    def _validate_record(cls, record):
+        """Subclass hook for type checks on subclass-specific fields."""
 
     @property
     def age_years(self):
@@ -79,11 +138,22 @@ class HardwareComponent:
 
 
 class Camera(HardwareComponent):
+    RECORD_FIELDS = ("camera_index", "resolution")
+
     def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE",
                  camera_index=0, resolution="1920x1080", installed_on=None):
         super().__init__(component_id, name, workstation_id, connection_status, installed_on)
         self.camera_index = camera_index
         self.resolution = resolution
+
+    @classmethod
+    def _validate_record(cls, record):
+        # A "0x0" resolution is allowed on purpose: it is a faulty camera that
+        # run_diagnostics() should catch, not a malformed record.
+        _check_number(record, "camera_index", "Camera", integer=True)
+        if "resolution" in record and not isinstance(record["resolution"], str):
+            raise ValueError(f"Camera field 'resolution' must be a string like '1920x1080', "
+                             f"got {record['resolution']!r}.")
 
     def run_diagnostics(self):
         """Camera-specific health check: valid resolution and no fault status."""
@@ -103,12 +173,19 @@ class Camera(HardwareComponent):
 
 class Microphone(HardwareComponent):
     MIN_SAMPLE_RATE = 8000
+    RECORD_FIELDS = ("sample_rate", "sensitivity_db")
 
     def __init__(self, component_id, name, workstation_id, connection_status="ACTIVE",
                  sample_rate=44100, sensitivity_db=-40, installed_on=None):
         super().__init__(component_id, name, workstation_id, connection_status, installed_on)
         self.sample_rate = sample_rate
         self.sensitivity_db = sensitivity_db
+
+    @classmethod
+    def _validate_record(cls, record):
+        # A too-low sample rate is allowed on purpose: run_diagnostics() flags it.
+        _check_number(record, "sample_rate", "Microphone")
+        _check_number(record, "sensitivity_db", "Microphone")
 
     def run_diagnostics(self):
         """Microphone-specific health check: sane sample rate and no fault status."""
@@ -129,6 +206,17 @@ class Workstation:
         self.name = name
         self.location = location
         self._components = []
+
+    @classmethod
+    def from_dict(cls, record):
+        """Factory: builds a Workstation (without components) from a parsed
+        JSONL record. Raises ValueError if workstation_id is missing."""
+        _require_fields(record, ("workstation_id",), "Workstation")
+        return cls(
+            workstation_id=record["workstation_id"],
+            name=record.get("workstation_name") or record["workstation_id"],
+            location=record.get("location", ""),
+        )
 
     @property
     def components(self):
@@ -164,11 +252,24 @@ class Workstation:
 # ( חבר 4: רחל )
 
 class Technician:
+    REQUIRED_FIELDS = ("tech_id", "name", "specialty")
+
     def __init__(self, tech_id: str, name: str, specialty: str):
         self.tech_id = tech_id
         self.name = name
         self.specialty = specialty
         self.assigned_requests = []  # רשימת בקשות התחזוקה המשויכות לטכנאי
+
+    @classmethod
+    def from_dict(cls, record):
+        """Factory: builds a Technician from a parsed JSONL record. Raises
+        ValueError if a required field is missing or blank."""
+        _require_fields(record, cls.REQUIRED_FIELDS, "Technician")
+        return cls(
+            tech_id=record["tech_id"],
+            name=record["name"],
+            specialty=record["specialty"],
+        )
 
     def __repr__(self):
         return f"Technician(id='{self.tech_id}', name='{self.name}', specialty='{self.specialty}')"

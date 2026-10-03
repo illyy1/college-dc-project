@@ -5,66 +5,65 @@ from logs/maintenance_requests.jsonl."""
 import json
 import os
 
-from .models import Camera, Microphone, Workstation, Technician
+from .models import HardwareComponent, Workstation, Technician
 
-COMPONENT_CLASSES = {
-    "camera": Camera,
-    "microphone": Microphone,
-}
 
-_KNOWN_WORKSTATION_FIELDS = {"workstation_id", "workstation_name", "location"}
-_KNOWN_COMPONENT_FIELDS = {"component_type", "component_id", "name", "connection_status"}
-_REQUIRED_TECHNICIAN_FIELDS = ("tech_id", "name", "specialty")
+def _parse_record(path, line_number, line):
+    """json.loads one line into a dict, or raises ValueError naming the line."""
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path} line {line_number}: invalid JSON ({error.msg}).") from None
+    if not isinstance(record, dict):
+        raise ValueError(f"{path} line {line_number}: expected a JSON object.")
+    return record
 
 
 def load_workstations_from_jsonl(path):
     """Reads the JSONL file strictly line-by-line (no .read()/.readlines()),
-    parses each record with json.loads, and instantiates the matching
-    Workstation/HardwareComponent objects."""
+    parses each record with json.loads, validates it and instantiates the
+    objects through the Workstation.from_dict / HardwareComponent.from_dict
+    factories. Raises ValueError (with the line number) for a malformed
+    record, a record whose workstation details contradict an earlier line,
+    or a reused component_id."""
     workstations = {}
+    seen_component_ids = set()
 
     with open(path, "r", encoding="utf-8") as data_file:
-        for line in data_file:
+        for line_number, line in enumerate(data_file, start=1):
             line = line.strip()
             if not line:
                 continue
 
-            record = json.loads(line)
-            ws_id = record["workstation_id"]
+            record = _parse_record(path, line_number, line)
+            try:
+                workstation = Workstation.from_dict(record)
+                component = HardwareComponent.from_dict(record)
+            except ValueError as error:
+                raise ValueError(f"{path} line {line_number}: {error}") from None
 
-            if ws_id not in workstations:
-                workstations[ws_id] = Workstation(
-                    workstation_id=ws_id,
-                    name=record.get("workstation_name", ws_id),
-                    location=record.get("location", ""),
+            existing = workstations.setdefault(workstation.workstation_id, workstation)
+            if (existing.name, existing.location) != (workstation.name, workstation.location):
+                raise ValueError(
+                    f"{path} line {line_number}: workstation '{workstation.workstation_id}' "
+                    f"has a different name/location than on an earlier line."
                 )
-
-            component_cls = COMPONENT_CLASSES.get(record["component_type"].lower())
-            if component_cls is None:
-                continue
-
-            extra_fields = {
-                key: value for key, value in record.items()
-                if key not in _KNOWN_WORKSTATION_FIELDS and key not in _KNOWN_COMPONENT_FIELDS
-            }
-
-            component = component_cls(
-                component_id=record["component_id"],
-                name=record.get("name", record["component_id"]),
-                workstation_id=ws_id,
-                connection_status=record.get("connection_status", "ACTIVE"),
-                **extra_fields,
-            )
-            workstations[ws_id].add_component(component)
+            if component.component_id in seen_component_ids:
+                raise ValueError(
+                    f"{path} line {line_number}: duplicate component_id '{component.component_id}'."
+                )
+            seen_component_ids.add(component.component_id)
+            existing.add_component(component)
 
     return list(workstations.values())
 
 
 def load_technicians_from_jsonl(path):
     """Reads technician records line-by-line and returns a dict of
-    tech_id -> Technician. Raises ValueError (with the line number) for a
-    record missing a required field or reusing an existing tech_id, since
-    maintenance calls reference technicians by that id."""
+    tech_id -> Technician built by Technician.from_dict. Raises ValueError
+    (with the line number) for a record missing a required field or reusing
+    an existing tech_id, since maintenance calls reference technicians by
+    that id."""
     technicians = {}
 
     with open(path, "r", encoding="utf-8") as data_file:
@@ -73,18 +72,15 @@ def load_technicians_from_jsonl(path):
             if not line:
                 continue
 
-            record = json.loads(line)
-            missing = [f for f in _REQUIRED_TECHNICIAN_FIELDS if not str(record.get(f, "")).strip()]
-            if missing:
-                raise ValueError(f"{path} line {line_number}: technician is missing {', '.join(missing)}.")
-            if record["tech_id"] in technicians:
-                raise ValueError(f"{path} line {line_number}: duplicate tech_id '{record['tech_id']}'.")
+            record = _parse_record(path, line_number, line)
+            try:
+                technician = Technician.from_dict(record)
+            except ValueError as error:
+                raise ValueError(f"{path} line {line_number}: {error}") from None
+            if technician.tech_id in technicians:
+                raise ValueError(f"{path} line {line_number}: duplicate tech_id '{technician.tech_id}'.")
 
-            technicians[record["tech_id"]] = Technician(
-                tech_id=record["tech_id"],
-                name=record["name"],
-                specialty=record["specialty"],
-            )
+            technicians[technician.tech_id] = technician
 
     return technicians
 
