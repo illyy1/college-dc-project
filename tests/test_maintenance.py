@@ -5,6 +5,7 @@ import pytest
 
 from hardware_monitor.maintenance import MaintenanceDesk, specialty_for_error_type
 from hardware_monitor.models import Technician
+from hardware_monitor.reports import find_unknown_workstation_references
 from hardware_monitor.processing import Alert
 
 
@@ -37,6 +38,21 @@ def test_specialty_for_error_type(error_type, specialty):
 def test_technicians_load_from_data(technicians):
     assert technicians["T1"].name == "Dana Levi"
     assert {t.specialty for t in technicians.values()} >= {"Camera", "Microphone"}
+
+
+def test_technician_coverage_matches_sample_data(technicians, workstations):
+    assert technicians["T1"].workstation_ids == ("WS-101", "WS-102", "WS-103", "WS-104")
+    assert find_unknown_workstation_references(technicians, workstations) == []
+
+
+def test_dangling_workstation_reference_is_reported(technicians, workstations):
+    technicians["T9"] = Technician("T9", "Ghost", "Camera", workstation_ids=["WS-101", "WS-999"])
+    assert find_unknown_workstation_references(technicians, workstations) == [("T9", "WS-999")]
+
+
+def test_technician_rejects_malformed_workstation_ids():
+    with pytest.raises(ValueError):
+        Technician.from_dict({"tech_id": "T9", "name": "Ghost", "specialty": "Camera", "workstation_ids": "WS-101"})
 
 
 def test_calls_go_to_matching_specialist(desk):
