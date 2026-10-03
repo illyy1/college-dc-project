@@ -1,4 +1,4 @@
-chang# AI Usage
+# AI Usage
 
 This file records where AI tools were used in the project, the prompts given,
 how the output was validated, and what was corrected by hand.
@@ -19,11 +19,10 @@ how the output was validated, and what was corrected by hand.
 
 ### Prompts
 
-**`data/sample_data.jsonl` — initial records** (_verbatim — TODO: paste the exact Gemini prompt_)
+**`data/sample_data.jsonl` — initial records**
 
-```
-TODO
-```
+The exact prompt and Gemini's answer are in the
+[shared Gemini chat](https://share.gemini.google/EGqCdrGbD0GU) linked above.
 
 The prompt asked for: one JSON object per line; 8 workstations, each with one
 camera and one microphone (16 records); fields `workstation_id`,
@@ -32,11 +31,9 @@ camera and one microphone (16 records); fields `workstation_id`,
 `sample_rate`/`sensitivity_db` for microphones; a mix of healthy and faulty
 components; and no real people, companies, addresses or devices.
 
-**`data/technicians.jsonl`** (_verbatim — TODO: paste the exact prompt_)
+**`data/technicians.jsonl`**
 
-```
-TODO
-```
+Generated in the same [Gemini chat](https://share.gemini.google/EGqCdrGbD0GU).
 
 The prompt asked for: 4 fictional technicians with `tech_id`, `name` and
 `specialty` (`Camera`, `Microphone` or `General`), at least two sharing a
@@ -116,7 +113,8 @@ and then committed.
 | `1b8803a` | 2026-09-26 | Opus 5.5 | Simulate a busier room without flooding the screen or GitHub. | At most 2 popups on screen; at most one GitHub issue per fault type every 10 minutes; `SILENCE_DURATION` changed from 15 s to 8 s so silence alerts still fire. |
 | `c666b54` | 2026-09-26 | Opus 5.5 | Guarantee at least one alert per minute. | Watchdog that forces a fault after 45 s of quiet. Checked with an 80-hour simulation: the longest gap between popups is 47 s (previously 109 s). |
 | `bd7b8ec` | 2026-09-26 | Opus 5.5 | Spread maintenance calls across all technicians. | Ties go to the technician assigned least recently; the General technician takes overflow. |
-| _(uncommitted)_ | 2026-10-03 | Opus 5.5 | Check the project against the data requirements and fill the gaps. | Added `@classmethod` factories `Workstation.from_dict`, `HardwareComponent.from_dict` (dispatches to `Camera`/`Microphone`) and `Technician.from_dict`; `repository.py` now builds every object through them. Added validation for field types, duplicate component IDs and workstation consistency, with line numbers in errors. Tested against valid data and against 9 deliberately broken records. |
+| `e78a99e` | 2026-10-03 | Opus 5.5 | Check the project against the data requirements and fill the gaps. | Added `@classmethod` factories `Workstation.from_dict`, `HardwareComponent.from_dict` (dispatches to `Camera`/`Microphone`) and `Technician.from_dict`; `repository.py` now builds every object through them. Added validation for field types, duplicate component IDs and workstation consistency, with line numbers in errors. Tested against valid data and against 9 deliberately broken records. |
+| _(this PR)_ | 2026-10-03 | Claude Code | Check the project against the Stage 1 brief and fill the remaining gaps. | Each component subclass now ranks its own alerts (`alert_priority()`), replacing a `component_type == "Camera"` check. Every alert now enters both a FIFO help-desk queue and a technician dispatch heap. Added a named sort-key function, star unpacking, set difference, `Camera.parse_resolution` (`@staticmethod`), fuller generator/context-manager demos, `pyproject.toml`, and the missing README sections. Checked by running `python main.py --no-dashboard`. |
 
 ### Not AI-generated
 - `bb21a63` — `Technician` and `MaintenanceRequest` models and the reporting
