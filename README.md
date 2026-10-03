@@ -22,6 +22,7 @@
 ## Requirements
 - Python **3.10 or newer** (the code uses `X | None` type hints).
 - Tkinter for the live dashboard (included with the standard Python installer on Windows and macOS).
+- The demo (`python main.py --no-dashboard`) needs only the standard library. The packages in `requirements.txt` are used by the live dashboard: `requests` opens GitHub issues, and `python-dotenv` + `cryptography` read the encrypted token from `.env`.
 
 ## Installation
 ```
@@ -57,7 +58,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
-- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians.
+- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians, each listing the workstations from `sample_data.jsonl` they cover.
 - `AI_USAGE.md` — how AI was used. `pyproject.toml`, `requirements.txt`, `.gitignore` — project settings.
 
 ## Object-Oriented Programming (OOP)
@@ -117,8 +118,9 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 
 ## Maintenance Subsystem (team of four extension)
 *   **Business need:** an alert alone doesn't fix anything. Someone has to own each fault, and work must be spread fairly so urgent rooms are not stuck behind one overloaded technician.
-*   **Entities:** `Technician` and `MaintenanceRequest` (`models.py`), loaded from `data/technicians.jsonl` and saved to `logs/maintenance_requests.jsonl`.
+*   **Entities:** `Technician` and `MaintenanceRequest` (`models.py`). Technicians are loaded from `data/technicians.jsonl`; maintenance calls are saved to `logs/maintenance_requests.jsonl`.
+*   **Link between the data files:** each technician record lists the `workstation_ids` it covers, which are the `workstation_id` values in `data/sample_data.jsonl`. For example: `{"tech_id": "T1", "name": "Dana Levi", "specialty": "Camera", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104"]}`.
 *   **Process:** every alert opens a maintenance call (`OPEN`), which is assigned automatically (`IN_PROGRESS`): camera errors go to a Camera technician, microphone errors to a Microphone technician, overflow to a General technician, and ties to whoever was assigned least recently. When the fault clears, the call is `RESOLVED`. Pausing the dashboard for a break does not resolve it.
 *   **Link to the main system:** each call stores the `alert_id`, `workstation_id` and `component_id` of the alert that opened it.
-*   **Data check:** `find_unknown_technician_references` flags calls assigned to a technician who does not exist in `technicians.jsonl`.
+*   **Data checks:** `find_unknown_workstation_references` flags a technician who covers a workstation that does not exist in `sample_data.jsonl`. `find_unknown_technician_references` flags calls assigned to a technician who does not exist in `technicians.jsonl`. The demo runs both on the real data and on a deliberately broken record.
 *   **Reports (`reports.py`):** a workload report of open calls per technician, and a history report of every call with the technician who handled it, also exported to `logs/maintenance_report.csv` (opens in Excel).

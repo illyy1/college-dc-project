@@ -61,6 +61,8 @@ the file name and line number.
 | `component_id` is unique across the file | `load_workstations_from_jsonl` |
 | Lines for the same workstation agree on its name and location | `load_workstations_from_jsonl` |
 | `tech_id` is unique | `load_technicians_from_jsonl` |
+| `workstation_ids` is a list of ids | `Technician.from_dict` |
+| Every workstation a technician covers exists in `sample_data.jsonl` | `find_unknown_workstation_references` |
 | Every technician named in the maintenance log exists in `technicians.jsonl` | `find_unknown_technician_references` (commit `e2ac8ec`) |
 
 Manual checks:
@@ -82,6 +84,9 @@ Manual checks:
 - **Technician specialties:** checked that `specialty` values exactly match
   the component class names (`Camera`, `Microphone`) used to route
   maintenance calls, plus one `General` technician for overflow.
+- **`workstation_ids` added to the technicians later:** the original technician
+  records were not linked to any workstation. Each technician now lists the
+  workstations they cover, checked against `sample_data.jsonl` at run time.
 - **`installed_on` added later** (commit `c9beb7e`): the original records had
   no install date. The dates were added afterwards and checked to be in
   `YYYY-MM-DD` format and not in the future.
@@ -114,7 +119,8 @@ and then committed.
 | `c666b54` | 2026-09-26 | Opus 5.5 | Guarantee at least one alert per minute. | Watchdog that forces a fault after 45 s of quiet. Checked with an 80-hour simulation: the longest gap between popups is 47 s (previously 109 s). |
 | `bd7b8ec` | 2026-09-26 | Opus 5.5 | Spread maintenance calls across all technicians. | Ties go to the technician assigned least recently; the General technician takes overflow. |
 | `e78a99e` | 2026-10-03 | Opus 5.5 | Check the project against the data requirements and fill the gaps. | Added `@classmethod` factories `Workstation.from_dict`, `HardwareComponent.from_dict` (dispatches to `Camera`/`Microphone`) and `Technician.from_dict`; `repository.py` now builds every object through them. Added validation for field types, duplicate component IDs and workstation consistency, with line numbers in errors. Tested against valid data and against 9 deliberately broken records. |
-| _(this PR)_ | 2026-10-03 | Claude Code | Check the project against the Stage 1 brief and fill the remaining gaps. | Each component subclass now ranks its own alerts (`alert_priority()`), replacing a `component_type == "Camera"` check. Every alert now enters both a FIFO help-desk queue and a technician dispatch heap. Added a named sort-key function, star unpacking, set difference, `Camera.parse_resolution` (`@staticmethod`), fuller generator/context-manager demos, `pyproject.toml`, and the missing README sections. Checked by running `python main.py --no-dashboard`. |
+| `fd532cc`–`e102cb1` (PR #25) | 2026-10-03 | Claude Code | Check the project against the Stage 1 brief and fill the remaining gaps. | Each component subclass now ranks its own alerts (`alert_priority()`), replacing a `component_type == "Camera"` check. Every alert now enters both a FIFO help-desk queue and a technician dispatch heap. Added a named sort-key function, star unpacking, set difference, `Camera.parse_resolution` (`@staticmethod`), fuller generator/context-manager demos, `pyproject.toml`, and the missing README sections. Checked by running `python main.py --no-dashboard`. |
+| `25b51d5`, `4d60957` | 2026-10-03 | Claude Code | Double-check the project against the Stage 1 brief and fix what is only partly met. | `config.py` imports `python-dotenv`/`cryptography` only when the dashboard needs the token, so the demo runs on plain Python. Technicians now list the workstations they cover, with a check against `sample_data.jsonl`. Checked by running `python main.py --no-dashboard` with both packages blocked, and by loading a technician with a malformed `workstation_ids`. |
 
 ### Not AI-generated
 - `bb21a63` — `Technician` and `MaintenanceRequest` models and the reporting

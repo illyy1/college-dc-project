@@ -1,11 +1,6 @@
 import os
 import socket
 
-from dotenv import load_dotenv
-from cryptography.fernet import Fernet
-
-load_dotenv()
-
 # --- Live monitoring tuning ---
 SILENCE_THRESHOLD = 0.01
 SILENCE_DURATION = 8
@@ -32,7 +27,14 @@ DEMO_MAINTENANCE_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "demo_maintenanc
 
 
 def get_github_token():
-    """Decrypts the GitHub token from .env. Returns None if unavailable."""
+    """Decrypts the GitHub token from .env. Returns None if unavailable.
+
+    python-dotenv and cryptography are imported here rather than at the top,
+    because only the live dashboard needs them: the demo runs without them."""
+    from dotenv import load_dotenv
+    from cryptography.fernet import Fernet
+
+    load_dotenv()
     encrypted_token = os.getenv("GITHUB_TOKEN")
     crypt_key = os.getenv("ENCRYPTION_KEY")
 
