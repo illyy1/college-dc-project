@@ -5,8 +5,7 @@ how the output was validated, and what was corrected by hand.
 
 > **Note on prompts:** prompts marked _verbatim_ are the exact text sent to
 > the tool. Prompts marked _summary_ are reconstructed from the commit
-> messages, because the original chat text was not saved. Replace a summary
-> with the exact prompt if you still have it.
+> messages, because the original chat text was not saved.
 
 ---
 

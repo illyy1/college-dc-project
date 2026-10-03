@@ -30,9 +30,23 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows  (macOS/Linux: source .venv/bin/activate)
 pip install -r requirements.txt
 ```
-`pyproject.toml` lists the same dependencies, so `pip install -e .` works too.
+Alternatively, install the project as a package with `pip install -e .`. `pyproject.toml` describes the project as an installable Python package: its name (`room-hardware-monitor`), version, minimum Python version, dependencies and the `hardware_monitor` package. The `-e` (editable) flag means code changes take effect without reinstalling. `python main.py` works the same either way.
+
+`requirements.txt` and `pyproject.toml` list the same dependencies. If you add or remove one, update both files.
 
 To build a standalone executable, also install PyInstaller: `pip install pyinstaller`
+
+### GitHub alerts (optional)
+The live dashboard can open a GitHub issue for each new fault. This needs a `.env` file in the project root (it is in `.gitignore` and is never committed):
+```
+GITHUB_TOKEN=<GitHub personal access token, encrypted with Fernet>
+ENCRYPTION_KEY=<the Fernet key used to encrypt it>
+```
+To create the two values:
+```
+python -c "from cryptography.fernet import Fernet; k = Fernet.generate_key(); print('ENCRYPTION_KEY=' + k.decode()); print('GITHUB_TOKEN=' + Fernet(k).encrypt(b'<your token>').decode())"
+```
+Without `.env`, everything still runs: the dashboard prints a warning and shows alerts and maintenance calls on screen, but posts nothing to GitHub.
 
 ## Running the project
 | Command | What it does |
@@ -99,9 +113,16 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 *   **Record structure:** one JSON object per line, for example:
     `{"workstation_id": "WS-101", "workstation_name": "Front Desk PC", "location": "Main Lobby", "component_type": "camera", "component_id": "CAM-101", "name": "Lobby Cam", "connection_status": "ACTIVE", "camera_index": 0, "resolution": "1920x1080", "installed_on": "2021-02-15"}`
     Microphones have `sample_rate` and `sensitivity_db` instead of `camera_index` and `resolution`.
-*   **Loading:** `repository.py` opens the file with `with open(..., encoding="utf-8")` and reads it one line at a time with `for line in file` (never `.read()` or `.readlines()`). Each line becomes a `dict` through `json.loads`, then an object through `Workstation.from_dict` and `HardwareComponent.from_dict`.
-*   **Validation:** invalid JSON, missing fields, an unknown component type, an illegal status or date, wrong field types, a duplicate `component_id` and contradicting workstation details all raise `ValueError` with the file name and line number.
-*   **Logs:** alerts are appended to `logs/hardware_history.jsonl`. The demo writes its alerts to `logs/demo_hardware_history.jsonl` instead (reset every run), so they never mix with the real history.
+*   **Loading:** `repository.py` opens the file with `with open(..., encoding="utf-8")` and reads it one line at a time with `for line in file` (never `.read()` or `.readlines()`). Each line becomes a `dict` through `json.loads`, then an object through `Workstation.from_dict` and `HardwareComponent.from_dict` (which builds a `Camera` or `Microphone` from `component_type`). Technicians are loaded the same way through `Technician.from_dict`.
+*   **Validation:** invalid JSON, missing fields, an unknown component type, an illegal status or date, wrong field types, a duplicate `component_id`, contradicting workstation details and a duplicate `tech_id` all raise `ValueError` with the file name and line number. Deliberately faulty values such as a `0x0` resolution or a 4000 Hz sample rate are accepted, because they are test cases for `run_diagnostics()` to catch.
+*   **Output files** (all in `logs/`, not committed):
+
+    | File | Written by | Contents |
+    |---|---|---|
+    | `hardware_history.jsonl` | dashboard | every alert, one per line |
+    | `maintenance_requests.jsonl` | dashboard | every change to a maintenance call (append-only; the last line per `request_id` is its current state) |
+    | `maintenance_report.csv` | all three commands | maintenance history report for Excel, built from `maintenance_requests.jsonl` |
+    | `demo_hardware_history.jsonl`, `demo_maintenance_requests.jsonl` | demo | the demo's own alerts and calls, reset every run so they never mix with the real history |
 
 ## Iterators, Generators & Lazy Pipeline
 *   **Iterable and Iterator:** `AlertHistory` stores the alerts and implements `__iter__`, which returns a **new** `ActiveAlertIterator` every time. The iterator keeps its own position, implements `__iter__` and `__next__`, skips resolved alerts (its special rule, stated in its name) and raises `StopIteration` at the end. The demo shows two administrators walking the same history independently.
