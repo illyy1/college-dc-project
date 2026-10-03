@@ -57,9 +57,17 @@ def test_camera_calls_are_balanced_between_camera_technicians(desk):
 
 def test_resolved_calls_no_longer_count_as_load(desk):
     first = desk.open_request_for_alert(camera_alert())
-    desk.resolve_request(first.request_id)
     second = desk.open_request_for_alert(camera_alert())
-    assert second.assigned_tech_id == first.assigned_tech_id
+    desk.resolve_request(first.request_id)
+    third = desk.open_request_for_alert(camera_alert())
+    assert third.assigned_tech_id == first.assigned_tech_id != second.assigned_tech_id
+
+
+def test_overflows_to_general_when_specialists_are_busy(desk):
+    desk.open_request_for_alert(camera_alert())
+    desk.open_request_for_alert(camera_alert())
+    overflow = desk.open_request_for_alert(camera_alert())
+    assert desk.technician_for(overflow).specialty == "General"
 
 
 def test_falls_back_to_least_busy_when_no_specialist(tmp_path):
