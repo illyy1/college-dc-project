@@ -43,8 +43,8 @@ def run_demo():
     _header(7, "Generator yielding disconnected components")
     demo_generator(workstations)
 
-    _header(8, "3-step lazy pipeline: disconnected -> older than 3 years -> id (first 3 only)")
-    demo_lazy_pipeline(workstations, limit=3, min_age_years=3)
+    _header(8, "3-step lazy pipeline: disconnected -> older than 3 years -> id (first 2 only)")
+    demo_lazy_pipeline(workstations, limit=2, min_age_years=3)
 
     _header(9, "Maintenance calls opened and assigned to technicians")
     demo_maintenance_workflow(alert_manager)
@@ -81,6 +81,14 @@ def demo_encapsulation_and_context_manager(workstations):
         print(f"  Rejected illegal status for {sample.component_id}: {error}")
 
     spare = Camera("CAM-SPARE", "Spare Cam", "BENCH")
+    print("  Normal run:")
+    with DiagnosticConnection(spare) as tested:
+        print(f"  Testing {tested.component_id} (status {tested.connection_status}) -> "
+              f"healthy={tested.run_diagnostics()}")
+    print(f"  After a normal run: status {spare.connection_status}, "
+          f"free ports {DiagnosticConnection.available_ports()}")
+
+    print("  Run that raises inside the with block:")
     connection = DiagnosticConnection(spare)
     try:
         with connection:
@@ -97,28 +105,49 @@ def demo_data_structures(alert_manager):
     print("  Alerts grouped by workstation (dict):")
     for ws_id, alerts in alert_manager.group_by_workstation().items():
         print(f"    {ws_id}: {len(alerts)} alert(s)")
-    print("  Alerts sorted by priority (sorted + lambda key):")
-    sorted_alerts = alert_manager.sorted_by_priority()
-    for alert in sorted_alerts:
+    print("  Alerts sorted by priority, then time (sorted + lambda returning a tuple):")
+    for alert in alert_manager.sorted_by_priority():
         print(f"    {alert}")
+    print("  Alerts sorted by workstation, then priority (sorted + named key function):")
+    for alert in alert_manager.sorted_by_workstation():
+        print(f"    #{alert.alert_id} {alert.workstation_id} priority {alert.priority}")
 
-    for alert in sorted_alerts[:2]:
-        alert_manager.acknowledge_alert(alert.alert_id)
-    if len(sorted_alerts) > 1:
-        alert_manager.unacknowledge_alert(sorted_alerts[1].alert_id)
-    print("  Acknowledged alert ids (set.add, then set.discard):", alert_manager.acknowledged_alert_ids)
-    common = alert_manager.critical_and_routine_common_error_types()
-    print("  Error types in both the critical and routine queues (set &):",
-          common or "none — critical and routine faults are separate issues")
+    most_urgent, the_rest = alert_manager.most_urgent_and_rest()
+    print(f"  Star unpacking: handle #{most_urgent.alert_id if most_urgent else '-'} now, "
+          f"{len(the_rest)} can wait")
+
+    print("  Workstations with no camera AND no microphone (set &):",
+          alert_manager.workstations_without_audio_and_video() or "none")
 
 
 def demo_queues(alert_manager):
-    critical = alert_manager.process_next_critical()
-    print(f"  Next critical alert (heapq):     {critical}")
-    print(f"  Next routine alert (deque FIFO): {alert_manager.process_next_maintenance()}")
-    if critical is not None:
-        critical.resolved = True
-        print(f"  Critical alert #{critical.alert_id} fixed on site and marked resolved.")
+    print("  Help desk acknowledges alerts in arrival order (deque.popleft, FIFO):")
+    for _ in range(3):
+        alert = alert_manager.acknowledge_next()
+        if alert is None:
+            break
+        print(f"    acknowledged #{alert.alert_id} (priority {alert.priority})")
+    print("  Acknowledged ids (set.add):", sorted(alert_manager.acknowledged_alert_ids))
+    if alert_manager.acknowledged_alert_ids:
+        undone = max(alert_manager.acknowledged_alert_ids)
+        alert_manager.unacknowledge_alert(undone)
+        alert_manager.unacknowledge_alert(undone)  # discard again: no error
+        print(f"  Acknowledgement of #{undone} undone twice with set.discard (no KeyError)")
+    print("  Still to acknowledge (set difference):", sorted(alert_manager.unacknowledged_alert_ids()))
+
+    print("  Technicians dispatched by urgency (heapq.heappop, lower number = more urgent):")
+    first_dispatched = None
+    while (alert := alert_manager.dispatch_next()) is not None:
+        first_dispatched = first_dispatched or alert
+        print(f"    dispatch #{alert.alert_id} priority {alert.priority} ({alert.component_id})")
+    print(f"  Dispatch queue empty: dispatch_next() returned {alert_manager.dispatch_next()}")
+    while alert_manager.acknowledge_next() is not None:
+        pass
+    print(f"  Intake queue empty: acknowledge_next() returned {alert_manager.acknowledge_next()}")
+
+    if first_dispatched is not None:
+        first_dispatched.resolved = True
+        print(f"  Alert #{first_dispatched.alert_id} fixed on site and marked resolved.")
 
 
 def demo_iterators(alert_manager):
@@ -148,8 +177,15 @@ def demo_iterators(alert_manager):
 
 
 def demo_generator(workstations):
-    for component in iter_disconnected_components(workstations):
-        print(f"  Disconnected: {component}")
+    disconnected = iter_disconnected_components(workstations)
+    print(f"  Created {type(disconnected).__name__}; no component has been checked yet")
+    print(f"  next(): {next(disconnected)}")
+    print("  for loop continues from where next() stopped:")
+    for component in disconnected:
+        print(f"    {component}")
+    print(f"  Second pass over the same generator yields {len(list(disconnected))} items (exhausted)")
+    fresh = iter_disconnected_components(workstations)
+    print(f"  A new generator starts over: first item is {next(fresh).component_id}")
 
 
 def demo_lazy_pipeline(workstations, limit, min_age_years):

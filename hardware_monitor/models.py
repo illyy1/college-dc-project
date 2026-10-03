@@ -130,6 +130,11 @@ class HardwareComponent:
         """Overridden by subclasses. Returns True if the component is healthy."""
         raise NotImplementedError("Subclasses must implement run_diagnostics().")
 
+    def alert_priority(self):
+        """Overridden by subclasses: how urgent an alert about this failed
+        component is (lower number = more urgent)."""
+        raise NotImplementedError("Subclasses must implement alert_priority().")
+
     def __repr__(self):
         return f"<{self.component_type} id={self.component_id} status={self.connection_status}>"
 
@@ -155,17 +160,27 @@ class Camera(HardwareComponent):
             raise ValueError(f"Camera field 'resolution' must be a string like '1920x1080', "
                              f"got {record['resolution']!r}.")
 
+    @staticmethod
+    def parse_resolution(resolution):
+        """'1920x1080' -> (1920, 1080), or None if it is not a usable resolution."""
+        try:
+            width, height = (int(part) for part in resolution.lower().split("x"))
+        except (ValueError, AttributeError):
+            return None
+        return (width, height) if width > 0 and height > 0 else None
+
     def run_diagnostics(self):
         """Camera-specific health check: valid resolution and no fault status."""
-        try:
-            width, height = (int(part) for part in self.resolution.lower().split("x"))
-            resolution_ok = width > 0 and height > 0
-        except (ValueError, AttributeError):
-            resolution_ok = False
-
+        resolution_ok = self.parse_resolution(self.resolution) is not None
         healthy = resolution_ok and not self._has_fault_status()
         self.connection_status = "ACTIVE" if healthy else "DISCONNECTED"
         return healthy
+
+    def alert_priority(self):
+        """1 = the camera itself is lost (meeting has no video at all);
+        2 = it is connected but misconfigured (bad resolution), which can be
+        fixed remotely."""
+        return 2 if self.parse_resolution(self.resolution) is None else 1
 
     def __str__(self):
         return f"{super().__str__()} [camera #{self.camera_index}, {self.resolution}]"
@@ -189,10 +204,17 @@ class Microphone(HardwareComponent):
 
     def run_diagnostics(self):
         """Microphone-specific health check: sane sample rate and no fault status."""
-        rate_ok = isinstance(self.sample_rate, (int, float)) and self.sample_rate >= self.MIN_SAMPLE_RATE
-        healthy = rate_ok and not self._has_fault_status()
+        healthy = self._sample_rate_ok() and not self._has_fault_status()
         self.connection_status = "ACTIVE" if healthy else "DISCONNECTED"
         return healthy
+
+    def alert_priority(self):
+        """Audio faults rank below video faults: 3 = the microphone is lost;
+        4 = it is connected but misconfigured (sample rate too low)."""
+        return 4 if not self._sample_rate_ok() else 3
+
+    def _sample_rate_ok(self):
+        return isinstance(self.sample_rate, (int, float)) and self.sample_rate >= self.MIN_SAMPLE_RATE
 
     def __str__(self):
         return f"{super().__str__()} [{self.sample_rate} Hz, {self.sensitivity_db} dB]"
