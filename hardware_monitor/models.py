@@ -276,21 +276,28 @@ class Workstation:
 class Technician:
     REQUIRED_FIELDS = ("tech_id", "name", "specialty")
 
-    def __init__(self, tech_id: str, name: str, specialty: str):
+    def __init__(self, tech_id: str, name: str, specialty: str, workstation_ids=()):
         self.tech_id = tech_id
         self.name = name
         self.specialty = specialty
+        self.workstation_ids = tuple(workstation_ids)  # workstations (from sample_data.jsonl) this technician covers
         self.assigned_requests = []  # רשימת בקשות התחזוקה המשויכות לטכנאי
 
     @classmethod
     def from_dict(cls, record):
         """Factory: builds a Technician from a parsed JSONL record. Raises
-        ValueError if a required field is missing or blank."""
+        ValueError if a required field is missing or blank, or if
+        workstation_ids is not a list of ids."""
         _require_fields(record, cls.REQUIRED_FIELDS, "Technician")
+        workstation_ids = record.get("workstation_ids", [])
+        if not isinstance(workstation_ids, list) or not all(isinstance(w, str) for w in workstation_ids):
+            raise ValueError(f"Technician '{record['tech_id']}': workstation_ids must be a list of "
+                             f"workstation ids like [\"WS-101\"], got {workstation_ids!r}.")
         return cls(
             tech_id=record["tech_id"],
             name=record["name"],
             specialty=record["specialty"],
+            workstation_ids=workstation_ids,
         )
 
     def __repr__(self):

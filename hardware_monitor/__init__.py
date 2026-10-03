@@ -27,6 +27,7 @@ from .repository import (
 from .reports import (
     validate_and_assign_request,
     find_unknown_technician_references,
+    find_unknown_workstation_references,
     generate_technician_workload_report,
     generate_maintenance_history_report,
     export_maintenance_history_csv,
@@ -52,6 +53,7 @@ __all__ = [
     "load_maintenance_history",
     "validate_and_assign_request",
     "find_unknown_technician_references",
+    "find_unknown_workstation_references",
     "generate_technician_workload_report",
     "generate_maintenance_history_report",
     "export_maintenance_history_csv",

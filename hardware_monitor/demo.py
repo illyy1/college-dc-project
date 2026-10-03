@@ -10,11 +10,12 @@ from .config import SAMPLE_DATA_PATH, TECHNICIANS_PATH, DEMO_LOG_PATH, DEMO_MAIN
 from .context_managers import DiagnosticConnection
 from .iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
 from .maintenance import MaintenanceDesk
-from .models import Camera, MaintenanceRequest
+from .models import Camera, MaintenanceRequest, Technician
 from .processing import AlertManager, run_diagnostics_and_log_alerts
 from .reports import (
     validate_and_assign_request,
     find_unknown_technician_references,
+    find_unknown_workstation_references,
     generate_technician_workload_report,
 )
 from .repository import load_workstations_from_jsonl, load_technicians_from_jsonl, load_maintenance_history
@@ -47,7 +48,7 @@ def run_demo():
     demo_lazy_pipeline(workstations, limit=2, min_age_years=3)
 
     _header(9, "Maintenance calls opened and assigned to technicians")
-    demo_maintenance_workflow(alert_manager)
+    demo_maintenance_workflow(alert_manager, workstations)
     print("=" * 70)
 
 
@@ -206,7 +207,7 @@ def demo_lazy_pipeline(workstations, limit, min_age_years):
           f"(last: {inspected[-1]}); the rest were never touched.")
 
 
-def demo_maintenance_workflow(alert_manager):
+def demo_maintenance_workflow(alert_manager, workstations):
     """Loads the technicians, opens a maintenance call for every unresolved
     alert (auto-assigned by specialty and workload, and saved to the
     demo maintenance log), resolves one, and prints the workload report.
@@ -216,6 +217,16 @@ def demo_maintenance_workflow(alert_manager):
     if os.path.exists(DEMO_MAINTENANCE_LOG_PATH):
         os.remove(DEMO_MAINTENANCE_LOG_PATH)
     technicians = load_technicians_from_jsonl(TECHNICIANS_PATH)
+
+    # cross-file validation: every workstation a technician covers must exist in sample_data.jsonl
+    unknown_coverage = find_unknown_workstation_references(technicians, workstations)
+    print(f"  Cross-file check: {len(technicians)} technician(s) cover "
+          f"{len({ws for t in technicians.values() for ws in t.workstation_ids})} workstation(s), "
+          f"{len(unknown_coverage)} unknown workstation id(s)")
+    tampered_tech = Technician("T-TAMPERED", "Test Tech", "General", workstation_ids=["WS-101", "WS-999"])
+    for tech_id, ws_id in find_unknown_workstation_references({tampered_tech.tech_id: tampered_tech}, workstations):
+        print(f"  Cross-file check flagged {tech_id}: workstation '{ws_id}' is not in sample_data.jsonl")
+
     maintenance_desk = MaintenanceDesk(technicians, log_path=DEMO_MAINTENANCE_LOG_PATH,
                                        report_csv_path=None)
 
