@@ -18,7 +18,7 @@ from .iterators import (
     iter_disconnected_components,
     lazy_disconnected_pipeline,
 )
-from .context_managers import HardwareDiagnosticSession
+from .context_managers import DiagnosticConnection
 from .repository import (
     load_workstations_from_jsonl,
     load_technicians_from_jsonl,
@@ -26,12 +26,12 @@ from .repository import (
 )
 from .reports import (
     validate_and_assign_request,
+    find_unknown_technician_references,
     generate_technician_workload_report,
     generate_maintenance_history_report,
     export_maintenance_history_csv,
 )
 from .maintenance import MaintenanceDesk
-from .dashboard import HardwareMonitorApp
 
 __all__ = [
     "HardwareComponent",
@@ -46,14 +46,23 @@ __all__ = [
     "ActiveAlertIterator",
     "iter_disconnected_components",
     "lazy_disconnected_pipeline",
-    "HardwareDiagnosticSession",
+    "DiagnosticConnection",
     "load_workstations_from_jsonl",
     "load_technicians_from_jsonl",
     "load_maintenance_history",
     "validate_and_assign_request",
+    "find_unknown_technician_references",
     "generate_technician_workload_report",
     "generate_maintenance_history_report",
     "export_maintenance_history_csv",
     "MaintenanceDesk",
     "HardwareMonitorApp",
 ]
+
+
+def __getattr__(name):
+    # the dashboard needs tkinter, so it is only imported when actually used
+    if name == "HardwareMonitorApp":
+        from .dashboard import HardwareMonitorApp
+        return HardwareMonitorApp
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

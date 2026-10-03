@@ -1,65 +1,124 @@
-
 # Room Hardware Monitor (IT Asset & Alert System)
 
-## Prerequisites & Installation
-Install the required dependencies using the following command in your PyCharm terminal:
-`pip install -r requirements.txt`
+## הצעת הפרויקט (Project Proposal)
+*   **Name and description:** Room Hardware Monitor, an IT information system that tracks the cameras and microphones in meeting rooms and workstations, raises alerts when they fail, and sends a technician to fix them.
+*   **Business need:** Meeting rooms often discover a dead camera or microphone only when a meeting starts. Faults are reported late, by phone, and nobody knows which room is affected or who is handling it.
+*   **Users and roles:**
+    *   *IT help-desk administrator:* manages the hardware inventory and acknowledges every incoming alert.
+    *   *Technician:* receives maintenance calls that match their specialty (Camera, Microphone or General) and marks them resolved.
+    *   *Automated monitor (system actor):* runs diagnostics on each component and creates alerts.
+*   **Main business process:** A diagnostic check or the live monitor detects a failed component. An alert is created, the help desk acknowledges it in arrival order, and a maintenance call is opened and assigned to the least-busy technician with the right specialty, most urgent fault first. The process ends when the technician resolves the call and the component is back to `ACTIVE`.
+*   **Information flow:** In: the inventory of workstations and components (`data/sample_data.jsonl`), the technician list (`data/technicians.jsonl`) and live diagnostic results. The monitor creates alerts; the maintenance desk creates and updates maintenance calls. Out: an alert history log, a maintenance call history, a technician workload report and a CSV report for management.
+*   **Business value:** Faults are found before the meeting, urgent ones are fixed first, and work is spread evenly across technicians. This cuts room downtime and makes it clear who owns each fault.
+*   **Entities and relationships:**
+    *   A *Workstation* contains many *HardwareComponents* (composition). A component is either a *Camera* or a *Microphone* (inheritance).
+    *   A failed component produces one or more *Alerts*.
+    *   Each alert opens one *MaintenanceRequest*, which is assigned to one *Technician*. A technician handles many requests.
+*   **Use cases:**
+    1. A room's camera disconnects and its microphone has a bad setting. The system dispatches the technician to the camera first, because a lost camera outranks a misconfigured microphone.
+    2. An administrator wants the IDs of the first two old (3+ years) disconnected components, to decide what to replace, without scanning the whole fleet.
+*   **Future expansion:** Alert when a monitor disconnects, when the system is muted, or when the wrong default microphone is selected. Swap the synthetic signals for real hardware input (`sounddevice`/`numpy` for the microphone, `opencv-python` for the camera).
+
+## Requirements
+- Python **3.10 or newer** (the code uses `X | None` type hints).
+- Tkinter for the live dashboard (included with the standard Python installer on Windows and macOS).
+
+## Installation
+```
+python -m venv .venv
+.venv\Scripts\activate          # Windows  (macOS/Linux: source .venv/bin/activate)
+pip install -r requirements.txt
+```
+`pyproject.toml` lists the same dependencies, so `pip install -e .` works too.
 
 To build a standalone executable, also install PyInstaller: `pip install pyinstaller`
 
 ## Running the project
-`python main.py` runs the OOP information-system demonstration (data loading, queues, iterators, lazy pipeline, context manager) and then launches the live monitoring dashboard, which drives its microphone/camera alerts off synthetic simulated signals (see `hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behavior can be tested on demand.
+| Command | What it does |
+|---|---|
+| `python main.py` | Runs the step-by-step demonstration, then opens the live monitoring dashboard. When the dashboard closes, it prints and exports the maintenance history report. |
+| `python main.py --no-dashboard` | Runs the demonstration and the history report from start to finish without opening a window. |
+| `python main.py --report` | Only prints the maintenance history report and exports it to `logs/maintenance_report.csv`. |
+
+The dashboard drives its microphone/camera alerts off synthetic signals (`hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behaviour can be tested on demand.
 
 ## Project layout
-- `main.py` — orchestrator only; no class definitions.
-- `hardware_monitor/models.py` — `HardwareComponent`, `Camera`, `Microphone`, `Workstation` (OOP).
-- `hardware_monitor/processing.py` — `Alert`, `AlertManager` (list/dict/set, deque, heapq, comprehensions, sorting).
-- `hardware_monitor/repository.py` — loads `data/sample_data.jsonl` line-by-line into objects.
-- `hardware_monitor/iterators.py` — `AlertHistory`/`ActiveAlertIterator`, a generator, and a 3-step lazy pipeline.
-- `hardware_monitor/context_managers.py` — `HardwareDiagnosticSession`.
-- `hardware_monitor/dashboard.py` — the live Tkinter UI, mic/camera monitoring threads, and GitHub alerting.
-- `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signal generators used by the dashboard for testing.
-- `hardware_monitor/maintenance.py` — `MaintenanceDesk`: opens a maintenance call for each alert, assigns it to the least-busy technician with the matching specialty, and saves every change.
-- `hardware_monitor/reports.py` — technician workload report, maintenance history report, CSV export.
+The course template's `project_name/` package is named `hardware_monitor/` here.
+- `main.py` — entry point only: reads the command-line flags and calls the package. No business classes.
+- `hardware_monitor/__init__.py` — package definition and public API.
+- `hardware_monitor/models.py` — `HardwareComponent`, `Camera`, `Microphone`, `Workstation`, `Technician`, `MaintenanceRequest` (OOP, validation, `from_dict` factories).
+- `hardware_monitor/repository.py` — loads `data/*.jsonl` line by line into objects and validates them.
+- `hardware_monitor/processing.py` — `Alert`, `AlertManager` (list, dict, set, deque, heapq, comprehensions, sorting) and the polymorphic diagnostics sweep.
+- `hardware_monitor/iterators.py` — `AlertHistory`/`ActiveAlertIterator`, a generator and the 3-step lazy pipeline.
+- `hardware_monitor/context_managers.py` — `DiagnosticConnection`.
+- `hardware_monitor/demo.py` — the step-by-step demonstration that `main.py` runs, one function per requirement.
+- `hardware_monitor/maintenance.py` — `MaintenanceDesk`: opens a maintenance call for each alert, assigns it to a technician and saves every change.
+- `hardware_monitor/reports.py` — technician workload report, maintenance history report, CSV export, cross-file technician validation.
+- `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting.
+- `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
-
-## Maintenance calls & reports
-- Technicians are loaded from `data/technicians.jsonl` (edit this file to add or change technicians).
-- Every alert (from the demo and from the live dashboard) opens a maintenance call that is assigned automatically: camera errors go to a Camera technician, microphone errors to a Microphone technician, and if no specialist exists the call goes to whoever has the fewest open calls. The dashboard popup and the GitHub issue show the call number and the assigned technician. When the fault clears, the call is marked resolved (pausing for a break does not resolve it).
-- Every call and status change is saved to `logs/maintenance_requests.jsonl`.
-- `python main.py --report` prints the history report (every call, open and resolved, with the technician who handled it) and exports it to `logs/maintenance_report.csv` (opens in Excel). The same report is also printed automatically when the dashboard is closed.
-
-## הצעת הפרויקט (Project Proposal)
-*   **Description:** An IT information system that manages computer workstations and tracks hardware components to process automated alerts for failures.
-*   **Business Need & Value:** Centralizes hardware inventory and categorizes alerts by priority, drastically reducing downtime and troubleshooting time in meeting rooms.
-*   **Users:** IT Administrator (manages inventory/alerts) and Automated System Monitor (generates real-time alerts).
-*   **Process & Data Flow:** Component fails -> Alert generated and placed in priority queue -> IT Admin processes alert -> Status updated. Synthetic data is loaded from a `.jsonl` file.
-*   **Primary Use Cases:** 1. Prioritizing critical camera disconnections over standard microphone silence. 2. Filtering "active" alerts by specific workstations using lazy evaluation.
-*   **Future Expansion:**
-    *   Adding capabilities to send alerts when a monitor disconnects, when the system is set to mute, or when the wrong microphone is set as the default communication device.
-    *   Swapping the dashboard's synthetic mic/camera signal generators (`hardware_monitor/synthetic_sources.py`) back for real-time hardware monitoring — reading actual microphone input via `sounddevice`/`numpy` (RMS volume against `SILENCE_THRESHOLD`) and polling the physical camera via `opencv-python` (`cv2.VideoCapture`) — once physical devices are available for continuous testing.
+- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians.
+- `AI_USAGE.md` — how AI was used. `pyproject.toml`, `requirements.txt`, `.gitignore` — project settings.
 
 ## Object-Oriented Programming (OOP)
-*   **Composition (הרכבה):** The `Workstation` class contains and manages a list of `HardwareComponent` objects, providing methods to add/remove devices[cite: 1].
-*   **Inheritance (הורשה):** `HardwareComponent` is the base class. `Camera` and `Microphone` inherit from it to add specific attributes[cite: 1].
-*   **Polymorphism (פולימורפיזם):** A `run_diagnostics()` method is defined in the base class and overridden in the children, allowing the system to test all components without `if/elif` type checks[cite: 1].
+*   **Composition (הרכבה):** `Workstation` contains a list of `HardwareComponent` objects and offers `add_component`, `remove_component`, `find_component` and `run_all_diagnostics`.
+*   **Inheritance (הורשה):** `HardwareComponent` is the base class. `Camera` and `Microphone` are kinds of component and add their own fields (resolution, sample rate).
+*   **Polymorphism (פולימורפיזם):** `run_diagnostics()` and `alert_priority()` are defined in the base class and overridden in each subclass. The diagnostics sweep calls them through the common type, with no `if/elif` on the object's class. A camera fault outranks a microphone fault, and a lost device outranks a misconfigured one.
+*   **Validation:** `connection_status` and `MaintenanceRequest.status` are properties that raise `ValueError` with an explanation for an illegal value. The `from_dict` factories reject missing fields and wrong types.
+*   **Other tools:** `@classmethod` factories (`from_dict`), a `@staticmethod` (`Camera.parse_resolution`), a computed property (`age_years`) and `__len__` on `AlertHistory`.
 
 ## מבני נתונים (Data Structures)
-*   **`list` & `tuple`:** Used to store the ordered history of alerts and sort via multiple fields[cite: 1].
-*   **`dict`:** Groups components by `Workstation` for fast O(1) lookups[cite: 1].
-*   **`set`:** Tracks unique error types, preventing duplicate alert categories[cite: 1].
-*   **`deque` (Queue):** Processes routine maintenance requests in a strict First-In-First-Out (FIFO) order[cite: 1].
-*   **`heapq` (Priority Queue):** Ensures critical alerts bypass standard alerts (e.g., lower number = higher priority)[cite: 1].
-*   **Comprehensions:** Uses list, dict, and set comprehensions for clean data filtering and indexing[cite: 1].
+| Need | Structure chosen | Why it fits |
+|---|---|---|
+| Full alert history in the order alerts happened | `list` (`AlertManager.alert_history`) | Ordered, changeable, duplicates allowed. |
+| Heap entry for one alert | `tuple` `(priority, arrival_no, alert)` | A short fixed record. The arrival number breaks ties, so two `Alert` objects are never compared. |
+| Alerts the help desk has acknowledged | `set` (`acknowledged_alert_ids`) | Unique IDs and fast `in` checks. `discard` is used because undoing a missing acknowledgement should not raise (unlike `remove`). |
+| Rooms with both camera and microphone down | `set` intersection (`&`) | Workstations in both the camera-fault and microphone-fault sets. |
+| Alerts still waiting for acknowledgement | `set` difference (`-`) | All alert IDs minus the acknowledged ones. |
+| Find a technician by ID | `dict` `tech_id -> Technician` | Lookup by key. A duplicate ID in the file raises `ValueError` instead of overwriting. |
+| Find a maintenance call by ID | `dict` `request_id -> MaintenanceRequest` (`MaintenanceDesk.requests`) | Lookup by key. |
+| Alerts per workstation, calls per technician | `dict` grouping / counting | `group_by_workstation()` and the per-technician totals in the history report (`dict.get(key, 0)` because a new technician has no count yet). |
+| Help-desk intake | `deque` FIFO (`intake_queue`) | Alerts are acknowledged in arrival order with `append`/`popleft`, so the oldest alert is never starved by newer ones and every user gets a fair, predictable answer. An empty queue returns `None` instead of crashing. |
+| Technician dispatch | `heapq` (`_dispatch_heap`) | Urgency beats arrival time: **a lower number means a more urgent fault** (1 lost camera, 2 misconfigured camera, 3 lost microphone, 4 misconfigured microphone). Only `heappop` is used to read it, because the internal list is not fully sorted. |
+
+**Comprehensions, unpacking and sorting** (all in `processing.py`): a list comprehension (`unresolved_alerts`), a set comprehension (`unique_error_types`), a dict comprehension (`group_by_workstation`), star unpacking (`most_urgent, *the_rest` in `most_urgent_and_rest`), `sorted` with a lambda returning a two-field tuple (`sorted_by_priority`), and `sorted` with the named function `workstation_then_priority` as the key (`sorted_by_workstation`).
+
+### Operations that change a collection vs. ones that create a new one
+| Changes the existing collection | Creates a new collection |
+|---|---|
+| `alert_history.append(alert)` | `sorted(alert_history, key=...)` |
+| `intake_queue.append()` / `popleft()` | `[a for a in alert_history if not a.resolved]` |
+| `heapq.heappush()` / `heappop()` on the dispatch heap | `{a.error_type for a in alert_history}` |
+| `acknowledged_alert_ids.add()` / `discard()` | `{ws_id: [...] for ws_id in ...}` (`group_by_workstation`) |
+| `Workstation.add_component()` | `camera_down & microphone_down`, `all_ids - acknowledged` |
+| `technicians[tech_id] = technician` | `Workstation.components` (returns a copy, so callers can't change the internal list) |
+
+## Data Source and Loading
+*   **AI source:** `data/sample_data.jsonl` and `data/technicians.jsonl` were generated with Gemini and then checked and corrected by hand. Details, the prompt link and all checks are in `AI_USAGE.md`. All names and IDs are invented.
+*   **Record structure:** one JSON object per line, for example:
+    `{"workstation_id": "WS-101", "workstation_name": "Front Desk PC", "location": "Main Lobby", "component_type": "camera", "component_id": "CAM-101", "name": "Lobby Cam", "connection_status": "ACTIVE", "camera_index": 0, "resolution": "1920x1080", "installed_on": "2021-02-15"}`
+    Microphones have `sample_rate` and `sensitivity_db` instead of `camera_index` and `resolution`.
+*   **Loading:** `repository.py` opens the file with `with open(..., encoding="utf-8")` and reads it one line at a time with `for line in file` (never `.read()` or `.readlines()`). Each line becomes a `dict` through `json.loads`, then an object through `Workstation.from_dict` and `HardwareComponent.from_dict`.
+*   **Validation:** invalid JSON, missing fields, an unknown component type, an illegal status or date, wrong field types, a duplicate `component_id` and contradicting workstation details all raise `ValueError` with the file name and line number.
+*   **Logs:** alerts are appended to `logs/hardware_history.jsonl`. The demo writes its alerts to `logs/demo_hardware_history.jsonl` instead (reset every run), so they never mix with the real history.
 
 ## Iterators, Generators & Lazy Pipeline
-*   **Iterables & Iterators:** A custom `AlertHistory` iterable manages the collection, while an `ActiveAlertIterator` maintains state to specifically yield only "Unresolved" alerts[cite: 1].
-*   **Lazy Pipeline (Generator Expression):** A 3-step lazy pipeline filters disconnected components -> filters by age -> extracts the ID. It evaluates one item at a time (saving memory) and halts execution exactly when the required amount of records is consumed[cite: 1].
+*   **Iterable and Iterator:** `AlertHistory` stores the alerts and implements `__iter__`, which returns a **new** `ActiveAlertIterator` every time. The iterator keeps its own position, implements `__iter__` and `__next__`, skips resolved alerts (its special rule, stated in its name) and raises `StopIteration` at the end. The demo shows two administrators walking the same history independently.
+*   **Generator:** `iter_disconnected_components()` uses `yield` to return disconnected components one at a time. The demo creates it (nothing is checked yet), takes one item with `next()`, continues with a `for` loop from where `next()` stopped, then shows that a second pass yields nothing and that a new generator starts over.
+*   **Lazy pipeline:** `lazy_disconnected_pipeline()` chains three generator expressions: disconnected components → older than 3 years → component ID. The demo takes only the first **two** results with `itertools.islice`.
+    *   *What starts it:* creating the pipeline does no work. Work begins only when the first result is requested (`islice` calls `next`), and each step then pulls one item at a time from the step before it.
+    *   *What was never processed:* after the second ID the pipeline stops. With the sample data it inspects 5 of the 8 workstations; WS-106 to WS-108 and their components are never read.
+    *   *List comprehension vs. generator expression:* list comprehensions would build three full intermediate lists, checking all 16 components at every step before anything is returned. Generator expressions build no lists and process only what is needed for the two results.
+    *   *Why a new generator for another pass:* a generator only moves forward and is exhausted once it ends. To go through the data again from the start, `lazy_disconnected_pipeline()` must be called again.
 
-## Context Managers
-*   **`HardwareDiagnosticSession`:** A custom context manager used during component testing. It locks the component status to `TESTING` upon entry and safely restores it to `ACTIVE` upon exit, ensuring the system doesn't freeze even if an exception occurs[cite: 1].
+## Context Manager
+*   **`DiagnosticConnection`** (`context_managers.py`) guards a hardware test. `__enter__` claims a free diagnostic port, saves the component's current status and sets it to `TESTING`, then returns the component (`with DiagnosticConnection(c) as tested:`). `__exit__` always releases the port and sets a real status.
+*   **When an exception happens inside the block:** `__exit__` still runs. It releases the port, sets the component to `ERROR` and returns `False`, so the exception is **not** hidden and the caller still sees it. The demo shows a normal run and a run that raises.
 
-## Data Source, Processing & Logging
-*   **Data File:** `data/sample_data.jsonl` contains 15+ synthetic JSON records.
-*   **Processing:** Reads the file line-by-line using `with open(...)` (strictly avoiding `.read()` or `.readlines()`)[cite: 1]. Converts JSON strings to dictionaries via `json.loads`, validates the data, and instantiates objects using `@classmethod` factories[cite: 1].
-*   **Local Logging:** Processed alerts and system events are safely appended to `logs/hardware_history.jsonl` using a context manager to ensure permanent historical records.
+## Maintenance Subsystem (team of four extension)
+*   **Business need:** an alert alone doesn't fix anything. Someone has to own each fault, and work must be spread fairly so urgent rooms are not stuck behind one overloaded technician.
+*   **Entities:** `Technician` and `MaintenanceRequest` (`models.py`), loaded from `data/technicians.jsonl` and saved to `logs/maintenance_requests.jsonl`.
+*   **Process:** every alert opens a maintenance call (`OPEN`), which is assigned automatically (`IN_PROGRESS`): camera errors go to a Camera technician, microphone errors to a Microphone technician, overflow to a General technician, and ties to whoever was assigned least recently. When the fault clears, the call is `RESOLVED`. Pausing the dashboard for a break does not resolve it.
+*   **Link to the main system:** each call stores the `alert_id`, `workstation_id` and `component_id` of the alert that opened it.
+*   **Data check:** `find_unknown_technician_references` flags calls assigned to a technician who does not exist in `technicians.jsonl`.
+*   **Reports (`reports.py`):** a workload report of open calls per technician, and a history report of every call with the technician who handled it, also exported to `logs/maintenance_report.csv` (opens in Excel).

@@ -44,11 +44,15 @@ def iter_disconnected_components(workstations):
                 yield component
 
 
-def lazy_disconnected_pipeline(workstations):
-    """3-step lazy evaluation pipeline built from generator expressions.
-    Nothing is computed until the caller iterates it, so consuming only the
-    first few results (e.g. via itertools.islice) never touches the rest."""
-    all_components = (component for ws in workstations for component in ws.components)          # step 1: flatten
-    disconnected = (c for c in all_components if c.connection_status == "DISCONNECTED")          # step 2: filter
-    component_ids = (c.component_id for c in disconnected)                                       # step 3: project
+def lazy_disconnected_pipeline(workstations, min_age_years=3):
+    """3-step lazy evaluation pipeline built from generator expressions:
+    disconnected components -> older than min_age_years -> their ids.
+    Nothing is computed until the caller iterates it, and each step pulls one
+    item at a time, so taking the first N results with itertools.islice stops
+    the whole pipeline right after the Nth id — the rest is never examined."""
+    disconnected = (c for ws in workstations for c in ws.components
+                    if c.connection_status == "DISCONNECTED")                                    # step 1: filter disconnected
+    aging = (c for c in disconnected
+             if c.age_years is not None and c.age_years >= min_age_years)                        # step 2: filter by age
+    component_ids = (c.component_id for c in aging)                                              # step 3: extract id
     return component_ids

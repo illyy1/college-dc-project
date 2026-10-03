@@ -4,6 +4,8 @@ history report (who handled which error) with a CSV export."""
 
 import csv
 
+from .config import MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH
+
 from .models import MaintenanceRequest, Technician
 from .repository import load_maintenance_history
 
@@ -28,6 +30,15 @@ def validate_and_assign_request(request: MaintenanceRequest, tech_id: str, techn
     request.assign_to(tech_id)
     technicians_dict[tech_id].assigned_requests.append(request)
     print(f"[SUCCESS] בקשה {request.request_id} שויכה בהצלחה לטכנאי {technicians_dict[tech_id].name}")
+
+
+def find_unknown_technician_references(history, technicians_dict: dict[str, Technician]):
+    """Cross-file validation: maintenance-log records whose assigned_tech_id
+    does not exist in the technician data file."""
+    return [
+        record for record in history
+        if record.get("assigned_tech_id") and record["assigned_tech_id"] not in technicians_dict
+    ]
 
 
 def generate_technician_workload_report(technicians_dict: dict[str, Technician]):
@@ -89,3 +100,9 @@ def export_maintenance_history_csv(log_path, csv_path, verbose=True):
     if verbose:
         print(f"[REPORT] Maintenance history exported to {csv_path} ({len(history)} call(s))")
     return csv_path
+
+
+def publish_maintenance_reports(log_path=MAINTENANCE_LOG_PATH, csv_path=MAINTENANCE_REPORT_CSV_PATH):
+    """Prints the maintenance history report and exports it to CSV."""
+    generate_maintenance_history_report(log_path)
+    export_maintenance_history_csv(log_path, csv_path)

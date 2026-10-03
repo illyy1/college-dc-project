@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "room-hardware-monitor"
+version = "0.1.0"
+description = "Tracks workstation cameras and microphones, raises alerts and assigns maintenance calls to technicians."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography",   # decrypts the GitHub token stored in .env (live dashboard only)
+    "python-dotenv",  # loads .env
+    "requests",       # opens GitHub issues for dashboard alerts
+]
+
+[tool.setuptools]
+packages = ["hardware_monitor"]
