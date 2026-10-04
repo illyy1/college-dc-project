@@ -1,7 +1,7 @@
 """Linear demonstration of the information system: one function per step,
-each showing one requirement (OOP model, encapsulation, context manager,
-data structures, queues, iterators, generator, lazy pipeline, maintenance
-workflow). run_demo() runs them in order without any interactive input."""
+each showing one requirement (OOP model, composition, encapsulation, context
+manager, data structures, queues, iterators, generator, lazy pipeline,
+maintenance workflow). run_demo() runs them in order without any interactive input."""
 
 import os
 from itertools import islice
@@ -10,7 +10,7 @@ from .config import SAMPLE_DATA_PATH, TECHNICIANS_PATH, DEMO_LOG_PATH, DEMO_MAIN
 from .context_managers import DiagnosticConnection
 from .iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
 from .maintenance import MaintenanceDesk
-from .models import Camera, MaintenanceRequest, Technician
+from .models import Camera, MaintenanceRequest, Microphone, Technician, Workstation
 from .processing import AlertManager, run_diagnostics_and_log_alerts
 from .reports import (
     validate_and_assign_request,
@@ -26,28 +26,31 @@ def run_demo():
     _header(1, "Loading synthetic workstation fleet from JSONL", first=True)
     workstations = demo_load_fleet()
 
-    _header(2, "Polymorphic diagnostics inside DiagnosticConnection")
+    _header(2, "Composition: building a workstation out of components")
+    demo_composition()
+
+    _header(3, "Polymorphic diagnostics inside DiagnosticConnection")
     alert_manager = demo_polymorphic_diagnostics(workstations)
 
-    _header(3, "Encapsulation and safe diagnostic connections")
+    _header(4, "Encapsulation and safe diagnostic connections")
     demo_encapsulation_and_context_manager(workstations)
 
-    _header(4, "Data-structure operations")
+    _header(5, "Data-structure operations")
     demo_data_structures(alert_manager)
 
-    _header(5, "Draining the queues")
+    _header(6, "Draining the queues")
     demo_queues(alert_manager)
 
-    _header(6, "Custom Iterable/Iterator over unresolved alerts")
+    _header(7, "Custom Iterable/Iterator over unresolved alerts")
     demo_iterators(alert_manager)
 
-    _header(7, "Generator yielding disconnected components")
+    _header(8, "Generator yielding disconnected components")
     demo_generator(workstations)
 
-    _header(8, "3-step lazy pipeline: disconnected -> older than 3 years -> id (first 2 only)")
+    _header(9, "3-step lazy pipeline: disconnected -> older than 3 years -> id (first 2 only)")
     demo_lazy_pipeline(workstations, limit=2, min_age_years=3)
 
-    _header(9, "Maintenance calls opened and assigned to technicians")
+    _header(10, "Maintenance calls opened and assigned to technicians")
     demo_maintenance_workflow(alert_manager, workstations)
     print("=" * 70)
 
@@ -62,6 +65,25 @@ def demo_load_fleet():
     for workstation in workstations:
         print(f"  {workstation}")
     return workstations
+
+
+def demo_composition():
+    """Uses every Workstation method on a bench workstation built here, so
+    the loaded fleet stays untouched for the later steps."""
+    bench = Workstation("BENCH", "Repair Bench", "IT room")
+    bench.add_component(Camera("CAM-B1", "Bench Cam", "BENCH"))
+    bench.add_component(Camera("CAM-B2", "Broken Cam", "BENCH", resolution="0x0"))
+    bench.add_component(Microphone("MIC-B1", "Bench Mic", "BENCH"))
+    print(f"  Built: {bench}")
+    print(f"  find_component('MIC-B1'): {bench.find_component('MIC-B1')}")
+    print(f"  find_component('MIC-404'): {bench.find_component('MIC-404')}")
+    cameras = bench.find_components_by_type("Camera")
+    print(f"  find_components_by_type('Camera'): {[c.component_id for c in cameras]}")
+    print(f"  run_all_diagnostics() (polymorphic, no type checks): {bench.run_all_diagnostics()}")
+    removed = bench.remove_component("CAM-B2")
+    print(f"  remove_component('CAM-B2') -> {removed}; "
+          f"removing it again -> {bench.remove_component('CAM-B2')}")
+    print(f"  After removal: {bench}")
 
 
 def demo_polymorphic_diagnostics(workstations):
@@ -155,11 +177,13 @@ def demo_iterators(alert_manager):
     history = AlertHistory(alert_manager.alert_history)
     iterator = iter(history)
     print(f"  iter(AlertHistory) returned an {type(iterator).__name__}")
-    shown = 0
+    shown = []
     for alert in iterator:
         print(f"  Unresolved: {alert}")
-        shown += 1
-    print(f"  Skipped {len(history) - shown} resolved alert(s) transparently.")
+        shown.append(alert.alert_id)
+    print(f"  Skipped {len(history) - len(shown)} resolved alert(s) transparently.")
+    listed = [a.alert_id for a in alert_manager.unresolved_alerts()]
+    print(f"  The list comprehension unresolved_alerts() gives the same ids: {listed == shown}")
 
     # every iter() call gets its own ActiveAlertIterator, so two admins can
     # walk the same history at once without moving each other's position
