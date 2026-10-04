@@ -6,10 +6,11 @@ from datetime import date, datetime
 
 
 def _require_fields(record, fields, kind):
-    """Raises ValueError naming every field in `fields` that is missing or blank."""
+    """Raises ValueError naming every field in `fields` that is missing, null or blank."""
     if not isinstance(record, dict):
         raise ValueError(f"{kind} record must be a JSON object, got {type(record).__name__}.")
-    missing = [f for f in fields if not str(record.get(f, "")).strip()]
+    # null is checked first: str(None) is "None", which would pass as filled in
+    missing = [f for f in fields if record.get(f) is None or not str(record[f]).strip()]
     if missing:
         raise ValueError(f"{kind} record is missing {', '.join(missing)}.")
 
@@ -61,6 +62,10 @@ class HardwareComponent:
         if component_type != cls.__name__.lower():
             raise ValueError(f"{cls.__name__}.from_dict() got a '{record['component_type']}' record.")
 
+        installed_on = record.get("installed_on")
+        if installed_on is not None and not isinstance(installed_on, str):
+            raise ValueError(f"Component '{record['component_id']}': installed_on must be a date "
+                             f"string like '2021-05-30', got {installed_on!r}.")
         cls._validate_record(record)
         try:
             return cls(
