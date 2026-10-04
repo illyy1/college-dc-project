@@ -52,7 +52,8 @@ the file name and line number.
 | Check | Where |
 |---|---|
 | Each line is valid JSON and a JSON object | `repository._parse_record` |
-| Required fields present and non-empty (`workstation_id`, `component_type`, `component_id`; `tech_id`, `name`, `specialty`) | `models._require_fields`, used by every `from_dict` |
+| Required fields present, non-empty and text (`workstation_id`, `component_type`, `component_id`; `tech_id`, `name`, `specialty`) | `models._require_fields`, used by every `from_dict` |
+| `specialty` is `Camera`, `Microphone` or `General` | `Technician.specialty` setter |
 | `component_type` is `camera` or `microphone` | `HardwareComponent.from_dict` |
 | `connection_status` is one of `ACTIVE`, `DISCONNECTED`, `TESTING`, `ERROR`, `MAINTENANCE` | `HardwareComponent.connection_status` setter |
 | `installed_on` is a valid ISO date | `HardwareComponent.__init__` (`date.fromisoformat`) |
