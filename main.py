@@ -11,12 +11,18 @@ printed and exported to CSV.
 """
 
 import argparse
+import sys
 
 from hardware_monitor.demo import run_demo
 from hardware_monitor.reports import publish_maintenance_reports
 
 
 def main():
+    # the Hebrew messages crash on Windows when output is redirected to a file
+    # (cp1252 cannot encode them), so always print UTF-8
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(description="Room hardware monitor")
     parser.add_argument("--report", action="store_true",
                         help="only print and export the maintenance history report")
