@@ -256,6 +256,15 @@ class Workstation:
         return list(self._components)
 
     def add_component(self, component):
+        """Adds a component that belongs to this workstation. Raises
+        ValueError for a component of another workstation or a reused id,
+        so the workstation never holds two components with the same id."""
+        if component.workstation_id != self.workstation_id:
+            raise ValueError(f"Component '{component.component_id}' belongs to workstation "
+                             f"'{component.workstation_id}', not '{self.workstation_id}'.")
+        if self.find_component(component.component_id) is not None:
+            raise ValueError(f"Workstation '{self.workstation_id}' already has a component "
+                             f"with id '{component.component_id}'.")
         self._components.append(component)
 
     def remove_component(self, component_id):
