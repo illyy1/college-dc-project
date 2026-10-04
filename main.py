@@ -19,9 +19,12 @@ from hardware_monitor.reports import publish_maintenance_reports
 
 def main():
     # the Hebrew messages crash on Windows when output is redirected to a file
-    # (cp1252 cannot encode them), so always print UTF-8
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    # (cp1252 cannot encode them), so always print UTF-8. IDLE and Jupyter
+    # replace stdout with their own stream, which has no reconfigure() but
+    # already handles Unicode, so those are left alone.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
 
     parser = argparse.ArgumentParser(description="Room hardware monitor")
     parser.add_argument("--report", action="store_true",

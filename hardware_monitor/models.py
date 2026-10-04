@@ -6,13 +6,18 @@ from datetime import date, datetime
 
 
 def _require_fields(record, fields, kind):
-    """Raises ValueError naming every field in `fields` that is missing, null or blank."""
+    """Raises ValueError naming every field in `fields` that is missing, null
+    or blank, or that is not a string (ids and names are always text, e.g. "WS-101")."""
     if not isinstance(record, dict):
         raise ValueError(f"{kind} record must be a JSON object, got {type(record).__name__}.")
     # null is checked first: str(None) is "None", which would pass as filled in
     missing = [f for f in fields if record.get(f) is None or not str(record[f]).strip()]
     if missing:
         raise ValueError(f"{kind} record is missing {', '.join(missing)}.")
+    not_text = [f for f in fields if not isinstance(record[f], str)]
+    if not_text:
+        raise ValueError(f"{kind} field(s) {', '.join(not_text)} must be text, got "
+                         f"{', '.join(repr(record[f]) for f in not_text)}.")
 
 
 def _check_number(record, field, kind, integer=False):
@@ -251,6 +256,15 @@ class Workstation:
         return list(self._components)
 
     def add_component(self, component):
+        """Adds a component that belongs to this workstation. Raises
+        ValueError for a component of another workstation or a reused id,
+        so the workstation never holds two components with the same id."""
+        if component.workstation_id != self.workstation_id:
+            raise ValueError(f"Component '{component.component_id}' belongs to workstation "
+                             f"'{component.workstation_id}', not '{self.workstation_id}'.")
+        if self.find_component(component.component_id) is not None:
+            raise ValueError(f"Workstation '{self.workstation_id}' already has a component "
+                             f"with id '{component.component_id}'.")
         self._components.append(component)
 
     def remove_component(self, component_id):
@@ -280,6 +294,8 @@ class Workstation:
 
 class Technician:
     REQUIRED_FIELDS = ("tech_id", "name", "specialty")
+    # must match the component class names: calls are routed by them (maintenance.py)
+    SPECIALTIES = ("Camera", "Microphone", "General")
 
     def __init__(self, tech_id: str, name: str, specialty: str, workstation_ids=()):
         self.tech_id = tech_id
@@ -287,6 +303,18 @@ class Technician:
         self.specialty = specialty
         self.workstation_ids = tuple(workstation_ids)  # workstations (from sample_data.jsonl) this technician covers
         self.assigned_requests = []  # רשימת בקשות התחזוקה המשויכות לטכנאי
+
+    @property
+    def specialty(self):
+        return self._specialty
+
+    @specialty.setter
+    def specialty(self, value):
+        # a typo such as "camera" would load fine but never match a call
+        if value not in self.SPECIALTIES:
+            raise ValueError(f"Invalid specialty {value!r} for technician '{self.tech_id}'. "
+                             f"Must be one of {list(self.SPECIALTIES)}.")
+        self._specialty = value
 
     @classmethod
     def from_dict(cls, record):
@@ -304,6 +332,10 @@ class Technician:
             specialty=record["specialty"],
             workstation_ids=workstation_ids,
         )
+
+    def covers(self, workstation_id):
+        """True if this technician is responsible for the given workstation."""
+        return workstation_id in self.workstation_ids
 
     def __repr__(self):
         return f"Technician(id='{self.tech_id}', name='{self.name}', specialty='{self.specialty}')"

@@ -1,5 +1,14 @@
 # AI Usage
 
+## AI tools used in this project
+
+| Tool | Used for | Link / record |
+|---|---|---|
+| **Gemini** | Generating the synthetic data: `data/sample_data.jsonl` (16 component records) and `data/technicians.jsonl` (4 technicians) | **[Gemini chat with the final data prompt and answer](https://share.gemini.google/EGqCdrGbD0GU)** |
+| Claude (Sonnet 5 / Opus 5.5, via Claude Code) | Code changes, reviews against the brief, and later additions to the data files (`installed_on`, `workstation_ids`) | Every commit carries a `Co-Authored-By: Claude` trailer; see section 2 |
+
+> **Gemini data chat:** https://share.gemini.google/EGqCdrGbD0GU
+
 This file records where AI tools were used in the project, the prompts given,
 how the output was validated, and what was corrected by hand.
 
@@ -11,17 +20,12 @@ how the output was validated, and what was corrected by hand.
 
 ## 1. Synthetic data generation
 
-### Tools
-- Gemini — [first draft of the workstation/component and technician records.](https://share.gemini.google/EGqCdrGbD0GU)
-- Claude (Sonnet 5 / Opus 5.5, via Claude Code) — later extensions to the
-  data files (commits `6d9aeaf`, `94dd81d`, `c9beb7e`).
-
 ### Prompts
 
-**`data/sample_data.jsonl` — initial records**
+**`data/sample_data.jsonl` — initial records** (Gemini)
 
 The exact prompt and Gemini's answer are in the
-[shared Gemini chat](https://share.gemini.google/EGqCdrGbD0GU) linked above.
+[Gemini chat](https://share.gemini.google/EGqCdrGbD0GU).
 
 The prompt asked for: one JSON object per line; 8 workstations, each with one
 camera and one microphone (16 records); fields `workstation_id`,
@@ -30,7 +34,7 @@ camera and one microphone (16 records); fields `workstation_id`,
 `sample_rate`/`sensitivity_db` for microphones; a mix of healthy and faulty
 components; and no real people, companies, addresses or devices.
 
-**`data/technicians.jsonl`**
+**`data/technicians.jsonl`** (Gemini)
 
 Generated in the same [Gemini chat](https://share.gemini.google/EGqCdrGbD0GU).
 
@@ -38,7 +42,7 @@ The prompt asked for: 4 fictional technicians with `tech_id`, `name` and
 `specialty` (`Camera`, `Microphone` or `General`), at least two sharing a
 specialty so that workload balancing can be shown.
 
-**`installed_on` dates** (_summary_, commit `c9beb7e`)
+**`installed_on` dates** (Claude, _summary_, commit `c9beb7e`)
 > Give every component an `installed_on` date (ISO `YYYY-MM-DD`) so the lazy
 > pipeline can filter disconnected components by age. Spread the dates across
 > 2018–2025 so some components are older than the age threshold and some are
@@ -52,7 +56,8 @@ the file name and line number.
 | Check | Where |
 |---|---|
 | Each line is valid JSON and a JSON object | `repository._parse_record` |
-| Required fields present and non-empty (`workstation_id`, `component_type`, `component_id`; `tech_id`, `name`, `specialty`) | `models._require_fields`, used by every `from_dict` |
+| Required fields present, non-empty and text (`workstation_id`, `component_type`, `component_id`; `tech_id`, `name`, `specialty`) | `models._require_fields`, used by every `from_dict` |
+| `specialty` is `Camera`, `Microphone` or `General` | `Technician.specialty` setter |
 | `component_type` is `camera` or `microphone` | `HardwareComponent.from_dict` |
 | `connection_status` is one of `ACTIVE`, `DISCONNECTED`, `TESTING`, `ERROR`, `MAINTENANCE` | `HardwareComponent.connection_status` setter |
 | `installed_on` is a valid ISO date | `HardwareComponent.__init__` (`date.fromisoformat`) |
@@ -120,6 +125,8 @@ and then committed.
 | `e78a99e` | 2026-10-03 | Opus 5.5 | Check the project against the data requirements and fill the gaps. | Added `@classmethod` factories `Workstation.from_dict`, `HardwareComponent.from_dict` (dispatches to `Camera`/`Microphone`) and `Technician.from_dict`; `repository.py` now builds every object through them. Added validation for field types, duplicate component IDs and workstation consistency, with line numbers in errors. Tested against valid data and against 9 deliberately broken records. |
 | `fd532cc`–`e102cb1` (PR #25) | 2026-10-03 | Claude Code | Check the project against the Stage 1 brief and fill the remaining gaps. | Each component subclass now ranks its own alerts (`alert_priority()`), replacing a `component_type == "Camera"` check. Every alert now enters both a FIFO help-desk queue and a technician dispatch heap. Added a named sort-key function, star unpacking, set difference, `Camera.parse_resolution` (`@staticmethod`), fuller generator/context-manager demos, `pyproject.toml`, and the missing README sections. Checked by running `python main.py --no-dashboard`. |
 | `25b51d5`, `4d60957` | 2026-10-03 | Claude Code | Double-check the project against the Stage 1 brief and fix what is only partly met. | `config.py` imports `python-dotenv`/`cryptography` only when the dashboard needs the token, so the demo runs on plain Python. Technicians now list the workstations they cover, with a check against `sample_data.jsonl`. Checked by running `python main.py --no-dashboard` with both packages blocked, and by loading a technician with a malformed `workstation_ids`. |
+| `1277ac1`, `9662d0f`, `d243017`, `a920565`, `7a3b1c8` | 2026-10-03/04 | Claude Code | Fill the remaining documentation and robustness gaps. | README documents `pyproject.toml`, the optional `.env` for GitHub alerts and every file in `logs/`; the demo uses every `Workstation` method; output is printed as UTF-8 so redirected Hebrew text doesn't crash on Windows; null required fields and a non-string `installed_on` are rejected; `--report` creates `logs/` if it is missing. Checked by running `python main.py --no-dashboard` and `--report`. |
+| `a9b9331`–`21aaa7f` | 2026-10-04 | Claude Code | Final check of the whole project: requirements, bugs and consistency between classes and files. | Maintenance calls go only to technicians who cover the alert's workstation; the dashboard's microphone priority matches the model's scale; `main.py` no longer crashes in IDLE/Jupyter; ids must be text, `specialty` must be `Camera`/`Microphone`/`General`, and a workstation refuses duplicate or foreign components. Checked with `python main.py --no-dashboard`, the pytest suite, and deliberately broken records. |
 
 ### Not AI-generated
 - `bb21a63` — `Technician` and `MaintenanceRequest` models and the reporting

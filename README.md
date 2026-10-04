@@ -79,7 +79,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 *   **Composition (הרכבה):** `Workstation` contains a list of `HardwareComponent` objects and offers `add_component`, `remove_component`, `find_component` and `run_all_diagnostics`.
 *   **Inheritance (הורשה):** `HardwareComponent` is the base class. `Camera` and `Microphone` are kinds of component and add their own fields (resolution, sample rate).
 *   **Polymorphism (פולימורפיזם):** `run_diagnostics()` and `alert_priority()` are defined in the base class and overridden in each subclass. The diagnostics sweep calls them through the common type, with no `if/elif` on the object's class. A camera fault outranks a microphone fault, and a lost device outranks a misconfigured one.
-*   **Validation:** `connection_status` and `MaintenanceRequest.status` are properties that raise `ValueError` with an explanation for an illegal value. The `from_dict` factories reject missing fields and wrong types.
+*   **Validation:** `connection_status`, `Technician.specialty` and `MaintenanceRequest.status` are properties that raise `ValueError` with an explanation for an illegal value. `Workstation.add_component` refuses a component of another workstation or a reused id. The `from_dict` factories reject missing fields and wrong types.
 *   **Other tools:** `@classmethod` factories (`from_dict`), a `@staticmethod` (`Camera.parse_resolution`), a computed property (`age_years`) and `__len__` on `AlertHistory`.
 
 ## מבני נתונים (Data Structures)
@@ -109,12 +109,12 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 | `technicians[tech_id] = technician` | `Workstation.components` (returns a copy, so callers can't change the internal list) |
 
 ## Data Source and Loading
-*   **AI source:** `data/sample_data.jsonl` and `data/technicians.jsonl` were generated with Gemini and then checked and corrected by hand. Details, the prompt link and all checks are in `AI_USAGE.md`. All names and IDs are invented.
+*   **AI source:** `data/sample_data.jsonl` and `data/technicians.jsonl` were generated with Gemini ([chat](https://share.gemini.google/EGqCdrGbD0GU)) and then checked and corrected by hand. Details, the prompt link and all checks are in `AI_USAGE.md`. All names and IDs are invented.
 *   **Record structure:** one JSON object per line, for example:
     `{"workstation_id": "WS-101", "workstation_name": "Front Desk PC", "location": "Main Lobby", "component_type": "camera", "component_id": "CAM-101", "name": "Lobby Cam", "connection_status": "ACTIVE", "camera_index": 0, "resolution": "1920x1080", "installed_on": "2021-02-15"}`
     Microphones have `sample_rate` and `sensitivity_db` instead of `camera_index` and `resolution`.
 *   **Loading:** `repository.py` opens the file with `with open(..., encoding="utf-8")` and reads it one line at a time with `for line in file` (never `.read()` or `.readlines()`). Each line becomes a `dict` through `json.loads`, then an object through `Workstation.from_dict` and `HardwareComponent.from_dict` (which builds a `Camera` or `Microphone` from `component_type`). Technicians are loaded the same way through `Technician.from_dict`.
-*   **Validation:** invalid JSON, missing fields, an unknown component type, an illegal status or date, wrong field types, a duplicate `component_id`, contradicting workstation details and a duplicate `tech_id` all raise `ValueError` with the file name and line number. Deliberately faulty values such as a `0x0` resolution or a 4000 Hz sample rate are accepted, because they are test cases for `run_diagnostics()` to catch.
+*   **Validation:** invalid JSON, missing fields, ids that are not text, an unknown component type, an illegal status, specialty or date, wrong field types, a duplicate `component_id`, contradicting workstation details and a duplicate `tech_id` all raise `ValueError` with the file name and line number. Deliberately faulty values such as a `0x0` resolution or a 4000 Hz sample rate are accepted, because they are test cases for `run_diagnostics()` to catch.
 *   **Output files** (all in `logs/`, not committed):
 
     | File | Written by | Contents |
@@ -141,7 +141,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 *   **Business need:** an alert alone doesn't fix anything. Someone has to own each fault, and work must be spread fairly so urgent rooms are not stuck behind one overloaded technician.
 *   **Entities:** `Technician` and `MaintenanceRequest` (`models.py`). Technicians are loaded from `data/technicians.jsonl`; maintenance calls are saved to `logs/maintenance_requests.jsonl`.
 *   **Link between the data files:** each technician record lists the `workstation_ids` it covers, which are the `workstation_id` values in `data/sample_data.jsonl`. For example: `{"tech_id": "T1", "name": "Dana Levi", "specialty": "Camera", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104"]}`.
-*   **Process:** every alert opens a maintenance call (`OPEN`), which is assigned automatically (`IN_PROGRESS`): camera errors go to a Camera technician, microphone errors to a Microphone technician, overflow to a General technician, and ties to whoever was assigned least recently. When the fault clears, the call is `RESOLVED`. Pausing the dashboard for a break does not resolve it.
+*   **Process:** every alert opens a maintenance call (`OPEN`), which is assigned automatically (`IN_PROGRESS`) among the technicians who cover the alert's workstation (everyone, if nobody covers it): camera errors go to a Camera technician, microphone errors to a Microphone technician, overflow to a General technician, and ties to whoever was assigned least recently. When the fault clears, the call is `RESOLVED`. Pausing the dashboard for a break does not resolve it.
 *   **Link to the main system:** each call stores the `alert_id`, `workstation_id` and `component_id` of the alert that opened it.
 *   **Data checks:** `find_unknown_workstation_references` flags a technician who covers a workstation that does not exist in `sample_data.jsonl`. `find_unknown_technician_references` flags calls assigned to a technician who does not exist in `technicians.jsonl`. The demo runs both on the real data and on a deliberately broken record.
 *   **Reports (`reports.py`):** a workload report of open calls per technician, and a history report of every call with the technician who handled it, also exported to `logs/maintenance_report.csv` (opens in Excel).
