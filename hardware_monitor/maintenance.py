@@ -1,5 +1,6 @@
 """Maintenance desk: turns alerts into MaintenanceRequest calls, assigns each
-call to the least-busy technician with the matching specialty (taking turns
+call to the least-busy technician with the matching specialty among those who
+cover the alert's workstation (taking turns
 when several are equally busy, and overflowing to a General technician when
 every specialist already has an open call), and appends
 every state change to logs/maintenance_requests.jsonl so the history of who
@@ -91,16 +92,22 @@ class MaintenanceDesk:
             key=lambda r: r.opened_at,
         )
 
-    def pick_technician(self, specialty):
-        """Least-busy technician with the given specialty. If every such
-        specialist already has an open call, General technicians join the
-        candidates (overflow); if there is no specialist at all, everyone is
-        a candidate. Ties go to whoever was assigned least recently, so
-        equally busy technicians take turns."""
+    def pick_technician(self, specialty, workstation_id=None):
+        """Least-busy technician with the given specialty, chosen among the
+        technicians who cover workstation_id (their workstation_ids from
+        technicians.jsonl). If nobody covers it (e.g. the live dashboard's own
+        machine, which is not in sample_data.jsonl), every technician is
+        considered. If every such specialist already has an open call, General
+        technicians join the candidates (overflow); if there is no specialist
+        at all, everyone is a candidate. Ties go to whoever was assigned least
+        recently, so equally busy technicians take turns."""
         if not self.technicians:
             raise ValueError("No technicians are registered in the system.")
 
         everyone = list(self.technicians.values())
+        covering = [t for t in everyone if t.covers(workstation_id)]
+        if covering:
+            everyone = covering
         specialists = [t for t in everyone if t.specialty == specialty]
         generalists = [t for t in everyone if t.specialty == GENERAL_SPECIALTY and t not in specialists]
         if not specialists:
@@ -128,7 +135,7 @@ class MaintenanceDesk:
             )
             self._next_number += 1
 
-            technician = self.pick_technician(specialty_for_error_type(alert.error_type))
+            technician = self.pick_technician(specialty_for_error_type(alert.error_type), alert.workstation_id)
             validate_and_assign_request(request, technician.tech_id, self.technicians)
             self._last_assigned_at[technician.tech_id] = request.opened_at
             self.requests[request.request_id] = request

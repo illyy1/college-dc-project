@@ -305,6 +305,10 @@ class Technician:
             workstation_ids=workstation_ids,
         )
 
+    def covers(self, workstation_id):
+        """True if this technician is responsible for the given workstation."""
+        return workstation_id in self.workstation_ids
+
     def __repr__(self):
         return f"Technician(id='{self.tech_id}', name='{self.name}', specialty='{self.specialty}')"
 
