@@ -3,6 +3,7 @@ technicians, a per-technician workload report, and the full maintenance
 history report (who handled which error) with a CSV export."""
 
 import csv
+import os
 
 from .config import MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH
 
@@ -104,6 +105,7 @@ def export_maintenance_history_csv(log_path, csv_path, verbose=True):
     """Writes the maintenance history to a CSV file (opens in Excel)."""
     history = load_maintenance_history(log_path)
 
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)  # e.g. `--report` after the logs folder was deleted
     # utf-8-sig so Excel displays the Hebrew/technician names correctly
     with open(csv_path, "w", encoding="utf-8-sig", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=HISTORY_CSV_FIELDS, extrasaction="ignore")
