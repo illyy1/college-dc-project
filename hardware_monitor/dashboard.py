@@ -23,10 +23,12 @@ from .processing import Alert, AlertManager
 from .repository import load_technicians_from_jsonl
 from .synthetic_sources import SyntheticMicrophoneSource, SyntheticCameraSource
 
-# alert_key -> (component_id, error_type, priority) used when opening a maintenance call
+# alert_key -> (component_id, error_type, priority) used when opening a maintenance call.
+# Priorities follow Camera/Microphone.alert_priority(): 1 lost camera, 3 lost microphone,
+# 4 microphone problem that is not a disconnect (here: silence).
 ALERT_DETAILS = {
     "camera": ("CAM-LOCAL", "CAMERA_FAILURE", 1),
-    "mic_conn": ("MIC-LOCAL", "MICROPHONE_DISCONNECTED", 2),
+    "mic_conn": ("MIC-LOCAL", "MICROPHONE_DISCONNECTED", 3),
     "mic_silence": ("MIC-LOCAL", "MICROPHONE_SILENCE", 4),
 }
 
