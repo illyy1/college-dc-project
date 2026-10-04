@@ -1,5 +1,14 @@
 # AI Usage
 
+## AI tools used in this project
+
+| Tool | Used for | Link / record |
+|---|---|---|
+| **Gemini** | Generating the synthetic data: `data/sample_data.jsonl` (16 component records) and `data/technicians.jsonl` (4 technicians) | **[Gemini chat with the final data prompt and answer](https://share.gemini.google/EGqCdrGbD0GU)** |
+| Claude (Sonnet 5 / Opus 5.5, via Claude Code) | Code changes, reviews against the brief, and later additions to the data files (`installed_on`, `workstation_ids`) | Every commit carries a `Co-Authored-By: Claude` trailer; see section 2 |
+
+> **Gemini data chat:** https://share.gemini.google/EGqCdrGbD0GU
+
 This file records where AI tools were used in the project, the prompts given,
 how the output was validated, and what was corrected by hand.
 
@@ -11,17 +20,12 @@ how the output was validated, and what was corrected by hand.
 
 ## 1. Synthetic data generation
 
-### Tools
-- Gemini — [first draft of the workstation/component and technician records.](https://share.gemini.google/EGqCdrGbD0GU)
-- Claude (Sonnet 5 / Opus 5.5, via Claude Code) — later extensions to the
-  data files (commits `6d9aeaf`, `94dd81d`, `c9beb7e`).
-
 ### Prompts
 
-**`data/sample_data.jsonl` — initial records**
+**`data/sample_data.jsonl` — initial records** (Gemini)
 
 The exact prompt and Gemini's answer are in the
-[shared Gemini chat](https://share.gemini.google/EGqCdrGbD0GU) linked above.
+[Gemini chat](https://share.gemini.google/EGqCdrGbD0GU).
 
 The prompt asked for: one JSON object per line; 8 workstations, each with one
 camera and one microphone (16 records); fields `workstation_id`,
@@ -30,7 +34,7 @@ camera and one microphone (16 records); fields `workstation_id`,
 `sample_rate`/`sensitivity_db` for microphones; a mix of healthy and faulty
 components; and no real people, companies, addresses or devices.
 
-**`data/technicians.jsonl`**
+**`data/technicians.jsonl`** (Gemini)
 
 Generated in the same [Gemini chat](https://share.gemini.google/EGqCdrGbD0GU).
 
@@ -38,7 +42,7 @@ The prompt asked for: 4 fictional technicians with `tech_id`, `name` and
 `specialty` (`Camera`, `Microphone` or `General`), at least two sharing a
 specialty so that workload balancing can be shown.
 
-**`installed_on` dates** (_summary_, commit `c9beb7e`)
+**`installed_on` dates** (Claude, _summary_, commit `c9beb7e`)
 > Give every component an `installed_on` date (ISO `YYYY-MM-DD`) so the lazy
 > pipeline can filter disconnected components by age. Spread the dates across
 > 2018–2025 so some components are older than the age threshold and some are

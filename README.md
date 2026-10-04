@@ -109,7 +109,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 | `technicians[tech_id] = technician` | `Workstation.components` (returns a copy, so callers can't change the internal list) |
 
 ## Data Source and Loading
-*   **AI source:** `data/sample_data.jsonl` and `data/technicians.jsonl` were generated with Gemini and then checked and corrected by hand. Details, the prompt link and all checks are in `AI_USAGE.md`. All names and IDs are invented.
+*   **AI source:** `data/sample_data.jsonl` and `data/technicians.jsonl` were generated with Gemini ([chat](https://share.gemini.google/EGqCdrGbD0GU)) and then checked and corrected by hand. Details, the prompt link and all checks are in `AI_USAGE.md`. All names and IDs are invented.
 *   **Record structure:** one JSON object per line, for example:
     `{"workstation_id": "WS-101", "workstation_name": "Front Desk PC", "location": "Main Lobby", "component_type": "camera", "component_id": "CAM-101", "name": "Lobby Cam", "connection_status": "ACTIVE", "camera_index": 0, "resolution": "1920x1080", "installed_on": "2021-02-15"}`
     Microphones have `sample_rate` and `sensitivity_db` instead of `camera_index` and `resolution`.
