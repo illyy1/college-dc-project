@@ -36,7 +36,8 @@ components; and no real people, companies, addresses or devices.
 
 **`data/technicians.jsonl`** (Gemini)
 
-Generated in the same [Gemini chat](https://share.gemini.google/EGqCdrGbD0GU).
+Generated in the same [Gemini chat](https://share.gemini.google/EGqCdrGbD0GU)
+(also in the [original Gemini conversation](https://gemini.google.com/app/0530e97b34430e22)).
 
 The prompt asked for: 4 fictional technicians with `tech_id`, `name` and
 `specialty` (`Camera`, `Microphone` or `General`), at least two sharing a
