@@ -6,13 +6,18 @@ from datetime import date, datetime
 
 
 def _require_fields(record, fields, kind):
-    """Raises ValueError naming every field in `fields` that is missing, null or blank."""
+    """Raises ValueError naming every field in `fields` that is missing, null
+    or blank, or that is not a string (ids and names are always text, e.g. "WS-101")."""
     if not isinstance(record, dict):
         raise ValueError(f"{kind} record must be a JSON object, got {type(record).__name__}.")
     # null is checked first: str(None) is "None", which would pass as filled in
     missing = [f for f in fields if record.get(f) is None or not str(record[f]).strip()]
     if missing:
         raise ValueError(f"{kind} record is missing {', '.join(missing)}.")
+    not_text = [f for f in fields if not isinstance(record[f], str)]
+    if not_text:
+        raise ValueError(f"{kind} field(s) {', '.join(not_text)} must be text, got "
+                         f"{', '.join(repr(record[f]) for f in not_text)}.")
 
 
 def _check_number(record, field, kind, integer=False):
