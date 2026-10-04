@@ -294,6 +294,8 @@ class Workstation:
 
 class Technician:
     REQUIRED_FIELDS = ("tech_id", "name", "specialty")
+    # must match the component class names: calls are routed by them (maintenance.py)
+    SPECIALTIES = ("Camera", "Microphone", "General")
 
     def __init__(self, tech_id: str, name: str, specialty: str, workstation_ids=()):
         self.tech_id = tech_id
@@ -301,6 +303,18 @@ class Technician:
         self.specialty = specialty
         self.workstation_ids = tuple(workstation_ids)  # workstations (from sample_data.jsonl) this technician covers
         self.assigned_requests = []  # רשימת בקשות התחזוקה המשויכות לטכנאי
+
+    @property
+    def specialty(self):
+        return self._specialty
+
+    @specialty.setter
+    def specialty(self, value):
+        # a typo such as "camera" would load fine but never match a call
+        if value not in self.SPECIALTIES:
+            raise ValueError(f"Invalid specialty {value!r} for technician '{self.tech_id}'. "
+                             f"Must be one of {list(self.SPECIALTIES)}.")
+        self._specialty = value
 
     @classmethod
     def from_dict(cls, record):
