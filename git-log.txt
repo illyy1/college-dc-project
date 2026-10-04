@@ -1,0 +1,99 @@
+* aabe438 Add a link to the original Gemini conversation for the technician data
+*   e66c139 Merge pull request #29 from illyy1/claude/project-thread-i6yexw
+|\  
+| * a98c58e List the latest Claude-assisted commits in AI_USAGE.md
+| * 922ec22 Put the Gemini data chat link at the top of AI_USAGE.md
+| * 21aaa7f Document the new id, specialty and add_component checks
+| * b41e2c3 Validate technician specialty against Camera, Microphone and General
+| * ef0478d Stop a workstation from holding duplicate or foreign components
+| * a5647f3 Reject ids and names that are not text when loading records
+| * a7ef2d2 Skip the UTF-8 stdout switch when the console can't be reconfigured
+| * 140a5be Give a disconnected microphone priority 3 on the dashboard
+| * a9b9331 Assign maintenance calls only to technicians who cover the workstation
+|/  
+* 7a3b1c8 Create the logs folder before writing the CSV report
+* a920565 Reject null required fields and non-string installed_on when loading records
+* d243017 Print UTF-8 so redirected output with Hebrew doesn't crash on Windows
+* 9662d0f Show the unused Workstation methods and unresolved_alerts in the demo
+* 1277ac1 Document pyproject.toml, GitHub alert setup and log files in README
+| * 40dbcf7 Make the General-overflow test independent of technician coverage
+| * 630c351 Test technician workstation coverage and its cross-file check
+| *   5530aaa Merge remote-tracking branch 'origin/main' into claude/project-thread-npgywq
+| |\  
+| |/  
+|/|   
+* |   5ea5872 Merge pull request #26 from illyy1/claude/project-thread-6d02b7
+|\ \  
+| * | 8a9697b Document the technician-workstation link and which packages the demo needs
+| * | 4d60957 Link technicians to the workstations they cover and check the ids
+| * | 25b51d5 Import dotenv and cryptography only when the dashboard needs the token
+|/ /  
+| * 72599f0 Update tests to the current alert queue and ranking API
+| *   01ba189 Merge remote-tracking branch 'origin/main' into claude/project-thread-npgywq
+| |\  
+| |/  
+|/|   
+* |   af76058 Merge pull request #25 from illyy1/claude/project-thread-ck61rp
+|\ \  
+| * | e102cb1 Complete README: proposal entities, data-structure tables, pipeline and context-manager explanations
+| * | cc5d305 Fix AI_USAGE.md heading and point data prompts to the Gemini chat
+| * | aba8986 Add pyproject.toml and ignore .vscode/ and *.py[cod]
+| * | fd532cc Rank alerts polymorphically and route every alert through both queues
+|/ /  
+* |   347c8e2 Merge branch 'feature/maintenance-calls'
+|\ \  
+| * | e78a99e Build loaded objects through validating from_dict factories and add AI_USAGE.md
+* | | d95ad72 Merge branch 'feature/maintenance-calls' into main
+|\| | 
+| * | bd7b8ec Spread maintenance calls across all technicians
+* | | 5b1acc3 Merge branch 'feature/maintenance-calls' into main
+|\| | 
+| * | c666b54 Guarantee at least one alert per minute with a quiet-period watchdog
+* | |   8ee6ab9 Merge pull request #24 from illyy1/claude/project-thread-5u7z2q
+|\ \ \  
+| * | | 3770cd0 Fix dropped faults, diagnostics, shutdown and pause races, and demo logging
+|/ / /  
+* | |   0cf2d62 Merge pull request #23 from illyy1/claude/project-thread-5imaiy
+|\ \ \  
+| * | | a72302a Stop tracking PyCharm .idea/ settings
+|/ / /  
+* | | 5c3c28f Merge branch 'feature/maintenance-calls' into main
+|\| | 
+| * | 1b8803a Simulate a busier room with capped popups and rate-limited GitHub issues
+| * | 135d1d2 Move the demo out of main.py into hardware_monitor/demo.py
+* | | f55351a Merge branch 'feature/maintenance-calls' into main
+|\| | 
+| * | a3a13c0 Show [DIAGNOSTICS] channel messages only in the step 3 demo
+| * |   a6bad51 Merge main into feature/maintenance-calls
+| |\ \  
+| |/ /  
+|/| |   
+| * | c9beb7e Age-filtered lazy pipeline that stops exactly, and concurrent iterator demo
+| * | e2ac8ec Demonstrate all requirements in main.py and validate cross-file data
+| * | 19eb072 Add DiagnosticConnection and __str__ methods; fix maintenance call bugs
+| | * 3f74856 Add pytest suite and CI workflow; stop tracking .idea/
+| |/  
+|/|   
+* | 603842e Complete Member 1 OOP requirements in models and Alert
+* | 2ee8cc2 Add requirements.txt and point README install step at it
+* | add0e3f Update HardwareDiagnosticSession per instructor feedback
+* | 6d44465 Merge pull request #20 from illyy1/feature/maintenance-calls
+|\| 
+| * 94dd81d Add maintenance desk with technician assignment and persisted reports
+|/  
+* bb21a63 Add Technician and MaintenanceRequest models with reporting module
+* 69d3f3c Add set add/discard/intersection demonstration to AlertManager
+* 7bb371a Add package __init__.py exposing hardware_monitor's public API
+* 6d9aeaf Refactor monolithic main.py into a modular hardware_monitor package
+* 90c54e7 updated readme
+* 65633ab removed .env from commit, moved encryption key to .env
+* 2b6ad33 updated README.txt
+* 6c275bd improved mic check and implemented alerts through github issues
+*   4819201 idk
+|\  
+| * f53c86a Delete encrypt.py
+* | c2f77e3 new encrypted github token
+|/  
+* 0d7f973 added encrpytion and .env file, also added PAT through github for alerts
+* 16f4079 readme file added
+* f7bbf92 initial build of the monitoring app
