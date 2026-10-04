@@ -79,11 +79,18 @@ def test_resolved_calls_no_longer_count_as_load(desk):
     assert third.assigned_tech_id == first.assigned_tech_id != second.assigned_tech_id
 
 
-def test_overflows_to_general_when_specialists_are_busy(desk):
-    desk.open_request_for_alert(camera_alert())
-    desk.open_request_for_alert(camera_alert())
+def test_overflows_to_general_when_specialists_are_busy(tmp_path):
+    room = ["WS-104"]
+    technicians = {
+        "C1": Technician("C1", "Cam One", "Camera", workstation_ids=room),
+        "C2": Technician("C2", "Cam Two", "Camera", workstation_ids=room),
+        "G1": Technician("G1", "Generalist", "General", workstation_ids=room),
+    }
+    desk = MaintenanceDesk(technicians, log_path=str(tmp_path / "log.jsonl"), report_csv_path=None)
+    specialists = {desk.open_request_for_alert(camera_alert()).assigned_tech_id for _ in range(2)}
     overflow = desk.open_request_for_alert(camera_alert())
-    assert desk.technician_for(overflow).specialty == "General"
+    assert specialists == {"C1", "C2"}
+    assert overflow.assigned_tech_id == "G1"
 
 
 def test_falls_back_to_least_busy_when_no_specialist(tmp_path):
