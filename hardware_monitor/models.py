@@ -2,6 +2,7 @@
 Workstation class, which composes components (composition), and the
 Technician / MaintenanceRequest classes used for maintenance workflow."""
 
+from abc import ABC, abstractmethod
 from datetime import date, datetime
 
 
@@ -31,8 +32,8 @@ def _check_number(record, field, kind, integer=False):
         raise ValueError(f"{kind} field '{field}' must be {expected}, got {value!r}.")
 
 
-class HardwareComponent:
-    """Base class for any piece of monitored hardware."""
+class HardwareComponent(ABC):
+    """Abstract base class for any piece of monitored hardware."""
 
     ALLOWED_STATUSES = {"ACTIVE", "DISCONNECTED", "TESTING", "ERROR", "MAINTENANCE"}
     REQUIRED_FIELDS = ("component_type", "component_id", "workstation_id")
@@ -136,10 +137,12 @@ class HardwareComponent:
             status = self._status_before_test
         return status in self.FAULT_STATUSES
 
+    @abstractmethod
     def run_diagnostics(self):
         """Overridden by subclasses. Returns True if the component is healthy."""
         raise NotImplementedError("Subclasses must implement run_diagnostics().")
 
+    @abstractmethod
     def alert_priority(self):
         """Overridden by subclasses: how urgent an alert about this failed
         component is (lower number = more urgent)."""
