@@ -33,6 +33,12 @@ from .reports import (
     export_maintenance_history_csv,
 )
 from .maintenance import MaintenanceDesk
+from .concurrency import (
+    fetch_statuses_sequential,
+    fetch_statuses_concurrent,
+    LockedAlertLog,
+    record_alerts_from_threads,
+)
 
 __all__ = [
     "HardwareComponent",
@@ -58,6 +64,10 @@ __all__ = [
     "generate_maintenance_history_report",
     "export_maintenance_history_csv",
     "MaintenanceDesk",
+    "fetch_statuses_sequential",
+    "fetch_statuses_concurrent",
+    "LockedAlertLog",
+    "record_alerts_from_threads",
     "HardwareMonitorApp",
 ]
 
