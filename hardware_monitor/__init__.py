@@ -36,6 +36,8 @@ from .maintenance import MaintenanceDesk
 from .concurrency import (
     fetch_statuses_sequential,
     fetch_statuses_concurrent,
+    gather_overview_sequential,
+    gather_overview_concurrent,
     LockedAlertLog,
     record_alerts_from_threads,
 )
@@ -66,6 +68,8 @@ __all__ = [
     "MaintenanceDesk",
     "fetch_statuses_sequential",
     "fetch_statuses_concurrent",
+    "gather_overview_sequential",
+    "gather_overview_concurrent",
     "LockedAlertLog",
     "record_alerts_from_threads",
     "HardwareMonitorApp",

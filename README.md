@@ -69,6 +69,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/demo.py` — the step-by-step demonstration that `main.py` runs, one function per requirement.
 - `hardware_monitor/maintenance.py` — `MaintenanceDesk`: opens a maintenance call for each alert, assigns it to a technician and saves every change.
 - `hardware_monitor/reports.py` — technician workload report, maintenance history report, CSV export, cross-file technician validation.
+- `hardware_monitor/concurrency.py` — async information gathering (`gather_overview_concurrent` starts three independent sources — fleet status, technician roster, maintenance history — with `asyncio.create_task` and collects them with `asyncio.gather`; demo step 11 times it against awaiting them one by one) and a lock-protected alert log for threads.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.

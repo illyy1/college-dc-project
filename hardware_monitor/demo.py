@@ -1,11 +1,15 @@
 """Linear demonstration of the information system: one function per step,
 each showing one requirement (OOP model, composition, encapsulation, context
 manager, data structures, queues, iterators, generator, lazy pipeline,
-maintenance workflow). run_demo() runs them in order without any interactive input."""
+maintenance workflow, async information gathering). run_demo() runs them in
+order without any interactive input."""
 
+import asyncio
 import os
+import time
 from itertools import islice
 
+from .concurrency import SOURCE_LATENCY_SECONDS, gather_overview_sequential, gather_overview_concurrent
 from .config import SAMPLE_DATA_PATH, TECHNICIANS_PATH, DEMO_LOG_PATH, DEMO_MAINTENANCE_LOG_PATH
 from .context_managers import DiagnosticConnection
 from .iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
@@ -52,6 +56,9 @@ def run_demo():
 
     _header(10, "Maintenance calls opened and assigned to technicians")
     demo_maintenance_workflow(alert_manager, workstations)
+
+    _header(11, "Async information gathering: three independent sources with create_task + gather")
+    demo_async_overview()
     print("=" * 70)
 
 
@@ -281,3 +288,29 @@ def demo_maintenance_workflow(alert_manager, workstations):
         print(f"  {tech}")
 
     generate_technician_workload_report(technicians)
+
+
+def demo_async_overview():
+    """Collects the fleet, the technician roster and the demo maintenance log
+    (filled by step 10) first one source at a time, then all three at once,
+    and compares how long each took."""
+    sources = (SAMPLE_DATA_PATH, TECHNICIANS_PATH, DEMO_MAINTENANCE_LOG_PATH)
+    print(f"  Each source takes about {SOURCE_LATENCY_SECONDS:.1f} s to answer (simulated latency).")
+
+    started = time.perf_counter()
+    sequential = asyncio.run(gather_overview_sequential(*sources))
+    sequential_seconds = time.perf_counter() - started
+
+    started = time.perf_counter()
+    overview = asyncio.run(gather_overview_concurrent(*sources))
+    concurrent_seconds = time.perf_counter() - started
+
+    print(f"  One after another (await each): {sequential_seconds:.2f} s")
+    print(f"  All at once (create_task + gather): {concurrent_seconds:.2f} s")
+    print(f"  Same overview either way: {sequential == overview}")
+
+    fleet, maintenance = overview["fleet"], overview["maintenance"]
+    print(f"  Fleet: {fleet['workstations']} workstation(s), components by status {fleet['components_by_status']}")
+    for specialty, names in overview["technicians"].items():
+        print(f"  Technicians ({specialty}): {', '.join(names)}")
+    print(f"  Maintenance: {maintenance['total_calls']} call(s), still open: {maintenance['open_calls'] or 'none'}")
