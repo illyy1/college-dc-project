@@ -78,6 +78,12 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **Timeouts and network failures:** reported as results, never raised, so a failed alert can't crash a monitoring thread.
   - **Incomplete replies:** missing or wrongly typed `number`/`html_url`, a body that isn't JSON, or JSON that isn't an object.
   - **The dashboard:** it posts the maintenance call and technician, and prints each failure instead of crashing.
+  - **Retry mechanism:** recovery after a temporary failure (timeout, network error, 429, 5xx), including on the last allowed attempt. Giving up after the maximum attempts: no extra request, no wait after the final attempt, and the last error reported. Permanent errors and incomplete replies are never retried.
+- `tests/test_concurrency.py` — concurrency validations. These tests are deterministic: they hold a lock and check that callers wait for it, or slow down a critical section so that code without the lock would fail every time.
+  - **Async accuracy:** results match the data counted independently. Results stay in input order even when the tasks finish in reverse order, and repeated runs give identical results.
+  - **Really concurrent:** all three sources start before any finishes, and all 8 workstation fetches are in flight at once (the sequential versions run one at a time). Blocking file reads don't freeze the event loop, and a failing source leaves no unhandled task errors.
+  - **Locks taken:** every method of `MaintenanceDesk`, `AlertManager`, `LockedAlertLog` and the dashboard that touches shared state waits while its lock is held.
+  - **Shared state stays consistent:** batches stay together, and a control run without the lock shows them getting mixed up. Snapshots never see half a batch, and concurrent calls and resolutions keep the numbering, workloads and log consistent. A fault reported by 8 threads opens one call, popup slots are never shared or overbooked, and only one GitHub issue opens per window. Mixed dashboard operations finish without deadlock.
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every pull request and every push to `main`, so a change that breaks old behaviour is caught before it is merged.
 
@@ -95,7 +101,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/reports.py` — technician workload report, maintenance history report, CSV export, cross-file technician validation.
 - `hardware_monitor/concurrency.py` — async information gathering (`gather_overview_concurrent` starts three independent sources — fleet status, technician roster, maintenance history — with `asyncio.create_task` and collects them with `asyncio.gather`; demo step 11 times it against awaiting them one by one) and a lock-protected alert log for threads.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting.
-- `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, network error, incomplete reply) comes back as a result instead of an exception.
+- `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, network error, incomplete reply) comes back as a result instead of an exception. Temporary failures (timeouts, network errors, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …) and incomplete replies are not retried.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
 - `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians, each listing the workstations from `sample_data.jsonl` they cover.
