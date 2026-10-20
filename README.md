@@ -57,6 +57,15 @@ Without `.env`, everything still runs: the dashboard prints a warning and shows 
 
 The dashboard drives its microphone/camera alerts off synthetic signals (`hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behaviour can be tested on demand.
 
+## Testing (regression suite)
+Run `pip install pytest`, then `pytest` from the project root. The tests write to temporary folders, so `logs/` is never touched.
+
+The suite guarantees that new code doesn't break the Phase 1 logic:
+- `tests/test_models.py`, `tests/test_processing.py`, `tests/test_maintenance.py` — the models and validation, alert queues and data structures, and the maintenance desk.
+- `tests/test_phase1_regression.py` — every other Phase 1 behaviour: the custom iterator, the generator, the lazy pipeline (including stopping at the limit), `DiagnosticConnection`, the abstract `HardwareComponent` and its `from_dict` factory, loader validation, the reports and CSV export, and a run of the whole demo (all 11 steps).
+
+GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every pull request and every push to `main`, so a change that breaks old behaviour is caught before it is merged.
+
 ## Project layout
 The course template's `project_name/` package is named `hardware_monitor/` here.
 - `main.py` — entry point only: reads the command-line flags and calls the package. No business classes.
@@ -74,6 +83,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
 - `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians, each listing the workstations from `sample_data.jsonl` they cover.
+- `tests/` — the pytest regression suite (see Testing). `.github/workflows/tests.yml` — runs it on GitHub.
 - `AI_USAGE.md` — how AI was used. `pyproject.toml`, `requirements.txt`, `.gitignore` — project settings.
 
 ## Object-Oriented Programming (OOP)
