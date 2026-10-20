@@ -41,6 +41,7 @@ class HardwareMonitorApp:
             load_technicians_from_jsonl(TECHNICIANS_PATH)
         )
         self.open_requests = {}  # alert_key -> MaintenanceRequest still being handled
+        self._calls_lock = threading.Lock()  # guards open_requests' check-then-open
         self._adopt_leftover_calls()
 
         self.root = tk.Tk()
@@ -106,29 +107,31 @@ class HardwareMonitorApp:
         """Logs an Alert for the fault and opens a maintenance call assigned to
         a technician. Reuses the call already open for this fault, if any.
         Returns (request, is_new)."""
-        request = self.open_requests.get(alert_key)
-        if request is not None:
-            return request, False
+        with self._calls_lock:
+            request = self.open_requests.get(alert_key)
+            if request is not None:
+                return request, False
 
-        component_id, error_type, priority = ALERT_DETAILS[alert_key]
-        alert = self.alert_manager.log_alert(Alert(
-            component_id=component_id,
-            workstation_id=COMPUTER_NAME,
-            error_type=error_type,
-            message=message,
-            priority=priority,
-        ))
-        try:
-            request = self.maintenance_desk.open_request_for_alert(alert)
-        except ValueError as e:
-            print(f"Could not open a maintenance call for {alert_key}: {e}")
-            return None, True
+            component_id, error_type, priority = ALERT_DETAILS[alert_key]
+            alert = self.alert_manager.log_alert(Alert(
+                component_id=component_id,
+                workstation_id=COMPUTER_NAME,
+                error_type=error_type,
+                message=message,
+                priority=priority,
+            ))
+            try:
+                request = self.maintenance_desk.open_request_for_alert(alert)
+            except ValueError as e:
+                print(f"Could not open a maintenance call for {alert_key}: {e}")
+                return None, True
 
-        self.open_requests[alert_key] = request
-        return request, True
+            self.open_requests[alert_key] = request
+            return request, True
 
     def resolve_maintenance_call(self, alert_key):
-        request = self.open_requests.pop(alert_key, None)
+        with self._calls_lock:
+            request = self.open_requests.pop(alert_key, None)
         if request is None:
             return
         self.maintenance_desk.resolve_request(request.request_id)
@@ -269,11 +272,12 @@ class HardwareMonitorApp:
         passes resolve_call=False and hides immediately."""
         if not self.running:
             return
-        popup_open = self.active_alerts.get(alert_key) is not None
-        if resolve_call and popup_open:
-            if time.time() - self._shown_at.get(alert_key, 0) < ALERT_MIN_DISPLAY_SECONDS:
-                return
-            self._closed_at[alert_key] = time.time()
+        with self._popup_lock:
+            popup_open = self.active_alerts.get(alert_key) is not None
+            if resolve_call and popup_open:
+                if time.time() - self._shown_at.get(alert_key, 0) < ALERT_MIN_DISPLAY_SECONDS:
+                    return
+                self._closed_at[alert_key] = time.time()
 
         if resolve_call:
             self.resolve_maintenance_call(alert_key)
@@ -282,12 +286,13 @@ class HardwareMonitorApp:
             return
 
         def _destroy():
-            win = self.active_alerts.get(alert_key)
-            if isinstance(win, tk.Toplevel) and win.winfo_exists():
-                win.destroy()
             with self._popup_lock:
+                win = self.active_alerts.get(alert_key)
                 self.active_alerts[alert_key] = None
                 self._popup_slots.pop(alert_key, None)
+            # destroyed outside the lock: Tk calls never run while holding it
+            if isinstance(win, tk.Toplevel) and win.winfo_exists():
+                win.destroy()
 
         self._run_on_ui_thread(_destroy)
 
