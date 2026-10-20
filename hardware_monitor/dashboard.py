@@ -152,7 +152,8 @@ class HardwareMonitorApp:
             result = create_issue(self.github_token, GITHUB_REPO, f"\U0001f6a8 [{COMPUTER_NAME}] {title}", body,
                                   labels=["hardware-alert", alert_key])
             if result.ok:
-                print(f"Alert posted to GitHub for {alert_key}: issue #{result.issue_number} ({result.url})")
+                retried = f" after {result.attempts} attempts" if result.attempts > 1 else ""
+                print(f"Alert posted to GitHub for {alert_key}{retried}: issue #{result.issue_number} ({result.url})")
             else:
                 print(f"GitHub alert for {alert_key} not sent: {result.error}")
 
