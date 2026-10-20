@@ -32,7 +32,7 @@ from .reports import (
     generate_maintenance_history_report,
     export_maintenance_history_csv,
 )
-from .maintenance import MaintenanceDesk
+from .maintenance import MaintenanceDesk, AssignmentStrategy, LeastBusyStrategy, RoundRobinStrategy
 from .concurrency import (
     fetch_statuses_sequential,
     fetch_statuses_concurrent,
@@ -66,6 +66,9 @@ __all__ = [
     "generate_maintenance_history_report",
     "export_maintenance_history_csv",
     "MaintenanceDesk",
+    "AssignmentStrategy",
+    "LeastBusyStrategy",
+    "RoundRobinStrategy",
     "fetch_statuses_sequential",
     "fetch_statuses_concurrent",
     "gather_overview_sequential",

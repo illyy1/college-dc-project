@@ -63,6 +63,15 @@ Run `pip install pytest`, then `pytest` from the project root. The tests write t
 The suite guarantees that new code doesn't break the Phase 1 logic:
 - `tests/test_models.py`, `tests/test_processing.py`, `tests/test_maintenance.py` — the models and validation, alert queues and data structures, and the maintenance desk.
 - `tests/test_phase1_regression.py` — every other Phase 1 behaviour: the custom iterator, the generator, the lazy pipeline (including stopping at the limit), `DiagnosticConnection`, the abstract `HardwareComponent` and its `from_dict` factory, loader validation, the reports and CSV export, and a run of the whole demo (all 11 steps).
+- `tests/test_business_logic_edge_cases.py` — business logic and edge cases:
+  - **Boundaries:** the 8000 Hz sample-rate threshold, the 3-year age cut-off, the smallest valid resolution, a limit of 0.
+  - **Empty inputs:** empty files, fleets and alert queues.
+  - **Invalid inputs:** wrong types, blank ids, impossible dates, records that aren't JSON objects, foreign or duplicate components.
+  - **Maintenance rules:** workstations nobody covers, overflow only when every specialist is busy, open calls surviving a restart.
+  - **Phase 2 concurrency:** threads never overlap log writes or reuse a call number, and the async overview matches the sequential one.
+- `tests/test_design_patterns.py` — the two design patterns (see Design patterns):
+  - **Factory:** picks the right product, gives each product only its own fields and validation, builds the same object as direct construction, and picks up a new subclass with no changes to the factory.
+  - **Strategy:** each strategy's rule on its own, the cases where they disagree, the default, swapping on a running desk, and a custom strategy receiving only eligible technicians.
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every pull request and every push to `main`, so a change that breaks old behaviour is caught before it is merged.
 
@@ -92,6 +101,12 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 *   **Polymorphism (פולימורפיזם):** `run_diagnostics()` and `alert_priority()` are defined in the base class and overridden in each subclass. The diagnostics sweep calls them through the common type, with no `if/elif` on the object's class. A camera fault outranks a microphone fault, and a lost device outranks a misconfigured one.
 *   **Validation:** `connection_status`, `Technician.specialty` and `MaintenanceRequest.status` are properties that raise `ValueError` with an explanation for an illegal value. `Workstation.add_component` refuses a component of another workstation or a reused id. The `from_dict` factories reject missing fields and wrong types.
 *   **Other tools:** `@classmethod` factories (`from_dict`), a `@staticmethod` (`Camera.parse_resolution`), a computed property (`age_years`) and `__len__` on `AlertHistory`.
+
+## Design patterns
+| Pattern | Where | What it gives us |
+|---|---|---|
+| **Factory** | `HardwareComponent.from_dict` (also `Workstation.from_dict`, `Technician.from_dict`) | The loader passes in a JSONL record and gets back the right subclass (`Camera`, `Microphone`, …) without any `if/elif` on the type. The factory finds the subclasses through `__subclasses__()`, so adding a new kind of component needs no change to the factory. Each subclass validates its own fields. |
+| **Strategy** | `AssignmentStrategy` in `maintenance.py` | The `MaintenanceDesk` decides which technicians are eligible (coverage, specialty, overflow), then hands the final choice to a strategy object. `LeastBusyStrategy` (default: fewest open calls, then whoever waited longest) and `RoundRobinStrategy` (strict turns, whatever the load) are interchangeable: `MaintenanceDesk(..., assignment_strategy=RoundRobinStrategy())`, or swap `desk.assignment_strategy` on a running desk. |
 
 ## מבני נתונים (Data Structures)
 | Need | Structure chosen | Why it fits |
