@@ -82,7 +82,8 @@ class MaintenanceDesk:
             self.requests[request.request_id] = request
 
     def open_requests(self):
-        return [r for r in self.requests.values() if r.status != "RESOLVED"]
+        with self._lock:
+            return [r for r in self.requests.values() if r.status != "RESOLVED"]
 
     def find_open_requests(self, workstation_id, component_id, error_type):
         """Unresolved calls already open for this exact fault, oldest first."""

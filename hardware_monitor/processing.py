@@ -3,6 +3,7 @@ unique error types and acknowledgements (set), a FIFO help-desk intake queue
 (deque) and a technician dispatch priority queue (heapq)."""
 
 import heapq
+import threading
 from collections import deque
 from datetime import datetime
 from itertools import count
@@ -81,14 +82,16 @@ class AlertManager:
         self._dispatch_heap = []           # heapq — (priority, arrival_no, alert) tuples
         self._arrival_counter = count()
         self.acknowledged_alert_ids = set()  # set — alert ids the help desk has acknowledged
+        self._lock = threading.Lock()  # the dashboard's mic and camera threads both log alerts
 
     def log_alert(self, alert, persist=True):
-        self.alert_history.append(alert)
-        self.intake_queue.append(alert)
-        heapq.heappush(self._dispatch_heap, (alert.priority, next(self._arrival_counter), alert))
-        if persist:
-            self._persist_to_log(alert)
-        return alert
+        with self._lock:
+            self.alert_history.append(alert)
+            self.intake_queue.append(alert)
+            heapq.heappush(self._dispatch_heap, (alert.priority, next(self._arrival_counter), alert))
+            if persist:
+                self._persist_to_log(alert)
+            return alert
 
     def dispatch_next(self):
         """heappop: the most urgent alert waiting for a technician, or None
