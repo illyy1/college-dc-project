@@ -10,14 +10,13 @@ import threading
 import tkinter as tk
 from datetime import datetime
 
-import requests
-
 from .config import (
     SILENCE_THRESHOLD, SILENCE_DURATION,
     MAX_VISIBLE_ALERTS, ALERT_MIN_DISPLAY_SECONDS, ALERT_COOLDOWN_SECONDS, GITHUB_ISSUE_COOLDOWN_SECONDS,
     MAX_QUIET_SECONDS,
     GITHUB_REPO, COMPUTER_NAME, TECHNICIANS_PATH, get_github_token,
 )
+from .github_client import create_issue
 from .maintenance import MaintenanceDesk
 from .processing import Alert, AlertManager
 from .repository import load_technicians_from_jsonl
@@ -143,35 +142,19 @@ class HardwareMonitorApp:
         """Sends the alert payload to GitHub Issues in a background thread."""
 
         def _post():
-            if not self.github_token:
-                print("GitHub Token missing or decryption failed. Alert not sent.")
-                return
-
-            url = f"https://api.github.com/repos/{GITHUB_REPO}/issues"
-            headers = {
-                "Authorization": f"Bearer {self.github_token}",
-                "Accept": "application/vnd.github.v3+json",
-            }
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             body = f"### Hardware Alert Triggered\n- **Computer:** `{COMPUTER_NAME}`\n- **Time:** {timestamp}\n- **Component:** `{alert_key}`\n- **Details:** {message}"
             if request is not None:
                 technician = self.maintenance_desk.technician_for(request)
                 body += (f"\n- **Maintenance Call:** `{request.request_id}`"
                          f"\n- **Assigned Technician:** {technician.name if technician else 'unassigned'}")
-            payload = {
-                "title": f"\U0001f6a8 [{COMPUTER_NAME}] {title}",
-                "body": body,
-                "labels": ["hardware-alert", alert_key],
-            }
 
-            try:
-                response = requests.post(url, json=payload, headers=headers, timeout=5)
-                if response.status_code == 201:
-                    print(f"Alert successfully posted to GitHub for: {alert_key}")
-                else:
-                    print(f"Failed to post to GitHub. Status code: {response.status_code}")
-            except Exception as e:
-                print(f"Network error logging to GitHub: {e}")
+            result = create_issue(self.github_token, GITHUB_REPO, f"\U0001f6a8 [{COMPUTER_NAME}] {title}", body,
+                                  labels=["hardware-alert", alert_key])
+            if result.ok:
+                print(f"Alert posted to GitHub for {alert_key}: issue #{result.issue_number} ({result.url})")
+            else:
+                print(f"GitHub alert for {alert_key} not sent: {result.error}")
 
         threading.Thread(target=_post, daemon=True).start()
 

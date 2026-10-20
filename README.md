@@ -58,7 +58,7 @@ Without `.env`, everything still runs: the dashboard prints a warning and shows 
 The dashboard drives its microphone/camera alerts off synthetic signals (`hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behaviour can be tested on demand.
 
 ## Testing (regression suite)
-Run `pip install pytest`, then `pytest` from the project root. The tests write to temporary folders, so `logs/` is never touched.
+Run `pip install -r requirements.txt pytest`, then `pytest` from the project root. The tests write to temporary folders, so `logs/` is never touched, and they never contact GitHub.
 
 The suite guarantees that new code doesn't break the Phase 1 logic:
 - `tests/test_models.py`, `tests/test_processing.py`, `tests/test_maintenance.py` — the models and validation, alert queues and data structures, and the maintenance desk.
@@ -72,6 +72,12 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
 - `tests/test_design_patterns.py` — the two design patterns (see Design patterns):
   - **Factory:** picks the right product, gives each product only its own fields and validation, builds the same object as direct construction, and picks up a new subclass with no changes to the factory.
   - **Strategy:** each strategy's rule on its own, the cases where they disagree, the default, swapping on a running desk, and a custom strategy receiving only eligible technicians.
+- `tests/test_external_api.py` — the GitHub Issues API, with `requests.post` replaced by a fake so no test goes over the network:
+  - **Success:** the issue number and link are returned, and the request has the right URL, payload, token and timeout.
+  - **HTTP errors:** 401, 403, 404, 410, 422, 5xx and an unexpected 200, each reported with its status and GitHub's message when there is one.
+  - **Timeouts and network failures:** reported as results, never raised, so a failed alert can't crash a monitoring thread.
+  - **Incomplete replies:** missing or wrongly typed `number`/`html_url`, a body that isn't JSON, or JSON that isn't an object.
+  - **The dashboard:** it posts the maintenance call and technician, and prints each failure instead of crashing.
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every pull request and every push to `main`, so a change that breaks old behaviour is caught before it is merged.
 
@@ -89,6 +95,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/reports.py` — technician workload report, maintenance history report, CSV export, cross-file technician validation.
 - `hardware_monitor/concurrency.py` — async information gathering (`gather_overview_concurrent` starts three independent sources — fleet status, technician roster, maintenance history — with `asyncio.create_task` and collects them with `asyncio.gather`; demo step 11 times it against awaiting them one by one) and a lock-protected alert log for threads.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting.
+- `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, network error, incomplete reply) comes back as a result instead of an exception.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
 - `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians, each listing the workstations from `sample_data.jsonl` they cover.
