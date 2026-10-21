@@ -58,7 +58,21 @@ Without `.env`, everything still runs: the dashboard prints a warning and shows 
 The dashboard drives its microphone/camera alerts off synthetic signals (`hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behaviour can be tested on demand.
 
 ## Testing (regression suite)
-Run `pip install -r requirements.txt pytest`, then `pytest` from the project root. The tests write to temporary folders, so `logs/` is never touched, and they never contact GitHub.
+Run `pip install -r requirements.txt pytest`, then `pytest` from the project root. The tests never contact GitHub.
+
+**Files (`tmp_path`).** Every test that writes files (logs, CSV exports, bad or half-written data files) does it in pytest's built-in `tmp_path`, a fresh temporary folder per test. The real `data/` files are only ever read. This happens in three ways:
+- 41 tests request `tmp_path` directly;
+- the shared fixtures (`desk`, `make_desk`, `alert_manager`) put their logs there;
+- an automatic fixture sends the alert history log there in every test.
+
+A check in `conftest.py` enforces this. It records every project file before the run and fails the run if any test created, changed or deleted one, naming the file.
+
+**Shared fixtures** (`tests/conftest.py`). Every test can request reusable mock data instead of building its own. Each fixture is rebuilt for every test, so one test's changes never leak into another.
+- `alerts`: a factory for fresh alerts. `alerts.camera()` (a lost camera on WS-104), `alerts.microphone()` (a silent mic on WS-105), or `alerts.make(...)` with any field overridden.
+- `bench_workstation`: a fake workstation with a healthy camera, a camera with an unusable resolution and a healthy microphone.
+- `workstations` and `technicians`: the synthetic fleet and technicians from `data/`.
+- `alert_manager`: an `AlertManager` whose log is a temporary file.
+- `make_desk` and `desk`: a `MaintenanceDesk` on a temporary log. `make_desk(team, csv_report=True, assignment_strategy=...)` builds a variant.
 
 **Isolation (mocking).** The tests run without an internet connection, without an API key, and without real waiting between retries. The rule: only external dependencies are mocked, never the function under test.
 - **Applied to every test** (`tests/conftest.py`): connecting to any non-local address fails as if the machine were offline. `load_dotenv` and the token variables are cleared, so the real `.env` is never read. The `sleep` between GitHub retries is a `unittest.mock` that records the waits instead of sleeping.
@@ -97,6 +111,17 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **Pause/Resume, shutdown, and calls left open by a previous run:** pausing hides popups but keeps calls open; closing the window leaves no errors; leftover calls are adopted, with duplicates closed.
 - `tests/test_synthetic_sources.py` — the simulated mic and camera: how a fault starts and clears (exact chance limits), forced faults always being seen, the volume ranges, and that the default settings give a busy room whose faults clear on their own.
 - `tests/test_config.py` — decrypting the GitHub token with a throwaway key (the real `.env` is never read): a valid token, missing or empty values, a wrong or malformed key, and a tampered token.
+- `tests/test_exceptions.py` — exceptions for bad data and critical failures (`pytest.raises`), and proof that a failure never leaves things half-done:
+  - **Ports and locks released:** a diagnostic session that fails to start releases its port, and a failure inside one is re-raised after cleanup. A crashing assignment strategy or an unwritable log leaves no lock held.
+  - **Data files:** a missing data file stops loading. Bad JSON raises a plain `ValueError` naming the file and line, with the parser's internal error hidden.
+  - **Programming errors:** an unknown package attribute raises `AttributeError`, and the abstract base methods refuse to run.
+
+  Across the suite, 45 `pytest.raises` checks verify both the exception type and its message, except where only the type matters or the message comes from the operating system.
+- `tests/test_failure_recovery.py` — real-world failures the system must survive. Each failure is caused at the external dependency, and the code that handles it runs for real:
+  - **The CSV report locked by Excel:** the call is still opened or resolved and saved, a warning is printed, and the CSV catches up on the next change.
+  - **A diagnostic that crashes:** the component is marked `ERROR` and alerted, and the sweep goes on.
+  - **A log line half-written when the program was killed:** the next record starts on a fresh line, and the desk keeps numbering correctly.
+  - **`--report` end to end:** it prints the history and exports the CSV, creating the folder if needed. Unlike the automatic refresh, it fails loudly if the CSV can't be written.
 - `tests/test_concurrency.py` — concurrency validations. These tests are deterministic: they hold a lock and check that callers wait for it, or slow down a critical section so that code without the lock would fail every time.
   - **Async accuracy:** results match the data counted independently. Results stay in input order even when the tasks finish in reverse order, and repeated runs give identical results.
   - **Really concurrent:** all three sources start before any finishes, and all 8 workstation fetches are in flight at once (the sequential versions run one at a time). Blocking file reads don't freeze the event loop, and a failing source leaves no unhandled task errors.

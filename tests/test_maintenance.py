@@ -3,27 +3,26 @@ import json
 
 import pytest
 
-from hardware_monitor.maintenance import MaintenanceDesk, specialty_for_error_type
+from hardware_monitor.maintenance import specialty_for_error_type
 from hardware_monitor.models import Technician
 from hardware_monitor.reports import find_unknown_workstation_references
-from hardware_monitor.processing import Alert
 
 
 @pytest.fixture
-def desk(technicians, tmp_path):
-    return MaintenanceDesk(
-        technicians,
-        log_path=str(tmp_path / "logs" / "maintenance_requests.jsonl"),
-        report_csv_path=str(tmp_path / "maintenance_report.csv"),
-    )
+def desk(make_desk):
+    """This file's desk also writes the CSV report."""
+    return make_desk(csv_report=True)
 
 
-def camera_alert():
-    return Alert("CAM-104", "WS-104", "CAMERA_FAILURE", "disconnected", priority=1)
-
-
-def mic_alert():
-    return Alert("MIC-105", "WS-105", "MICROPHONE_SILENCE", "silent", priority=4)
+@pytest.fixture
+def ws104_team():
+    """Two camera specialists and a generalist, all covering WS-104."""
+    room = ["WS-104"]
+    return {
+        "C1": Technician("C1", "Cam One", "Camera", workstation_ids=room),
+        "C2": Technician("C2", "Cam Two", "Camera", workstation_ids=room),
+        "G1": Technician("G1", "Generalist", "General", workstation_ids=room),
+    }
 
 
 @pytest.mark.parametrize("error_type, specialty", [
@@ -51,13 +50,13 @@ def test_dangling_workstation_reference_is_reported(technicians, workstations):
 
 
 def test_technician_rejects_malformed_workstation_ids():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Technician 'T9': workstation_ids must be a list"):
         Technician.from_dict({"tech_id": "T9", "name": "Ghost", "specialty": "Camera", "workstation_ids": "WS-101"})
 
 
-def test_calls_go_to_matching_specialist(desk):
-    cam_request = desk.open_request_for_alert(camera_alert())
-    mic_request = desk.open_request_for_alert(mic_alert())
+def test_calls_go_to_matching_specialist(desk, alerts):
+    cam_request = desk.open_request_for_alert(alerts.camera())
+    mic_request = desk.open_request_for_alert(alerts.microphone())
 
     assert desk.technician_for(cam_request).specialty == "Camera"
     assert desk.technician_for(mic_request).specialty == "Microphone"
@@ -65,54 +64,48 @@ def test_calls_go_to_matching_specialist(desk):
     assert (cam_request.request_id, mic_request.request_id) == ("MR-0001", "MR-0002")
 
 
-def test_camera_calls_are_balanced_between_camera_technicians(desk):
-    first = desk.open_request_for_alert(camera_alert())
-    second = desk.open_request_for_alert(camera_alert())
+def test_camera_calls_are_balanced_between_camera_technicians(desk, alerts):
+    first = desk.open_request_for_alert(alerts.camera())
+    second = desk.open_request_for_alert(alerts.camera())
     assert first.assigned_tech_id != second.assigned_tech_id
 
 
-def test_resolved_calls_no_longer_count_as_load(desk):
-    first = desk.open_request_for_alert(camera_alert())
-    second = desk.open_request_for_alert(camera_alert())
+def test_resolved_calls_no_longer_count_as_load(desk, alerts):
+    first = desk.open_request_for_alert(alerts.camera())
+    second = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(first.request_id)
-    third = desk.open_request_for_alert(camera_alert())
+    third = desk.open_request_for_alert(alerts.camera())
     assert third.assigned_tech_id == first.assigned_tech_id != second.assigned_tech_id
 
 
-def test_overflows_to_general_when_specialists_are_busy(tmp_path):
-    room = ["WS-104"]
-    technicians = {
-        "C1": Technician("C1", "Cam One", "Camera", workstation_ids=room),
-        "C2": Technician("C2", "Cam Two", "Camera", workstation_ids=room),
-        "G1": Technician("G1", "Generalist", "General", workstation_ids=room),
-    }
-    desk = MaintenanceDesk(technicians, log_path=str(tmp_path / "log.jsonl"), report_csv_path=None)
-    specialists = {desk.open_request_for_alert(camera_alert()).assigned_tech_id for _ in range(2)}
-    overflow = desk.open_request_for_alert(camera_alert())
+def test_overflows_to_general_when_specialists_are_busy(make_desk, ws104_team, alerts):
+    desk = make_desk(ws104_team)
+    specialists = {desk.open_request_for_alert(alerts.camera()).assigned_tech_id for _ in range(2)}
+    overflow = desk.open_request_for_alert(alerts.camera())
     assert specialists == {"C1", "C2"}
     assert overflow.assigned_tech_id == "G1"
 
 
-def test_falls_back_to_least_busy_when_no_specialist(tmp_path):
-    technicians = {"T9": Technician("T9", "Solo", "Camera")}
-    desk = MaintenanceDesk(technicians, log_path=str(tmp_path / "log.jsonl"), report_csv_path=None)
-    request = desk.open_request_for_alert(mic_alert())
+def test_falls_back_to_least_busy_when_no_specialist(make_desk, alerts):
+    desk = make_desk({"T9": Technician("T9", "Solo", "Camera")})
+    request = desk.open_request_for_alert(alerts.microphone())
     assert request.assigned_tech_id == "T9"
 
 
-def test_no_technicians_raises(tmp_path):
-    desk = MaintenanceDesk({}, log_path=str(tmp_path / "log.jsonl"), report_csv_path=None)
-    with pytest.raises(ValueError):
-        desk.open_request_for_alert(camera_alert())
+def test_no_technicians_raises(make_desk, alerts):
+    desk = make_desk({})
+    with pytest.raises(ValueError, match="No technicians are registered"):
+        desk.open_request_for_alert(alerts.camera())
+    assert desk.requests == {}  # nothing half-opened
 
 
 def test_resolve_unknown_request_raises(desk):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Maintenance request 'MR-9999' does not exist"):
         desk.resolve_request("MR-9999")
 
 
-def test_every_change_is_logged_and_exported(desk):
-    request = desk.open_request_for_alert(camera_alert())
+def test_every_change_is_logged_and_exported(desk, alerts):
+    request = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(request.request_id)
     desk.resolve_request(request.request_id)  # already resolved: not logged again
 
@@ -126,9 +119,9 @@ def test_every_change_is_logged_and_exported(desk):
     assert len(rows) == 1 and rows[0]["status"] == "RESOLVED"
 
 
-def test_numbering_continues_from_existing_log(desk, technicians):
-    desk.open_request_for_alert(camera_alert())
-    desk.open_request_for_alert(mic_alert())
+def test_numbering_continues_from_existing_log(desk, make_desk, alerts):
+    desk.open_request_for_alert(alerts.camera())
+    desk.open_request_for_alert(alerts.microphone())
 
-    reopened = MaintenanceDesk(technicians, log_path=desk.log_path, report_csv_path=None)
-    assert reopened.open_request_for_alert(camera_alert()).request_id == "MR-0003"
+    reopened = make_desk()  # same temporary log: a restart
+    assert reopened.open_request_for_alert(alerts.camera()).request_id == "MR-0003"

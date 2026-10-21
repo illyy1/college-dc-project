@@ -6,7 +6,6 @@ Only the external dependencies are mocked: requests.post (with autospec, so
 a call the real function would reject fails the test) and the sleep between
 retries (see conftest.py). create_issue itself always runs for real."""
 
-import time
 from types import SimpleNamespace
 from unittest import mock
 
@@ -16,8 +15,6 @@ import requests
 from hardware_monitor import dashboard, github_client
 from hardware_monitor.dashboard import HardwareMonitorApp
 from hardware_monitor.github_client import IssueResult, create_issue
-from hardware_monitor.maintenance import MaintenanceDesk
-from hardware_monitor.processing import Alert
 
 NOT_JSON = object()
 
@@ -337,19 +334,19 @@ class RunNow:
 
 
 @pytest.fixture
-def app(monkeypatch, technicians, tmp_path):
+def app(monkeypatch, technicians, tmp_path, make_desk):
     """A dashboard without its Tk window: only what send_github_alert uses."""
     monkeypatch.setattr(dashboard, "threading", SimpleNamespace(Thread=RunNow))
     app = HardwareMonitorApp.__new__(HardwareMonitorApp)
     app.github_token = "secret-token"
-    app.maintenance_desk = MaintenanceDesk(technicians, log_path=str(tmp_path / "log.jsonl"), report_csv_path=None)
+    app.maintenance_desk = make_desk()
     return app
 
 
-def test_dashboard_posts_the_call_and_technician(app, github, capsys):
+def test_dashboard_posts_the_call_and_technician(app, github, capsys, alerts):
     github.reply = api_response(201, CREATED)
     request = app.maintenance_desk.open_request_for_alert(
-        Alert("CAM-LOCAL", "PC", "CAMERA_FAILURE", "no frame", priority=1))
+        alerts.make(component_id="CAM-LOCAL", workstation_id="PC", message="no frame"))
     technician = app.maintenance_desk.technician_for(request)
 
     app.send_github_alert("camera", "Camera Disconnected", "no frame", request)

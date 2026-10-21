@@ -6,14 +6,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from hardware_monitor.maintenance import (
-    AssignmentStrategy,
-    LeastBusyStrategy,
-    MaintenanceDesk,
-    RoundRobinStrategy,
-)
+from hardware_monitor.maintenance import AssignmentStrategy, LeastBusyStrategy, RoundRobinStrategy
 from hardware_monitor.models import Camera, HardwareComponent, MaintenanceRequest, Microphone, Technician, Workstation
-from hardware_monitor.processing import Alert
 
 
 # --- Factory: HardwareComponent.from_dict builds the right product ---
@@ -130,7 +124,8 @@ def busy_but_waiting():
 
 
 def test_strategy_interface_cannot_be_used_directly():
-    with pytest.raises(TypeError):
+    # Python 3.11 says "with abstract method choose", 3.12+ "abstract method 'choose'"
+    with pytest.raises(TypeError, match=r"abstract method.*choose"):
         AssignmentStrategy()
 
 
@@ -158,45 +153,41 @@ def test_resolved_calls_do_not_count_as_load(strategy):
     assert strategy.choose(candidates, {}).tech_id == "C1"  # tie: both free, first candidate wins
 
 
-def camera_alert():
-    return Alert("CAM-104", "WS-104", "CAMERA_FAILURE", "disconnected", priority=1)
+@pytest.fixture
+def camera_team():
+    """Two camera technicians, C1 and C2, both covering WS-104."""
+    return {tid: Technician(tid, tid, "Camera", workstation_ids=["WS-104"]) for tid in ("C1", "C2")}
 
 
-def camera_desk(tmp_path, strategy=None):
-    technicians = {tid: Technician(tid, tid, "Camera", workstation_ids=["WS-104"]) for tid in ("C1", "C2")}
-    return MaintenanceDesk(technicians, log_path=str(tmp_path / "log.jsonl"), report_csv_path=None,
-                           assignment_strategy=strategy)
-
-
-def test_desk_uses_least_busy_by_default(tmp_path):
-    assert isinstance(camera_desk(tmp_path).assignment_strategy, LeastBusyStrategy)
+def test_desk_uses_least_busy_by_default(make_desk, camera_team):
+    assert isinstance(make_desk(camera_team).assignment_strategy, LeastBusyStrategy)
 
 
 @pytest.mark.parametrize("strategy, third_call_goes_to", [
     (LeastBusyStrategy(), "C2"),   # C2's call was resolved, so C2 is the free one
     (RoundRobinStrategy(), "C1"),  # C1 was assigned longest ago, so it is C1's turn
 ], ids=["least-busy", "round-robin"])
-def test_swapping_the_strategy_changes_who_gets_the_call(tmp_path, strategy, third_call_goes_to):
-    desk = camera_desk(tmp_path, strategy)
-    first = desk.open_request_for_alert(camera_alert())
-    second = desk.open_request_for_alert(camera_alert())
+def test_swapping_the_strategy_changes_who_gets_the_call(make_desk, camera_team, strategy, third_call_goes_to, alerts):
+    desk = make_desk(camera_team, assignment_strategy=strategy)
+    first = desk.open_request_for_alert(alerts.camera())
+    second = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(second.request_id)
 
     assert (first.assigned_tech_id, second.assigned_tech_id) == ("C1", "C2")
-    assert desk.open_request_for_alert(camera_alert()).assigned_tech_id == third_call_goes_to
+    assert desk.open_request_for_alert(alerts.camera()).assigned_tech_id == third_call_goes_to
 
 
-def test_strategy_can_be_changed_on_a_running_desk(tmp_path):
-    desk = camera_desk(tmp_path)
-    desk.open_request_for_alert(camera_alert())
-    second = desk.open_request_for_alert(camera_alert())
+def test_strategy_can_be_changed_on_a_running_desk(make_desk, camera_team, alerts):
+    desk = make_desk(camera_team)
+    desk.open_request_for_alert(alerts.camera())
+    second = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(second.request_id)
 
     desk.assignment_strategy = RoundRobinStrategy()
-    assert desk.open_request_for_alert(camera_alert()).assigned_tech_id == "C1"
+    assert desk.open_request_for_alert(alerts.camera()).assigned_tech_id == "C1"
 
 
-def test_desk_hands_a_custom_strategy_only_eligible_candidates(technicians, tmp_path):
+def test_desk_hands_a_custom_strategy_only_eligible_candidates(technicians, alerts, make_desk):
     class RecordingStrategy(AssignmentStrategy):
         def __init__(self):
             self.seen = []
@@ -206,9 +197,8 @@ def test_desk_hands_a_custom_strategy_only_eligible_candidates(technicians, tmp_
             return candidates[-1]
 
     strategy = RecordingStrategy()
-    desk = MaintenanceDesk(technicians, log_path=str(tmp_path / "log.jsonl"), report_csv_path=None,
-                           assignment_strategy=strategy)
-    request = desk.open_request_for_alert(camera_alert())
+    desk = make_desk(assignment_strategy=strategy)
+    request = desk.open_request_for_alert(alerts.camera())
 
     (candidates,) = strategy.seen
     assert candidates == [t for t in technicians.values() if t.specialty == "Camera" and t.covers("WS-104")]

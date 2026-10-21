@@ -24,9 +24,7 @@ from hardware_monitor.concurrency import (
     gather_overview_sequential,
 )
 from hardware_monitor.dashboard import HardwareMonitorApp
-from hardware_monitor.maintenance import MaintenanceDesk
 from hardware_monitor.models import MaintenanceRequest
-from hardware_monitor.processing import Alert, AlertManager
 from hardware_monitor.repository import load_maintenance_history
 
 from conftest import SAMPLE_DATA_PATH, TECHNICIANS_PATH
@@ -51,15 +49,6 @@ def run_together(worker, count=8):
         thread.join(timeout=30)
     assert not any(t.is_alive() for t in threads), "threads did not finish (deadlock?)"
     assert errors == []
-
-
-def camera_alert():
-    return Alert("CAM-104", "WS-104", "CAMERA_FAILURE", "disconnected", priority=1)
-
-
-@pytest.fixture
-def desk(technicians, tmp_path):
-    return MaintenanceDesk(technicians, log_path=str(tmp_path / "log.jsonl"), report_csv_path=None)
 
 
 @pytest.fixture
@@ -215,7 +204,7 @@ def test_a_failing_source_leaves_no_unhandled_task_errors(no_latency, tmp_path):
     async def scenario():
         reported = []
         asyncio.get_running_loop().set_exception_handler(lambda loop, context: reported.append(context))
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(FileNotFoundError, match="no_fleet.jsonl|no_techs.jsonl"):
             # two of the three sources fail
             await gather_overview_concurrent(str(tmp_path / "no_fleet.jsonl"), str(tmp_path / "no_techs.jsonl"),
                                              str(tmp_path / "log.jsonl"))
@@ -238,23 +227,23 @@ def waits_for_lock(lock, action):
     return blocked and finished.wait(5)
 
 
-def test_maintenance_desk_methods_wait_for_its_lock(desk):
-    request = desk.open_request_for_alert(camera_alert())
+def test_maintenance_desk_methods_wait_for_its_lock(desk, alerts):
+    request = desk.open_request_for_alert(alerts.camera())
 
-    assert waits_for_lock(desk._lock, lambda: desk.open_request_for_alert(camera_alert()))
+    assert waits_for_lock(desk._lock, lambda: desk.open_request_for_alert(alerts.camera()))
     assert waits_for_lock(desk._lock, lambda: desk.resolve_request(request.request_id))
     assert waits_for_lock(desk._lock, desk.open_requests)
     assert waits_for_lock(desk._lock, lambda: desk.find_open_requests("WS-104", "CAM-104", "CAMERA_FAILURE"))
 
 
-def test_alert_manager_logging_waits_for_its_lock(tmp_path):
-    manager = AlertManager(log_path=str(tmp_path / "history.jsonl"))
-    assert waits_for_lock(manager._lock, lambda: manager.log_alert(camera_alert()))
+def test_alert_manager_logging_waits_for_its_lock(tmp_path, alerts, alert_manager):
+    manager = alert_manager
+    assert waits_for_lock(manager._lock, lambda: manager.log_alert(alerts.camera()))
 
 
-def test_locked_alert_log_methods_wait_for_its_lock():
+def test_locked_alert_log_methods_wait_for_its_lock(alerts):
     alert_log = LockedAlertLog()
-    assert waits_for_lock(alert_log._lock, lambda: alert_log.append_batch([camera_alert()]))
+    assert waits_for_lock(alert_log._lock, lambda: alert_log.append_batch([alerts.camera()]))
     assert waits_for_lock(alert_log._lock, alert_log.snapshot)
 
 
@@ -291,11 +280,15 @@ def fill_from_threads(alert_log, batches):
     run_together(lambda: alert_log.append_batch(remaining.pop()), count=len(batches))
 
 
-def make_batches(count=6, size=20):
-    return [[Alert(f"C{b}", "WS-1", "CAMERA_FAILURE", "x") for _ in range(size)] for b in range(count)]
+@pytest.fixture
+def make_batches(alerts):
+    """Builds `count` batches of `size` fresh alerts each, one component per batch."""
+    def build(count=6, size=20):
+        return [[alerts.make(component_id=f"C{b}") for _ in range(size)] for b in range(count)]
+    return build
 
 
-def test_lock_keeps_each_batch_together():
+def test_lock_keeps_each_batch_together(make_batches):
     alert_log = LockedAlertLog()
     alert_log._alerts = SlowList()
     batches = make_batches()
@@ -305,7 +298,7 @@ def test_lock_keeps_each_batch_together():
     assert len(log) == 120 and batches_are_contiguous(log, batches)
 
 
-def test_without_the_lock_batches_get_mixed_up():
+def test_without_the_lock_batches_get_mixed_up(make_batches):
     # control experiment: the same workload with the lock removed shows what it prevents
     alert_log = LockedAlertLog()
     alert_log._alerts = SlowList()
@@ -316,7 +309,7 @@ def test_without_the_lock_batches_get_mixed_up():
     assert not batches_are_contiguous(alert_log.snapshot(), batches)
 
 
-def test_snapshots_never_see_half_a_batch():
+def test_snapshots_never_see_half_a_batch(make_batches):
     alert_log = LockedAlertLog()
     alert_log._alerts = SlowList()
     batches = make_batches(count=6, size=10)
@@ -336,7 +329,7 @@ def test_snapshots_never_see_half_a_batch():
     assert sizes and all(size % 10 == 0 for size in sizes)
 
 
-def test_concurrent_calls_and_resolutions_stay_consistent(desk, technicians, monkeypatch):
+def test_concurrent_calls_and_resolutions_stay_consistent(desk, technicians, monkeypatch, alerts):
     class SlowRequest(MaintenanceRequest):
         def __init__(self, *args, **kwargs):
             time.sleep(0.001)  # inside the critical section: reading and advancing the call number
@@ -346,7 +339,7 @@ def test_concurrent_calls_and_resolutions_stay_consistent(desk, technicians, mon
 
     def worker():
         for _ in range(5):
-            request = desk.open_request_for_alert(camera_alert())
+            request = desk.open_request_for_alert(alerts.camera())
             desk.open_requests()
             desk.resolve_request(request.request_id)
 
@@ -363,11 +356,11 @@ def test_concurrent_calls_and_resolutions_stay_consistent(desk, technicians, mon
 # --- the dashboard's locks ---
 
 @pytest.fixture
-def app(desk, tmp_path):
+def app(desk, tmp_path, alert_manager):
     """A dashboard without its Tk window: just the state its locks guard."""
     app = HardwareMonitorApp.__new__(HardwareMonitorApp)
     app.maintenance_desk = desk
-    app.alert_manager = AlertManager(log_path=str(tmp_path / "history.jsonl"))
+    app.alert_manager = alert_manager
     app.open_requests = {}
     app._calls_lock = threading.Lock()
     app._popup_lock = threading.Lock()

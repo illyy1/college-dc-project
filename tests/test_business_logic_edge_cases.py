@@ -24,18 +24,10 @@ from hardware_monitor.context_managers import DiagnosticConnection
 from hardware_monitor.iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
 from hardware_monitor.maintenance import MaintenanceDesk
 from hardware_monitor.models import Camera, HardwareComponent, MaintenanceRequest, Microphone, Technician, Workstation
-from hardware_monitor.processing import Alert, AlertManager
+from hardware_monitor.processing import AlertManager
 from hardware_monitor.repository import load_technicians_from_jsonl, load_workstations_from_jsonl, request_number
 
 from conftest import SAMPLE_DATA_PATH, TECHNICIANS_PATH
-
-
-def camera_alert(ws="WS-104"):
-    return Alert("CAM-104", ws, "CAMERA_FAILURE", "disconnected", priority=1)
-
-
-def desk_with(technicians, tmp_path):
-    return MaintenanceDesk(technicians, log_path=str(tmp_path / "log.jsonl"), report_csv_path=None)
 
 
 # --- boundary conditions on thresholds ---
@@ -197,7 +189,7 @@ def test_statuses_are_case_insensitive_but_validated():
     request = MaintenanceRequest("MR-1", 1, 1)
     request.status = "resolved"
     assert request.status == "RESOLVED"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid connection status 'UNKNOWN'"):
         Camera("C1", "Cam", "WS-1", connection_status="UNKNOWN")
 
 
@@ -210,39 +202,38 @@ def test_request_number_handles_unknown_formats(request_id, number):
 
 # --- maintenance desk business rules ---
 
-def test_uncovered_workstation_considers_every_technician(technicians, tmp_path):
-    desk = desk_with(technicians, tmp_path)
-    request = desk.open_request_for_alert(camera_alert(ws="DASHBOARD-PC"))
+def test_uncovered_workstation_considers_every_technician(desk, alerts):
+    request = desk.open_request_for_alert(alerts.camera(workstation_id="DASHBOARD-PC"))
     assert desk.technician_for(request).specialty == "Camera"
 
 
-def test_no_overflow_while_one_specialist_is_still_free(tmp_path):
+def test_no_overflow_while_one_specialist_is_still_free(alerts, make_desk):
     room = ["WS-104"]
-    technicians = {
+    team = {
         "C1": Technician("C1", "Cam One", "Camera", workstation_ids=room),
         "C2": Technician("C2", "Cam Two", "Camera", workstation_ids=room),
         "G1": Technician("G1", "Generalist", "General", workstation_ids=room),
     }
-    desk = desk_with(technicians, tmp_path)
-    busy = desk.open_request_for_alert(camera_alert())
-    recent = desk.open_request_for_alert(camera_alert())
+    desk = make_desk(team)
+    busy = desk.open_request_for_alert(alerts.camera())
+    recent = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(recent.request_id)
     # one specialist is busy, the other is free but was assigned more recently
     # than the generalist; the free specialist must still win
-    assert desk.open_request_for_alert(camera_alert()).assigned_tech_id == recent.assigned_tech_id != busy.assigned_tech_id
+    assert desk.open_request_for_alert(alerts.camera()).assigned_tech_id == recent.assigned_tech_id != busy.assigned_tech_id
+    assert recent.assigned_tech_id in {"C1", "C2"}  # a specialist from this team, not the generalist
 
 
-def test_busy_specialists_without_a_generalist_share_the_load(tmp_path):
-    technicians = {tid: Technician(tid, tid, "Camera", workstation_ids=["WS-104"]) for tid in ("C1", "C2")}
-    desk = desk_with(technicians, tmp_path)
-    assigned = [desk.open_request_for_alert(camera_alert()).assigned_tech_id for _ in range(4)]
+def test_busy_specialists_without_a_generalist_share_the_load(alerts, make_desk):
+    team = {tid: Technician(tid, tid, "Camera", workstation_ids=["WS-104"]) for tid in ("C1", "C2")}
+    desk = make_desk(team)
+    assigned = [desk.open_request_for_alert(alerts.camera()).assigned_tech_id for _ in range(4)]
     assert sorted(assigned) == ["C1", "C1", "C2", "C2"]
 
 
-def test_open_calls_survive_a_restart_and_resolved_ones_do_not(technicians, tmp_path):
-    desk = desk_with(technicians, tmp_path)
-    still_open = desk.open_request_for_alert(camera_alert())
-    done = desk.open_request_for_alert(Alert("MIC-105", "WS-105", "MICROPHONE_SILENCE", "silent", priority=4))
+def test_open_calls_survive_a_restart_and_resolved_ones_do_not(desk, alerts):
+    still_open = desk.open_request_for_alert(alerts.camera())
+    done = desk.open_request_for_alert(alerts.microphone())
     desk.resolve_request(done.request_id)
 
     fresh_technicians = load_technicians_from_jsonl(TECHNICIANS_PATH)
@@ -257,7 +248,7 @@ def test_open_calls_survive_a_restart_and_resolved_ones_do_not(technicians, tmp_
     assert restarted.resolve_request(still_open.request_id).status == "RESOLVED"
 
 
-def test_log_naming_an_unknown_technician_is_reported_not_fatal(technicians, tmp_path, capsys):
+def test_log_naming_an_unknown_technician_is_reported_not_fatal(technicians, tmp_path, capsys, alerts):
     log_path = tmp_path / "log.jsonl"
     log_path.write_text(json.dumps({"request_id": "MR-0005", "status": "IN_PROGRESS", "assigned_tech_id": "T42",
                                     "opened_at": "2026-10-01T10:00:00"}) + "\n", encoding="utf-8")
@@ -265,7 +256,7 @@ def test_log_naming_an_unknown_technician_is_reported_not_fatal(technicians, tmp
 
     assert "unknown technician 'T42'" in capsys.readouterr().out
     assert [r.request_id for r in desk.open_requests()] == ["MR-0005"]
-    assert desk.open_request_for_alert(camera_alert()).request_id == "MR-0006"
+    assert desk.open_request_for_alert(alerts.camera()).request_id == "MR-0006"
 
 
 # --- concurrency (Phase 2) ---
@@ -278,7 +269,7 @@ def run_in_threads(worker, count=4):
         thread.join()
 
 
-def test_alert_log_writes_never_overlap(monkeypatch, tmp_path):
+def test_alert_log_writes_never_overlap(monkeypatch, tmp_path, alert_manager, alerts):
     writing, overlaps = [], []
     real_append = processing.append_jsonl_record
 
@@ -291,20 +282,20 @@ def test_alert_log_writes_never_overlap(monkeypatch, tmp_path):
         writing.pop()
 
     monkeypatch.setattr(processing, "append_jsonl_record", slow_append)
-    manager = AlertManager(log_path=str(tmp_path / "history.jsonl"))
-    run_in_threads(lambda: [manager.log_alert(Alert("CAM-1", "WS-1", "CAMERA_FAILURE", "x")) for _ in range(10)])
+    manager = alert_manager
+    run_in_threads(lambda: [manager.log_alert(alerts.camera()) for _ in range(10)])
 
     assert overlaps == []
     assert len(manager.alert_history) == 40
 
 
-def test_concurrent_alert_logging_keeps_every_record(tmp_path):
+def test_concurrent_alert_logging_keeps_every_record(tmp_path, alerts):
     log_path = tmp_path / "history.jsonl"
     manager = AlertManager(log_path=str(log_path))
 
     def worker():
         for _ in range(25):
-            manager.log_alert(Alert("CAM-1", "WS-1", "CAMERA_FAILURE", "x", priority=1))
+            manager.log_alert(alerts.camera())
 
     run_in_threads(worker)
 
@@ -314,18 +305,18 @@ def test_concurrent_alert_logging_keeps_every_record(tmp_path):
     assert len(manager.alert_history) == len(manager.intake_queue) == 100
 
 
-def test_concurrent_maintenance_calls_get_unique_numbers(technicians, tmp_path, monkeypatch):
+def test_concurrent_maintenance_calls_get_unique_numbers(technicians, tmp_path, monkeypatch, alerts, make_desk):
     class SlowRequest(MaintenanceRequest):
         def __init__(self, *args, **kwargs):
             time.sleep(0.002)  # between reading and advancing the call number
             super().__init__(*args, **kwargs)
 
     monkeypatch.setattr(maintenance, "MaintenanceRequest", SlowRequest)
-    desk = desk_with(technicians, tmp_path)
+    desk = make_desk()
 
     def worker():
         for _ in range(10):
-            desk.open_request_for_alert(camera_alert())
+            desk.open_request_for_alert(alerts.camera())
 
     run_in_threads(worker)
 
@@ -333,8 +324,8 @@ def test_concurrent_maintenance_calls_get_unique_numbers(technicians, tmp_path, 
     assert sum(len(t.assigned_requests) for t in technicians.values()) == 40
 
 
-def test_threaded_batches_stay_contiguous():
-    batches = [[Alert(f"C{b}", "WS-1", "CAMERA_FAILURE", "x") for _ in range(50)] for b in range(10)]
+def test_threaded_batches_stay_contiguous(alerts):
+    batches = [[alerts.make(component_id=f"C{b}") for _ in range(50)] for b in range(10)]
     log = record_alerts_from_threads(batches)
 
     assert len(log) == 500
@@ -344,9 +335,9 @@ def test_threaded_batches_stay_contiguous():
     assert record_alerts_from_threads([]) == []
 
 
-def test_locked_alert_log_snapshot_is_a_copy():
+def test_locked_alert_log_snapshot_is_a_copy(alerts):
     alert_log = LockedAlertLog()
-    alert_log.append_batch([Alert("C1", "WS-1", "CAMERA_FAILURE", "x")])
+    alert_log.append_batch([alerts.camera()])
     snapshot = alert_log.snapshot()
     snapshot.clear()
     assert len(alert_log.snapshot()) == 1
@@ -378,6 +369,6 @@ def test_async_overview_matches_sequential(no_latency, tmp_path):
 
 
 def test_async_overview_raises_when_a_source_fails(no_latency, tmp_path):
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError, match="missing.jsonl"):
         asyncio.run(gather_overview_concurrent(str(tmp_path / "missing.jsonl"), TECHNICIANS_PATH,
                                                str(tmp_path / "log.jsonl")))

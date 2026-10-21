@@ -16,7 +16,6 @@ from hardware_monitor import concurrency, demo
 from hardware_monitor.context_managers import DiagnosticConnection
 from hardware_monitor.iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
 from hardware_monitor.models import Camera, HardwareComponent, MaintenanceRequest, Microphone, Technician, Workstation
-from hardware_monitor.processing import Alert
 from hardware_monitor.reports import (
     export_maintenance_history_csv,
     find_unknown_technician_references,
@@ -29,10 +28,6 @@ from hardware_monitor.repository import (
     load_technicians_from_jsonl,
     load_workstations_from_jsonl,
 )
-
-
-def make_alert(resolved=False):
-    return Alert("CAM-101", "WS-101", "CAMERA_FAILURE", "test", priority=1, resolved=resolved)
 
 
 def years_ago(years):
@@ -54,26 +49,26 @@ def ports_are_released():
 
 # --- custom Iterable/Iterator ---
 
-def test_alert_history_yields_only_unresolved():
-    open_a, done, open_b = make_alert(), make_alert(resolved=True), make_alert()
+def test_alert_history_yields_only_unresolved(alerts):
+    open_a, done, open_b = alerts.make(), alerts.make(resolved=True), alerts.make()
     history = AlertHistory([open_a, done, open_b])
 
     assert len(history) == 3
     assert list(history) == [open_a, open_b]
 
 
-def test_each_iter_call_walks_the_history_independently():
-    alerts = [make_alert() for _ in range(3)]
-    history = AlertHistory(alerts)
+def test_each_iter_call_walks_the_history_independently(alerts):
+    logged = [alerts.make() for _ in range(3)]
+    history = AlertHistory(logged)
     first, second = iter(history), iter(history)
 
-    assert next(first) is alerts[0]
-    assert next(first) is alerts[1]
-    assert next(second) is alerts[0]  # not moved by the first iterator
-    assert list(first) == [alerts[2]]
+    assert next(first) is logged[0]
+    assert next(first) is logged[1]
+    assert next(second) is logged[0]  # not moved by the first iterator
+    assert list(first) == [logged[2]]
     with pytest.raises(StopIteration):
         next(first)
-    assert list(second) == alerts[1:]
+    assert list(second) == logged[1:]
 
 
 # --- generator ---
@@ -171,7 +166,8 @@ def test_diagnostic_connection_refuses_when_all_ports_are_busy():
 # --- abstract base class, factories and polymorphism ---
 
 def test_hardware_component_cannot_be_instantiated():
-    with pytest.raises(TypeError):
+    # the wording differs between Python versions; both name the two missing methods
+    with pytest.raises(TypeError, match=r"abstract methods.*alert_priority.*run_diagnostics"):
         HardwareComponent("X1", "Thing", "WS-1")
 
 
@@ -306,15 +302,16 @@ def test_assignment_validation_and_reassignment(technicians, capsys):
     assert request.assigned_tech_id == "T3"
     assert request not in technicians["T1"].assigned_requests
     assert technicians["T3"].assigned_requests == [request]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="'T99' אינו קיים"):  # "'T99' does not exist"
         validate_and_assign_request(request, "T99", technicians)
+    assert request.assigned_tech_id == "T3"  # the failed reassignment changed nothing
 
     capsys.readouterr()
     generate_technician_workload_report(technicians)
     assert "MR-0001" in capsys.readouterr().out
 
     request.resolve()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="MR-0001 כבר טופלה"):  # "MR-0001 was already handled"
         validate_and_assign_request(request, "T1", technicians)
     generate_technician_workload_report(technicians)
     assert "MR-0001" not in capsys.readouterr().out  # resolved calls leave the workload report

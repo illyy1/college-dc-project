@@ -3,7 +3,6 @@ import pytest
 from hardware_monitor.models import (
     Camera,
     Microphone,
-    Workstation,
     MaintenanceRequest,
 )
 
@@ -25,8 +24,9 @@ def test_sample_data_builds_camera_and_microphone(workstations):
 def test_connection_status_is_validated_and_normalized():
     cam = Camera("C1", "Cam", "WS-1", connection_status="active")
     assert cam.connection_status == "ACTIVE"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid connection status 'BROKEN'"):
         cam.connection_status = "BROKEN"
+    assert cam.connection_status == "ACTIVE"  # the bad value was not stored
 
 
 def test_camera_diagnostics():
@@ -42,18 +42,20 @@ def test_microphone_diagnostics():
     assert Microphone("M3", "Mic", "WS-1", connection_status="DISCONNECTED").run_diagnostics() is False
 
 
-def test_workstation_composition():
-    ws = Workstation("WS-1", "Desk")
-    ws.add_component(Camera("C1", "Cam", "WS-1"))
-    ws.add_component(Microphone("M1", "Mic", "WS-1", sample_rate=100))
+def test_workstation_composition(bench_workstation):
+    bench_workstation.components.clear()  # returns a copy, so the workstation is unaffected
+    assert len(bench_workstation.components) == 3
 
-    ws.components.clear()  # returns a copy, so the workstation is unaffected
-    assert len(ws.components) == 2
+    assert bench_workstation.run_all_diagnostics() == {"CAM-B1": True, "CAM-B2": False, "MIC-B1": True}
+    assert [c.component_id for c in bench_workstation.find_components_by_type("Camera")] == ["CAM-B1", "CAM-B2"]
+    assert bench_workstation.remove_component("CAM-B2") is True
+    assert bench_workstation.remove_component("CAM-B2") is False
+    assert bench_workstation.find_component("CAM-B2") is None
 
-    assert ws.run_all_diagnostics() == {"C1": True, "M1": False}
-    assert ws.remove_component("C1") is True
-    assert ws.remove_component("C1") is False
-    assert ws.find_component("C1") is None
+
+def test_each_test_gets_its_own_bench_workstation(bench_workstation):
+    # fixtures are rebuilt for every test, so the removal above left no trace
+    assert len(bench_workstation.components) == 3
 
 
 def test_maintenance_request_lifecycle():
@@ -65,5 +67,6 @@ def test_maintenance_request_lifecycle():
     record = request.to_dict()
     assert record["status"] == "RESOLVED"
     assert record["resolved_at"] is not None
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="סטטוס לא חוקי: DONE"):  # "illegal status: DONE"
         request.status = "DONE"
+    assert request.status == "RESOLVED"
