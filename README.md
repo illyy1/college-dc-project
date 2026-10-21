@@ -60,6 +60,18 @@ The dashboard drives its microphone/camera alerts off synthetic signals (`hardwa
 ## Testing (regression suite)
 Run `pip install -r requirements.txt pytest`, then `pytest` from the project root. The tests write to temporary folders, so `logs/` is never touched, and they never contact GitHub.
 
+**Isolation (mocking).** The tests run without an internet connection, without an API key, and without real waiting between retries. The rule: only external dependencies are mocked, never the function under test.
+- **Applied to every test** (`tests/conftest.py`): connecting to any non-local address fails as if the machine were offline. `load_dotenv` and the token variables are cleared, so the real `.env` is never read. The `sleep` between GitHub retries is a `unittest.mock` that records the waits instead of sleeping.
+- **`requests.post`** is patched with `mock.patch(..., autospec=True)`, so a call the real function would reject fails the test. Its replies are `Mock(spec=requests.Response)`. `create_issue`, the retry loop and the dashboard's posting code all run for real against it.
+- **Tk, the clock and the mic/camera signals** are replaced in the dashboard tests. The token is encrypted with a throwaway key and decrypted by the real `get_github_token`.
+- **Wrappers around project code** (to slow a critical section or record when something runs) always call the real function.
+- `tests/test_isolation.py` proves these guarantees:
+  - a real request fails as if offline;
+  - no token can be loaded;
+  - exhausting 6 attempts (31 s of real waits) takes no real time;
+  - the function under test is the real one;
+  - the `requests` mock rejects a call the real `requests.post` would reject.
+
 The suite guarantees that new code doesn't break the Phase 1 logic:
 - `tests/test_models.py`, `tests/test_processing.py`, `tests/test_maintenance.py` — the models and validation, alert queues and data structures, and the maintenance desk.
 - `tests/test_phase1_regression.py` — every other Phase 1 behaviour: the custom iterator, the generator, the lazy pipeline (including stopping at the limit), `DiagnosticConnection`, the abstract `HardwareComponent` and its `from_dict` factory, loader validation, the reports and CSV export, and a run of the whole demo (all 11 steps).

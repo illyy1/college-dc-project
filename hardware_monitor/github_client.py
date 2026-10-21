@@ -3,8 +3,8 @@ apart from the Tkinter code so the API handling (success, HTTP errors,
 timeouts, malformed replies, retries) can be tested without a window or a
 network."""
 
-import time
 from dataclasses import dataclass
+from time import sleep
 
 import requests
 
@@ -17,8 +17,6 @@ MAX_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 1  # waits 1 s, then 2 s, 4 s, ... between attempts
 # rate limited or a server-side problem: likely to work if tried again a bit later
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
-
-_sleep = time.sleep  # replaced in tests so retries don't really wait
 
 
 @dataclass
@@ -56,7 +54,7 @@ def create_issue(token, repo, title, body, labels=(), timeout=REQUEST_TIMEOUT_SE
         if attempt < max_attempts:
             delay = RETRY_BACKOFF_SECONDS * 2 ** (attempt - 1)
             print(f"GitHub attempt {attempt}/{max_attempts} failed ({result.error}) Retrying in {delay} s.")
-            _sleep(delay)
+            sleep(delay)
 
     result.error = f"Gave up after {max_attempts} attempt(s). Last error: {result.error}"
     return result

@@ -1,14 +1,19 @@
-"""The live dashboard's logic, run without a window: Tk is replaced by a fake
-that queues UI callbacks, time by a clock the tests move forward exactly,
-the mic/camera by scripted signals, and GitHub by a stub. Covers the
-monitoring loops, the timing rules at their exact boundaries, the
-quiet-period watchdog, Pause/Resume, shutdown and adopting leftover calls."""
+"""The live dashboard's logic, run without a window. Only external
+dependencies are replaced: Tk by a fake that queues UI callbacks, time by a
+clock the tests move forward exactly, the mic/camera by scripted signals,
+and requests.post by a mock. Everything in the project, including
+create_issue and get_github_token, runs for real. Covers the monitoring
+loops, the timing rules at their exact boundaries, the quiet-period
+watchdog, Pause/Resume, shutdown and adopting leftover calls."""
 
 import json
 import threading
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
+import requests
+from cryptography.fernet import Fernet
 
 from hardware_monitor import dashboard
 from hardware_monitor.config import (
@@ -21,7 +26,6 @@ from hardware_monitor.config import (
     SILENCE_THRESHOLD,
 )
 from hardware_monitor.dashboard import HardwareMonitorApp
-from hardware_monitor.github_client import IssueResult
 from hardware_monitor.maintenance import MaintenanceDesk
 
 
@@ -164,20 +168,35 @@ class ScriptedCamera(ScriptedMic):
 
 
 @pytest.fixture
-def env(monkeypatch, technicians, tmp_path):
-    FakeToplevel.created = []
-    clock = FakeClock()
+def github_api():
+    """Mocks requests.post: every issue is created. Records what was posted."""
     posted = []
 
-    def fake_create_issue(token, repo, title, body, labels=()):
-        posted.append(SimpleNamespace(key=labels[1], title=title, body=body))
-        return IssueResult(True, issue_number=len(posted), url=f"https://example.invalid/{len(posted)}")
+    def created(url, json, **kwargs):
+        posted.append(SimpleNamespace(key=json["labels"][1], title=json["title"], body=json["body"],
+                                      token=kwargs["headers"]["Authorization"]))
+        response = mock.Mock(spec=requests.Response)
+        response.status_code = 201
+        response.json.return_value = {"number": len(posted), "html_url": f"https://example.invalid/{len(posted)}"}
+        return response
+
+    with mock.patch("hardware_monitor.github_client.requests.post", autospec=True, side_effect=created):
+        yield posted
+
+
+@pytest.fixture
+def env(monkeypatch, technicians, tmp_path, github_api):
+    FakeToplevel.created = []
+    clock = FakeClock()
+
+    # a token encrypted with a throwaway key, read by the real get_github_token
+    key = Fernet.generate_key()
+    monkeypatch.setenv("ENCRYPTION_KEY", key.decode())
+    monkeypatch.setenv("GITHUB_TOKEN", Fernet(key).encrypt(b"test-token").decode())
 
     monkeypatch.setattr(dashboard, "tk", FAKE_TK)
     monkeypatch.setattr(dashboard, "time", clock)
     monkeypatch.setattr(dashboard, "threading", SimpleNamespace(Lock=threading.Lock, Thread=RunNow))
-    monkeypatch.setattr(dashboard, "create_issue", fake_create_issue)
-    monkeypatch.setattr(dashboard, "get_github_token", lambda: "fake-token")
 
     def build(technicians=technicians, log_path=tmp_path / "maintenance.jsonl"):
         desk = MaintenanceDesk(technicians, log_path=str(log_path), report_csv_path=None)
@@ -186,7 +205,7 @@ def env(monkeypatch, technicians, tmp_path):
         clock.app = app
         return app
 
-    built = SimpleNamespace(clock=clock, posted=posted, build=build)
+    built = SimpleNamespace(clock=clock, posted=github_api, build=build)
     built.app = build()
     return built
 
@@ -367,6 +386,17 @@ def test_github_issue_names_the_call_and_technician(env):
     request = app.open_requests["camera"]
     technician = app.maintenance_desk.technician_for(request)
     assert f"`{request.request_id}`" in env.posted[0].body and technician.name in env.posted[0].body
+
+
+def test_the_decrypted_token_is_sent_to_github(env):
+    show_camera(env.app)
+    assert env.app.github_token == "test-token"
+    assert env.posted[0].token == "Bearer test-token"
+
+
+def test_a_successful_post_is_reported_with_the_issue_link(env, capsys):
+    show_camera(env.app)
+    assert "Alert posted to GitHub for camera: issue #1 (https://example.invalid/1)" in capsys.readouterr().out
 
 
 def test_alerts_still_show_when_no_technician_can_take_the_call(env, capsys):

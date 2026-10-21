@@ -130,32 +130,35 @@ def test_repeated_concurrent_runs_give_identical_results(no_latency):
 
 @pytest.fixture
 def traced_sources(monkeypatch):
-    """Replaces the three sources with ones that record when they start and end."""
+    """Spies on the three real sources: each records when it starts and ends,
+    then runs the real source unchanged."""
     events = []
+    monkeypatch.setattr(concurrency, "SOURCE_LATENCY_SECONDS", 0.05)
 
-    def traced(name):
-        async def source(_path):
+    def traced(name, real_source):
+        async def source(path):
             events.append(("start", name))
-            await asyncio.sleep(0.05)
+            result = await real_source(path)
             events.append(("end", name))
-            return name
+            return result
         return source
 
     for name in ("fleet_status", "technician_roster", "maintenance_summary"):
-        monkeypatch.setattr(concurrency, f"_gather_{name}", traced(name))
+        real_source = getattr(concurrency, f"_gather_{name}")
+        monkeypatch.setattr(concurrency, f"_gather_{name}", traced(name, real_source))
     return events
 
 
-def test_all_three_sources_run_at_the_same_time(traced_sources):
-    overview = asyncio.run(gather_overview_concurrent("a", "b", "c"))
+def test_all_three_sources_run_at_the_same_time(traced_sources, tmp_path):
+    sources = (SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(tmp_path / "log.jsonl"))
+    overview = asyncio.run(gather_overview_concurrent(*sources))
 
     assert [kind for kind, _ in traced_sources[:3]] == ["start"] * 3  # all started before any finished
-    assert overview == {"fleet": "fleet_status", "technicians": "technician_roster",
-                        "maintenance": "maintenance_summary"}
+    assert overview == asyncio.run(gather_overview_sequential(*sources))  # and the real data came back
 
 
-def test_the_sequential_version_runs_one_source_at_a_time(traced_sources):
-    asyncio.run(gather_overview_sequential("a", "b", "c"))
+def test_the_sequential_version_runs_one_source_at_a_time(traced_sources, tmp_path):
+    asyncio.run(gather_overview_sequential(SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(tmp_path / "log.jsonl")))
     assert [kind for kind, _ in traced_sources] == ["start", "end"] * 3
 
 

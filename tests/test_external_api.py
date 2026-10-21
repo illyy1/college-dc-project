@@ -1,9 +1,14 @@
 """External API scenarios for the GitHub Issues client: success, HTTP errors,
 timeouts and network failures, replies missing required fields, and the
-retry mechanism. requests.post is replaced by a fake in every test, so
-nothing goes over the network, and retry waits are recorded instead of slept."""
+retry mechanism.
 
+Only the external dependencies are mocked: requests.post (with autospec, so
+a call the real function would reject fails the test) and the sleep between
+retries (see conftest.py). create_issue itself always runs for real."""
+
+import time
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 import requests
@@ -17,41 +22,47 @@ from hardware_monitor.processing import Alert
 NOT_JSON = object()
 
 
-class FakeResponse:
-    def __init__(self, status_code, payload=NOT_JSON, text=""):
-        self.status_code = status_code
-        self._payload = payload
-        self.text = text
+def api_response(status_code, payload=NOT_JSON, text=""):
+    """A mock with only the attributes a real requests.Response has."""
+    response = mock.Mock(spec=requests.Response)
+    response.status_code = status_code
+    response.text = text
+    if payload is NOT_JSON:
+        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", text, 0)
+    else:
+        response.json.return_value = payload
+    return response
 
-    def json(self):
-        if self._payload is NOT_JSON:
-            raise requests.exceptions.JSONDecodeError("Expecting value", self.text, 0)
-        return self._payload
 
+class MockedGitHub:
+    """Wraps the mocked requests.post. Set .reply to a response or an
+    exception (used for every attempt), or to a list (one per attempt)."""
 
-@pytest.fixture
-def github(monkeypatch):
-    """Replaces requests.post. Set .reply to a FakeResponse or an exception
-    (returned on every attempt), or to a list of them (one per attempt)."""
-    fake = SimpleNamespace(reply=None, calls=[])
+    def __init__(self, post):
+        self.post, self.reply = post, None
+        post.side_effect = self._answer
 
-    def post(url, **kwargs):
-        fake.calls.append(SimpleNamespace(url=url, **kwargs))
-        reply = fake.reply.pop(0) if isinstance(fake.reply, list) else fake.reply
+    def _answer(self, url, **kwargs):
+        reply = self.reply.pop(0) if isinstance(self.reply, list) else self.reply
         if isinstance(reply, Exception):
             raise reply
         return reply
 
-    monkeypatch.setattr(github_client.requests, "post", post)
-    return fake
+    @property
+    def calls(self):
+        return [SimpleNamespace(url=c.args[0], **c.kwargs) for c in self.post.call_args_list]
 
 
-@pytest.fixture(autouse=True)
-def waits(monkeypatch):
-    """Records the retry waits instead of sleeping through them."""
-    recorded = []
-    monkeypatch.setattr(github_client, "_sleep", recorded.append)
-    return recorded
+@pytest.fixture
+def github():
+    with mock.patch("hardware_monitor.github_client.requests.post", autospec=True) as post:
+        yield MockedGitHub(post)
+
+
+@pytest.fixture
+def waits(retry_waits):
+    """The retry waits recorded by the mocked sleep (conftest.py)."""
+    return retry_waits
 
 
 def send(token="secret-token", **kwargs):
@@ -64,24 +75,25 @@ CREATED = {"number": 42, "html_url": "https://github.com/owner/repo/issues/42", 
 # --- success ---
 
 def test_success_returns_the_new_issue(github):
-    github.reply = FakeResponse(201, CREATED)
+    github.reply = api_response(201, CREATED)
 
     assert send() == IssueResult(True, issue_number=42, url="https://github.com/owner/repo/issues/42")
 
 
 def test_success_sends_the_expected_request(github):
-    github.reply = FakeResponse(201, CREATED)
+    github.reply = api_response(201, CREATED)
     send()
 
-    (call,) = github.calls
-    assert call.url == "https://api.github.com/repos/owner/repo/issues"
-    assert call.json == {"title": "Camera down", "body": "details", "labels": ["hardware-alert", "camera"]}
-    assert call.headers["Authorization"] == "Bearer secret-token"
-    assert call.timeout == github_client.REQUEST_TIMEOUT_SECONDS
+    github.post.assert_called_once_with(
+        "https://api.github.com/repos/owner/repo/issues",
+        json={"title": "Camera down", "body": "details", "labels": ["hardware-alert", "camera"]},
+        headers={"Authorization": "Bearer secret-token", "Accept": "application/vnd.github.v3+json"},
+        timeout=github_client.REQUEST_TIMEOUT_SECONDS,
+    )
 
 
 def test_extra_fields_in_the_reply_are_ignored(github):
-    github.reply = FakeResponse(201, {**CREATED, "state": "open", "labels": [], "user": {"login": "bot"}})
+    github.reply = api_response(201, {**CREATED, "state": "open", "labels": [], "user": {"login": "bot"}})
     assert send().ok
 
 
@@ -104,9 +116,10 @@ def test_missing_token_sends_nothing(github, token):
     (500, NOT_JSON, "HTTP 500."),                 # HTML error page, no JSON message
     (502, {"error": "bad gateway"}, "HTTP 502."),  # JSON without a "message"
     (503, ["unexpected", "list"], "HTTP 503."),    # JSON that is not an object
-])
+], ids=["401-bad-credentials", "403-rate-limited", "404-not-found", "410-issues-disabled", "422-invalid",
+        "500-html-page", "502-json-without-message", "503-json-list"])
 def test_http_errors_are_reported_with_the_status(github, status, payload, expected):
-    github.reply = FakeResponse(status, payload, text="<html>error</html>")
+    github.reply = api_response(status, payload, text="<html>error</html>")
     result = send()
 
     assert not result.ok
@@ -115,7 +128,7 @@ def test_http_errors_are_reported_with_the_status(github, status, payload, expec
 
 
 def test_a_success_code_other_than_201_is_not_trusted(github):
-    github.reply = FakeResponse(200, CREATED)  # GitHub answers 201 Created for a new issue
+    github.reply = api_response(200, CREATED)  # GitHub answers 201 Created for a new issue
     result = send()
     assert not result.ok and "HTTP 200" in result.error
 
@@ -125,7 +138,7 @@ def test_a_success_code_other_than_201_is_not_trusted(github):
 @pytest.mark.parametrize("timeout_error", [
     requests.exceptions.ReadTimeout("read timed out"),
     requests.exceptions.ConnectTimeout("connect timed out"),
-])
+], ids=["read-timeout", "connect-timeout"])
 def test_timeouts_are_reported(github, timeout_error):
     github.reply = timeout_error
     result = send()
@@ -144,7 +157,7 @@ def test_custom_timeout_is_passed_on_and_reported(github):
     requests.exceptions.ConnectionError("Name or service not known"),
     requests.exceptions.SSLError("certificate verify failed"),
     requests.exceptions.TooManyRedirects("Exceeded 30 redirects"),
-])
+], ids=["connection-error", "ssl-error", "redirect-loop"])
 def test_network_failures_are_reported_not_raised(github, network_error):
     github.reply = network_error
     result = send()
@@ -161,9 +174,10 @@ def test_network_failures_are_reported_not_raised(github, network_error):
     ({"number": "42", "html_url": CREATED["html_url"]}, "'number' should be int, got '42'"),
     ({"number": True, "html_url": CREATED["html_url"]}, "'number' should be int, got True"),
     ({"number": 42, "html_url": 12345}, "'html_url' should be str, got 12345"),
-])
+], ids=["no-fields", "missing-number", "missing-url", "null-number", "number-as-text", "number-as-bool",
+        "url-as-number"])
 def test_replies_missing_required_fields_are_rejected(github, payload, problem):
-    github.reply = FakeResponse(201, payload)
+    github.reply = api_response(201, payload)
     result = send()
 
     assert not result.ok
@@ -174,27 +188,27 @@ def test_replies_missing_required_fields_are_rejected(github, payload, problem):
     (NOT_JSON, "GitHub's reply was not valid JSON."),
     ([CREATED], "GitHub's reply was not a JSON object."),
     ("created", "GitHub's reply was not a JSON object."),
-])
+], ids=["not-json", "json-list", "json-string"])
 def test_replies_that_are_not_a_json_object_are_rejected(github, payload, error):
-    github.reply = FakeResponse(201, payload, text="OK")
+    github.reply = api_response(201, payload, text="OK")
     assert send() == IssueResult(False, error=error)
 
 
 # --- retry: recovering after a temporary failure ---
 
 def created():
-    return FakeResponse(201, CREATED)
+    return api_response(201, CREATED)
 
 
 @pytest.mark.parametrize("temporary_failure", [
     requests.exceptions.ReadTimeout("read timed out"),
     requests.exceptions.ConnectionError("connection reset"),
-    FakeResponse(429, {"message": "API rate limit exceeded"}),
-    FakeResponse(500, NOT_JSON),
-    FakeResponse(502, NOT_JSON),
-    FakeResponse(503, {"message": "Service Unavailable"}),
-    FakeResponse(504, NOT_JSON),
-])
+    api_response(429, {"message": "API rate limit exceeded"}),
+    api_response(500, NOT_JSON),
+    api_response(502, NOT_JSON),
+    api_response(503, {"message": "Service Unavailable"}),
+    api_response(504, NOT_JSON),
+], ids=["read-timeout", "connection-reset", "429-rate-limited", "500", "502", "503", "504"])
 def test_recovers_after_one_temporary_failure(github, waits, temporary_failure):
     github.reply = [temporary_failure, created()]
     result = send()
@@ -205,7 +219,7 @@ def test_recovers_after_one_temporary_failure(github, waits, temporary_failure):
 
 
 def test_recovers_on_the_last_allowed_attempt(github, waits):
-    github.reply = [requests.exceptions.ConnectTimeout(), FakeResponse(502, NOT_JSON), created()]
+    github.reply = [requests.exceptions.ConnectTimeout(), api_response(502, NOT_JSON), created()]
     result = send()
 
     assert result.ok and result.attempts == 3
@@ -213,7 +227,7 @@ def test_recovers_on_the_last_allowed_attempt(github, waits):
 
 
 def test_every_retry_sends_the_same_request(github):
-    github.reply = [requests.exceptions.ReadTimeout(), FakeResponse(503, NOT_JSON), created()]
+    github.reply = [requests.exceptions.ReadTimeout(), api_response(503, NOT_JSON), created()]
     send()
 
     first, *retries = github.calls
@@ -223,7 +237,7 @@ def test_every_retry_sends_the_same_request(github):
 
 
 def test_each_retry_is_reported_while_it_happens(github, capsys):
-    github.reply = [FakeResponse(503, {"message": "Service Unavailable"}), created()]
+    github.reply = [api_response(503, {"message": "Service Unavailable"}), created()]
     send()
 
     assert "GitHub attempt 1/3 failed (GitHub returned HTTP 503: Service Unavailable.) Retrying in 1 s." \
@@ -243,7 +257,7 @@ def test_gives_up_after_the_maximum_attempts(github, waits):
 
 
 def test_never_tries_past_the_limit_even_if_the_next_try_would_work(github):
-    github.reply = [FakeResponse(500, NOT_JSON)] * 3 + [created()]
+    github.reply = [api_response(500, NOT_JSON)] * 3 + [created()]
     result = send()
 
     assert not result.ok
@@ -251,8 +265,8 @@ def test_never_tries_past_the_limit_even_if_the_next_try_would_work(github):
 
 
 def test_reports_the_last_of_several_different_failures(github):
-    github.reply = [requests.exceptions.ConnectionError("reset"), FakeResponse(500, NOT_JSON),
-                    FakeResponse(503, {"message": "Service Unavailable"})]
+    github.reply = [requests.exceptions.ConnectionError("reset"), api_response(500, NOT_JSON),
+                    api_response(503, {"message": "Service Unavailable"})]
     result = send()
     assert result.error == "Gave up after 3 attempt(s). Last error: GitHub returned HTTP 503: Service Unavailable."
 
@@ -261,7 +275,7 @@ def test_reports_the_last_of_several_different_failures(github):
     (1, []),
     (2, [1]),
     (5, [1, 2, 4, 8]),
-])
+], ids=["1-attempt", "2-attempts", "5-attempts"])
 def test_the_attempt_limit_is_configurable(github, waits, max_attempts, expected_waits):
     github.reply = requests.exceptions.ConnectionError("down")
     result = send(max_attempts=max_attempts)
@@ -282,7 +296,7 @@ def test_an_attempt_limit_below_one_is_rejected(github, max_attempts):
 
 @pytest.mark.parametrize("status", [400, 401, 403, 404, 410, 422])
 def test_permanent_http_errors_stop_immediately(github, waits, status):
-    github.reply = FakeResponse(status, {"message": "nope"})
+    github.reply = api_response(status, {"message": "nope"})
     result = send()
 
     assert not result.ok and result.attempts == 1
@@ -292,13 +306,13 @@ def test_permanent_http_errors_stop_immediately(github, waits, status):
 
 def test_an_incomplete_reply_is_not_retried(github, waits):
     # 201 means the issue exists; posting again would create a duplicate
-    github.reply = FakeResponse(201, {"number": 42})
+    github.reply = api_response(201, {"number": 42})
     result = send()
     assert not result.ok and len(github.calls) == 1 and waits == []
 
 
 def test_a_permanent_error_after_a_temporary_one_stops_the_retries(github):
-    github.reply = [FakeResponse(503, NOT_JSON), FakeResponse(401, {"message": "Bad credentials"}), created()]
+    github.reply = [api_response(503, NOT_JSON), api_response(401, {"message": "Bad credentials"}), created()]
     result = send()
 
     assert result.attempts == 2 and len(github.calls) == 2
@@ -333,7 +347,7 @@ def app(monkeypatch, technicians, tmp_path):
 
 
 def test_dashboard_posts_the_call_and_technician(app, github, capsys):
-    github.reply = FakeResponse(201, CREATED)
+    github.reply = api_response(201, CREATED)
     request = app.maintenance_desk.open_request_for_alert(
         Alert("CAM-LOCAL", "PC", "CAMERA_FAILURE", "no frame", priority=1))
     technician = app.maintenance_desk.technician_for(request)
@@ -348,10 +362,10 @@ def test_dashboard_posts_the_call_and_technician(app, github, capsys):
 
 
 @pytest.mark.parametrize("reply, message", [
-    (FakeResponse(401, {"message": "Bad credentials"}), "HTTP 401: Bad credentials"),
+    (api_response(401, {"message": "Bad credentials"}), "HTTP 401: Bad credentials"),
     (requests.exceptions.ReadTimeout(), "did not answer within 5 s"),
-    (FakeResponse(201, {"number": 42}), "missing 'html_url'"),
-])
+    (api_response(201, {"number": 42}), "missing 'html_url'"),
+], ids=["http-error", "timeout", "incomplete-reply"])
 def test_dashboard_reports_failures_without_crashing(app, github, capsys, reply, message):
     github.reply = reply
     app.send_github_alert("mic_conn", "Microphone Disconnected", "unplugged")
@@ -367,7 +381,7 @@ def test_dashboard_reports_a_recovered_alert(app, github, capsys):
 
 
 def test_dashboard_reports_when_retries_are_exhausted(app, github, capsys):
-    github.reply = FakeResponse(503, NOT_JSON)
+    github.reply = api_response(503, NOT_JSON)
     app.send_github_alert("camera", "Camera Disconnected", "no frame")
 
     assert len(github.calls) == 3
