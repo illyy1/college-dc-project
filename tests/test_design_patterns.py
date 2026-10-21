@@ -144,13 +144,13 @@ def test_round_robin_picks_longest_waiting(busy_but_waiting):
     assert RoundRobinStrategy().choose(candidates, last_assigned_at).tech_id == "C1"
 
 
-@pytest.mark.parametrize("strategy", [LeastBusyStrategy(), RoundRobinStrategy()])
+@pytest.mark.parametrize("strategy", [LeastBusyStrategy(), RoundRobinStrategy()], ids=["least-busy", "round-robin"])
 def test_both_strategies_prefer_a_never_assigned_technician(strategy):
     candidates = [technician("C1"), technician("C2")]
     assert strategy.choose(candidates, {"C1": datetime.now()}).tech_id == "C2"
 
 
-@pytest.mark.parametrize("strategy", [LeastBusyStrategy(), RoundRobinStrategy()])
+@pytest.mark.parametrize("strategy", [LeastBusyStrategy(), RoundRobinStrategy()], ids=["least-busy", "round-robin"])
 def test_resolved_calls_do_not_count_as_load(strategy):
     done = technician("C1", open_calls=1)
     done.assigned_requests[0].resolve()
@@ -175,7 +175,7 @@ def test_desk_uses_least_busy_by_default(tmp_path):
 @pytest.mark.parametrize("strategy, third_call_goes_to", [
     (LeastBusyStrategy(), "C2"),   # C2's call was resolved, so C2 is the free one
     (RoundRobinStrategy(), "C1"),  # C1 was assigned longest ago, so it is C1's turn
-])
+], ids=["least-busy", "round-robin"])
 def test_swapping_the_strategy_changes_who_gets_the_call(tmp_path, strategy, third_call_goes_to):
     desk = camera_desk(tmp_path, strategy)
     first = desk.open_request_for_alert(camera_alert())

@@ -58,7 +58,7 @@ def test_microphone_sample_rate_threshold(sample_rate, healthy):
     ("1920x1080x3", None),
     ("1920x", None),
     ("x", None),
-])
+], ids=["smallest-1x1", "spaces-around", "negative-width", "three-parts", "missing-height", "only-separator"])
 def test_parse_resolution_boundaries(resolution, parsed):
     assert Camera.parse_resolution(resolution) == parsed
 
@@ -147,7 +147,8 @@ def test_empty_and_blank_line_files(tmp_path):
      "must be a date string"),
     ({"component_type": "Camera", "component_id": "C", "workstation_id": "W", "installed_on": "2021-02-30"},
      "Component 'C'"),
-])
+], ids=["bool-sample-rate", "decimal-camera-index", "numeric-resolution", "numeric-id", "blank-id",
+        "numeric-install-date", "impossible-date"])
 def test_component_records_with_bad_values_are_rejected(record, message):
     with pytest.raises(ValueError, match=message):
         HardwareComponent.from_dict(record)
@@ -158,7 +159,7 @@ def test_subclass_factory_refuses_another_type():
         Camera.from_dict({"component_type": "Microphone", "component_id": "M", "workstation_id": "W"})
 
 
-@pytest.mark.parametrize("record", [[1], "text", None])
+@pytest.mark.parametrize("record", [[1], "text", None], ids=["list", "string", "null"])
 def test_non_object_records_are_rejected(record):
     with pytest.raises(ValueError, match="must be a JSON object"):
         Workstation.from_dict(record)
@@ -176,7 +177,7 @@ def test_loader_rejects_a_json_line_that_is_not_an_object(tmp_path):
     ({"tech_id": 7, "name": "Dana", "specialty": "Camera"}, "must be text"),
     ({"tech_id": "T1", "name": "Dana", "specialty": "Plumbing"}, "Invalid specialty"),
     ({"tech_id": "T1", "name": "Dana", "specialty": "Camera", "workstation_ids": ["WS-1", 2]}, "workstation_ids"),
-])
+], ids=["blank-name", "numeric-id", "unknown-specialty", "numeric-workstation-id"])
 def test_technician_records_with_bad_values_are_rejected(record, message):
     with pytest.raises(ValueError, match=message):
         Technician.from_dict(record)

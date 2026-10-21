@@ -193,7 +193,7 @@ def test_from_dict_builds_the_matching_subclass():
     ("0x0", None),
     ("garbage", None),
     (None, None),
-])
+], ids=["full-hd", "uppercase-x", "zero-size", "not-a-resolution", "none"])
 def test_parse_resolution(resolution, parsed):
     assert Camera.parse_resolution(resolution) == parsed
 
@@ -225,7 +225,8 @@ def write_jsonl(path, *lines):
     ({**GOOD_LINE, "component_id": "CAM-2", "installed_on": "yesterday"}, "CAM-2"),
     (GOOD_LINE, "duplicate component_id 'CAM-1'"),
     ({**GOOD_LINE, "component_id": "CAM-2", "location": "Room 2"}, "different name/location"),
-])
+], ids=["invalid-json", "null-workstation", "unknown-type", "illegal-status", "bad-date", "duplicate-id",
+        "contradicting-location"])
 def test_workstation_loader_rejects_bad_records_with_line_number(tmp_path, bad_line, message):
     path = write_jsonl(tmp_path / "data.jsonl", GOOD_LINE, bad_line)
     with pytest.raises(ValueError, match="line 2") as error:
