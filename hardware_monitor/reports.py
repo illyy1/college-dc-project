@@ -8,7 +8,13 @@ import os
 from .config import MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH
 
 from .models import MaintenanceRequest, Technician
-from .repository import load_maintenance_history
+from .repository import (
+    FILE_RETRY_BACKOFF_SECONDS,
+    FILE_WRITE_ATTEMPTS,
+    TEMPORARY_FILE_ERRORS,
+    load_maintenance_history,
+)
+from .retry import retry
 
 HISTORY_CSV_FIELDS = [
     "request_id", "status", "priority", "error_type", "workstation_id",
@@ -89,15 +95,22 @@ def generate_maintenance_history_report(log_path):
 
 
 def export_maintenance_history_csv(log_path, csv_path, verbose=True):
-    """Writes the maintenance history to a CSV file (opens in Excel)."""
+    """Writes the maintenance history to a CSV file (opens in Excel). A file
+    held for a moment by another program is tried again; one that stays held
+    (open in Excel) raises PermissionError after the last attempt."""
     history = load_maintenance_history(log_path)
 
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)  # e.g. `--report` after the logs folder was deleted
-    # utf-8-sig so Excel displays the Hebrew/technician names correctly
-    with open(csv_path, "w", encoding="utf-8-sig", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=HISTORY_CSV_FIELDS, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(history)
+
+    def write():
+        # utf-8-sig so Excel displays the Hebrew/technician names correctly
+        with open(csv_path, "w", encoding="utf-8-sig", newline="") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=HISTORY_CSV_FIELDS, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(history)
+
+    retry(write, retry_on=TEMPORARY_FILE_ERRORS, max_attempts=FILE_WRITE_ATTEMPTS,
+          backoff_seconds=FILE_RETRY_BACKOFF_SECONDS, label=f"Writing {csv_path}")
 
     if verbose:
         print(f"[REPORT] Maintenance history exported to {csv_path} ({len(history)} call(s))")

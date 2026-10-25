@@ -18,9 +18,13 @@ import sys
 
 from hardware_monitor.demo import run_demo
 from hardware_monitor.reports import publish_maintenance_reports
+from hardware_monitor.repository import DataFileError
 
 
 def main():
+    """Runs the mode chosen on the command line. Returns the exit code: 0, or
+    1 after explaining a report that couldn't be written or a data file that
+    is missing or broken. Any other error is a bug and is raised as usual."""
     # the Hebrew messages crash on Windows when output is redirected to a file
     # (cp1252 cannot encode them), so always print UTF-8. IDLE and Jupyter
     # replace stdout with their own stream, which has no reconfigure() but
@@ -40,21 +44,27 @@ def main():
                         help="open the dashboard without the statistics window next to it")
     args = parser.parse_args()
 
+    try:
+        return _run(args)
+    except (FileNotFoundError, DataFileError) as error:
+        print(f"Cannot start: {error}", file=sys.stderr)
+        return 1
+
+
+def _run(args):
     if args.report:
-        publish_maintenance_reports()
-        return
+        return 0 if _publish_reports() else 1
 
     if args.stats:
         # imported here, like the dashboard, so the other modes work without tkinter
         from hardware_monitor.stats_viewer import run_stats_viewer
         run_stats_viewer()
-        return
+        return 0
 
     run_demo()
 
     if args.no_dashboard:
-        publish_maintenance_reports()
-        return
+        return 0 if _publish_reports() else 1
 
     # imported here so --report and --no-dashboard work without tkinter installed
     from hardware_monitor.dashboard import HardwareMonitorApp
@@ -66,10 +76,25 @@ def main():
     try:
         app.start()
     finally:
-        # also runs on Ctrl+C; the CSV itself is already refreshed on every call change
+        # also runs on Ctrl+C; the CSV itself is already refreshed on every call change.
+        # _publish_reports never raises, so a crash of the dashboard is not hidden by it
         stop_background_viewer(viewer)
+        reports_ok = _publish_reports()
+    return 0 if reports_ok else 1
+
+
+def _publish_reports():
+    """publish_maintenance_reports(), explaining a report that can't be written
+    instead of ending with a traceback. Returns whether it was written."""
+    try:
         publish_maintenance_reports()
+        return True
+    except OSError as error:
+        hint = " Is it open in Excel?" if isinstance(error, PermissionError) else ""
+        print(f"Could not write the maintenance report: {error}.{hint} The calls are still in the "
+              f"maintenance log; run `python main.py --report` to try again.", file=sys.stderr)
+        return False
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

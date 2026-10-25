@@ -190,7 +190,14 @@ class MaintenanceDesk:
         technician = self.technician_for(request)
         record["assigned_tech_name"] = technician.name if technician else None
 
-        append_jsonl_record(self.log_path, record)
+        try:
+            append_jsonl_record(self.log_path, record)
+        except OSError as error:
+            # the call is still open in this run and its technician keeps it; every
+            # line holds the call's whole state, so its next change saves it in full
+            print(f"Warning: could not save call {request.request_id} to {self.log_path} ({error}). "
+                  f"It is kept in this run, and saved in full on its next change.")
+            return
 
         self._refresh_csv_report()
 
@@ -199,8 +206,9 @@ class MaintenanceDesk:
             return
         try:
             export_maintenance_history_csv(self.log_path, self.report_csv_path, verbose=False)
-        except PermissionError:
+        except OSError as error:
             # usually the CSV is open in Excel; the JSONL log still has the call,
             # and the CSV catches up on the next change or `main.py --report`
-            print(f"Warning: could not update {self.report_csv_path} (is it open in Excel?). "
+            reason = "is it open in Excel?" if isinstance(error, PermissionError) else error
+            print(f"Warning: could not update {self.report_csv_path} ({reason}). "
                   f"The call was still saved to {self.log_path}.")
