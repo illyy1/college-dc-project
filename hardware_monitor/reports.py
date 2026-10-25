@@ -42,19 +42,6 @@ def find_unknown_technician_references(history, technicians_dict: dict[str, Tech
     ]
 
 
-def find_unknown_workstation_references(technicians_dict: dict[str, Technician], workstations):
-    """Cross-file validation between the two data files: (tech_id, workstation_id)
-    pairs where technicians.jsonl names a workstation that does not exist in
-    sample_data.jsonl."""
-    known_ids = {ws.workstation_id for ws in workstations}
-    return [
-        (tech_id, ws_id)
-        for tech_id, tech in technicians_dict.items()
-        for ws_id in tech.workstation_ids
-        if ws_id not in known_ids
-    ]
-
-
 def generate_technician_workload_report(technicians_dict: dict[str, Technician]):
     print("\n" + "=" * 40)
     print("      דוח עסקי: עומס עבודה לפי טכנאי")

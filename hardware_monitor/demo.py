@@ -14,12 +14,11 @@ from .config import SAMPLE_DATA_PATH, TECHNICIANS_PATH, DEMO_LOG_PATH, DEMO_MAIN
 from .context_managers import DiagnosticConnection
 from .iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
 from .maintenance import MaintenanceDesk
-from .models import Camera, MaintenanceRequest, Microphone, Technician, Workstation
+from .models import Camera, MaintenanceRequest, Microphone, Workstation
 from .processing import AlertManager, run_diagnostics_and_log_alerts
 from .reports import (
     validate_and_assign_request,
     find_unknown_technician_references,
-    find_unknown_workstation_references,
     generate_technician_workload_report,
 )
 from .repository import load_workstations_from_jsonl, load_technicians_from_jsonl, load_maintenance_history
@@ -249,14 +248,7 @@ def demo_maintenance_workflow(alert_manager, workstations):
         os.remove(DEMO_MAINTENANCE_LOG_PATH)
     technicians = load_technicians_from_jsonl(TECHNICIANS_PATH)
 
-    # cross-file validation: every workstation a technician covers must exist in sample_data.jsonl
-    unknown_coverage = find_unknown_workstation_references(technicians, workstations)
-    print(f"  Cross-file check: {len(technicians)} technician(s) cover "
-          f"{len({ws for t in technicians.values() for ws in t.workstation_ids})} workstation(s), "
-          f"{len(unknown_coverage)} unknown workstation id(s)")
-    tampered_tech = Technician("T-TAMPERED", "Test Tech", workstation_ids=["WS-101", "WS-999"])
-    for tech_id, ws_id in find_unknown_workstation_references({tampered_tech.tech_id: tampered_tech}, workstations):
-        print(f"  Cross-file check flagged {tech_id}: workstation '{ws_id}' is not in sample_data.jsonl")
+    print(f"  Loaded {len(technicians)} technician(s); any of them can take any call.")
 
     maintenance_desk = MaintenanceDesk(technicians, log_path=DEMO_MAINTENANCE_LOG_PATH,
                                        report_csv_path=None)

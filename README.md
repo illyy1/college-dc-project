@@ -156,7 +156,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, network error, incomplete reply) comes back as a result instead of an exception. Temporary failures (timeouts, network errors, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …) and incomplete replies are not retried.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
-- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians, each listing the workstations from `sample_data.jsonl` they cover.
+- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians (an id and a name each); any of them can take any call.
 - `tests/` — the pytest regression suite (see Testing). `.github/workflows/tests.yml` — runs it on GitHub.
 - `AI_USAGE.md` — how AI was used. `pyproject.toml`, `requirements.txt`, `.gitignore` — project settings.
 
@@ -231,8 +231,8 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 ## Maintenance Subsystem (team of four extension)
 *   **Business need:** an alert alone doesn't fix anything. Someone has to own each fault, and work must be spread fairly so urgent rooms are not stuck behind one overloaded technician.
 *   **Entities:** `Technician` and `MaintenanceRequest` (`models.py`). Technicians are loaded from `data/technicians.jsonl`; maintenance calls are saved to `logs/maintenance_requests.jsonl`.
-*   **Link between the data files:** each technician record lists `workstation_ids`, which are `workstation_id` values in `data/sample_data.jsonl`. For example: `{"tech_id": "T1", "name": "Dana Levi", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104"]}`. The demo checks that every listed workstation exists. The lists do not limit who takes a call.
+*   **Links between the files:** the maintenance log links each call to a technician (`assigned_tech_id`, from `technicians.jsonl`) and to a workstation and component (`workstation_id`, `component_id`). Technicians are not tied to workstations, since any of them can take any call, so a technician record is just an id and a name: `{"tech_id": "T1", "name": "Dana Levi"}`.
 *   **Process:** every alert opens a maintenance call (`OPEN`), which is assigned automatically (`IN_PROGRESS`). Every technician can take any call, on any workstation; the technicians with the fewest calls saved in the log (resolved ones and earlier runs included) have priority, and the call goes to one of them picked at random. When the fault clears, the call is `RESOLVED`. Pausing the dashboard for a break does not resolve it.
 *   **Link to the main system:** each call stores the `alert_id`, `workstation_id` and `component_id` of the alert that opened it.
-*   **Data checks:** `find_unknown_workstation_references` flags a technician who covers a workstation that does not exist in `sample_data.jsonl`. `find_unknown_technician_references` flags calls assigned to a technician who does not exist in `technicians.jsonl`. The demo runs both on the real data and on a deliberately broken record.
+*   **Data checks:** `find_unknown_technician_references` flags calls in the maintenance log assigned to a technician who does not exist in `technicians.jsonl`. The demo runs it on the real log and on a deliberately broken record.
 *   **Reports (`reports.py`):** a workload report of open calls per technician, and a history report of every call with the technician who handled it, also exported to `logs/maintenance_report.csv` (opens in Excel).
