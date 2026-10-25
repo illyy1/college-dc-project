@@ -164,11 +164,12 @@ def log(tmp_path, history):
 
 
 @pytest.fixture
-def open_viewer(monkeypatch, log):
+def open_viewer(monkeypatch, log, technicians_file):
+    """Opens the viewer on a log and the test team's technician file."""
     monkeypatch.setattr(stats_viewer, "tk", FAKE_TK)
 
     def build(log_path=log.path, **options):
-        return StatsViewer(log_path, TECHNICIANS_PATH, **options)
+        return StatsViewer(log_path, technicians_file, **options)
 
     return build
 
@@ -220,10 +221,10 @@ def test_each_refresh_schedules_exactly_one_more(open_viewer):
         assert len(viewer.root.scheduled) == 1  # never piles up refreshes
 
 
-def test_the_window_starts_empty_before_the_first_call(open_viewer, tmp_path):
+def test_the_window_starts_empty_before_the_first_call(open_viewer, tmp_path, technicians):
     viewer = open_viewer(log_path=str(tmp_path / "no_log_yet.jsonl"))
     assert viewer.displayed()["summary"] == "No maintenance calls yet."
-    assert len(viewer.displayed()["technicians"].splitlines()) == 4  # everyone listed, at 0
+    assert len(viewer.displayed()["technicians"].splitlines()) == len(technicians)  # everyone listed, at 0
 
 
 def test_an_unreadable_log_keeps_the_last_numbers_and_says_so(open_viewer, log, monkeypatch):

@@ -26,7 +26,6 @@ import pytest
 from hardware_monitor.stats import AlertTypeCount, CallRow, TechnicianLoad, compute_stats, load_stats
 from hardware_monitor.repository import load_maintenance_history
 
-from conftest import TECHNICIANS_PATH
 
 
 # --- test data (make_call and history are in conftest.py) ---
@@ -115,7 +114,7 @@ def test_technicians_without_calls_are_still_listed(make_call, technicians):
 
 def test_no_calls_gives_every_technician_a_zero_share(technicians):
     loads = compute_stats([], technicians).technicians
-    assert len(loads) == 4 and all(t.share == 0 for t in loads)  # and no division by zero
+    assert len(loads) == len(technicians) and all(t.share == 0 for t in loads)  # and no division by zero
 
 
 def test_unassigned_calls_get_their_own_row(make_call, technicians):
@@ -186,39 +185,39 @@ def test_a_call_without_an_open_time_goes_last(make_call, technicians):
 
 # --- reading the files ---
 
-def test_load_stats_reads_the_log_and_the_technicians(history, write_log):
-    stats = load_stats(write_log(history), TECHNICIANS_PATH)
+def test_load_stats_reads_the_log_and_the_technicians(history, write_log, technicians_file):
+    stats = load_stats(write_log(history), technicians_file)
     assert stats.total_calls == 7 and stats.technicians[0].name == "Dana Levi"
 
 
-def test_load_stats_uses_the_latest_state_of_each_call(make_call, write_log):
+def test_load_stats_uses_the_latest_state_of_each_call(make_call, write_log, technicians_file):
     opened = make_call(1, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "09:00")
     resolved = make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED", "09:00")
-    stats = load_stats(write_log([opened, resolved]), TECHNICIANS_PATH)
+    stats = load_stats(write_log([opened, resolved]), technicians_file)
 
     assert (stats.total_calls, stats.open_calls, stats.resolved_calls) == (1, 0, 1)
 
 
-def test_load_stats_with_no_log_yet(tmp_path):
-    stats = load_stats(str(tmp_path / "not_created_yet.jsonl"), TECHNICIANS_PATH)
-    assert stats.total_calls == 0 and len(stats.technicians) == 4
+def test_load_stats_with_no_log_yet(tmp_path, technicians_file, technicians):
+    stats = load_stats(str(tmp_path / "not_created_yet.jsonl"), technicians_file)
+    assert stats.total_calls == 0 and len(stats.technicians) == len(technicians)
 
 
-def test_load_stats_skips_a_half_written_line(history, tmp_path, capsys):
+def test_load_stats_skips_a_half_written_line(history, tmp_path, capsys, technicians_file):
     log = tmp_path / "maintenance_requests.jsonl"
     log.write_text("".join(json.dumps(r) + "\n" for r in history) + '{"request_id": "MR-0008", "sta',
                    encoding="utf-8")
-    assert load_stats(str(log), TECHNICIANS_PATH).total_calls == 7
+    assert load_stats(str(log), technicians_file).total_calls == 7
 
 
-def test_load_stats_matches_what_the_desk_wrote(desk, alerts):
+def test_load_stats_matches_what_the_desk_wrote(desk, alerts, technicians_file):
     # end to end: calls opened and resolved by the real MaintenanceDesk
     first = desk.open_request_for_alert(alerts.camera())
     desk.open_request_for_alert(alerts.microphone())
     desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(first.request_id)
 
-    stats = load_stats(desk.log_path, TECHNICIANS_PATH)
+    stats = load_stats(desk.log_path, technicians_file)
 
     assert (stats.total_calls, stats.open_calls, stats.resolved_calls) == (3, 2, 1)
     assert {t.alert_type: t.total for t in stats.alert_types} == {"Camera": 2, "Microphone": 1}

@@ -219,7 +219,7 @@ def test_desk_hands_a_custom_strategy_every_technician_and_their_calls(technicia
 
     (candidates, calls_before), (_, calls_after) = strategy.seen
     # everyone, whatever the call: no specialties and no workstation lists
-    assert [t.name for t in candidates] == ["Dana Levi", "Yossi Cohen", "Noa Mizrahi", "Avi Peretz"]
+    assert candidates == list(technicians.values())
     assert first.assigned_tech_id == candidates[-1].tech_id  # the desk used the strategy's choice
     assert sum(calls_before.values()) == 0
     assert calls_after.get(first.assigned_tech_id) == 1 and sum(calls_after.values()) == 1

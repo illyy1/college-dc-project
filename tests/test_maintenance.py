@@ -76,17 +76,22 @@ def saved_log(tmp_path):
 
 # --- the technicians ---
 
-def test_technicians_load_from_data(technicians):
-    assert [t.name for t in technicians.values()] == ["Dana Levi", "Yossi Cohen", "Noa Mizrahi", "Avi Peretz"]
+# The real data/technicians.jsonl changes as staff are hired and leave, so
+# these tests check only what must hold for any staff.
+
+def test_the_technician_file_loads(real_technicians):
+    assert len(real_technicians) >= 1  # the desk needs someone to assign calls to
+    for tech_id, tech in real_technicians.items():
+        assert tech.tech_id == tech_id and tech.name.strip()
 
 
-def test_technicians_have_no_specialty(technicians):
-    assert all(not hasattr(t, "specialty") for t in technicians.values())
+def test_technicians_have_no_specialty(real_technicians):
+    assert all(not hasattr(t, "specialty") for t in real_technicians.values())
 
 
-def test_technicians_have_no_workstation_lists(technicians):
+def test_technicians_have_no_workstation_lists(real_technicians):
     # anyone takes any call on any workstation, so technicians aren't tied to workstations
-    for tech in technicians.values():
+    for tech in real_technicians.values():
         assert not hasattr(tech, "workstation_ids") and not hasattr(tech, "covers")
 
 
@@ -105,12 +110,23 @@ def test_an_old_files_workstation_list_is_ignored(old_list):
 
 # --- who gets a call ---
 
-def test_everyone_takes_every_kind_of_call(desk, alerts):
-    # four technicians, no history: the first four calls go to four different people,
-    # whatever the device
-    faults = [alerts.camera, alerts.microphone, alerts.camera, alerts.microphone]
-    taken = [desk.open_request_for_alert(fault()).assigned_tech_id for fault in faults]
-    assert sorted(taken) == ["T1", "T2", "T3", "T4"]
+@pytest.fixture(params=[1, 2, 4, 10, "real"], ids=["1-tech", "2-techs", "4-techs", "10-techs", "real-staff"])
+def roster(request, make_team, real_technicians):
+    """Teams of several sizes, and whoever is in data/technicians.jsonl right now:
+    the assignment rules must hold for any number of technicians."""
+    return real_technicians if request.param == "real" else make_team(request.param)
+
+
+@pytest.fixture
+def roster_desk(make_desk, roster):
+    return make_desk(roster)
+
+
+def test_everyone_takes_every_kind_of_call(roster_desk, roster, alerts):
+    # no history: the first N calls go to N different people, whatever the device
+    faults = [alerts.camera, alerts.microphone] * len(roster)
+    taken = [roster_desk.open_request_for_alert(fault()).assigned_tech_id for fault in faults[:len(roster)]]
+    assert sorted(taken) == sorted(roster)
 
 
 def test_the_fewest_calls_saved_gets_the_next_one(make_desk, team, alerts):
@@ -168,24 +184,24 @@ def test_a_technician_with_no_saved_calls_counts_as_zero(team):
     assert picks == {"C"}
 
 
-def test_the_default_desk_picks_with_pythons_random(desk, alerts):
+def test_the_default_desk_picks_with_pythons_random(roster_desk, roster, alerts):
     with mock.patch("hardware_monitor.maintenance.random.choice", side_effect=lambda options: options[-1]) as choice:
-        request = desk.open_request_for_alert(alerts.camera())
+        request = roster_desk.open_request_for_alert(alerts.camera())
 
     (offered,), _ = choice.call_args
-    assert [t.tech_id for t in offered] == ["T1", "T2", "T3", "T4"]
-    assert request.assigned_tech_id == "T4"
+    assert [t.tech_id for t in offered] == list(roster)  # nobody has a call yet: everyone is in the draw
+    assert request.assigned_tech_id == list(roster)[-1]
 
 
-def test_the_dashboards_own_machine_spreads_calls_to_everyone(desk, alerts):
+def test_the_dashboards_own_machine_spreads_calls_to_everyone(roster_desk, roster, alerts):
     # the live dashboard's machine isn't in sample_data.jsonl; its camera and mic
-    # faults come one at a time and clear quickly
+    # faults come one at a time and clear quickly. 2 x N calls: 2 each
     faults = [lambda: alerts.camera(workstation_id="Aliza-HomePC"),
               lambda: alerts.microphone(workstation_id="Aliza-HomePC")]
     taken = []
-    for n in range(8):
-        taken += take_calls(desk, alerts, 1, make=faults[n % 2])
-    assert {tech: taken.count(tech) for tech in set(taken)} == {"T1": 2, "T2": 2, "T3": 2, "T4": 2}
+    for n in range(2 * len(roster)):
+        taken += take_calls(roster_desk, alerts, 1, make=faults[n % 2])
+    assert Counter(taken) == {tech_id: 2 for tech_id in roster}
 
 
 def test_calls_saved_by_an_earlier_run_count(make_desk, team, alerts, saved_log):

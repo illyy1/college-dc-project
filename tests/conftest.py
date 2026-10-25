@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import socket
 import sys
@@ -19,7 +20,7 @@ except ImportError:
     sys.modules["tkinter"] = types.ModuleType("tkinter")
 
 from hardware_monitor.maintenance import MaintenanceDesk  # noqa: E402
-from hardware_monitor.models import Camera, Microphone, Workstation  # noqa: E402
+from hardware_monitor.models import Camera, Microphone, Technician, Workstation  # noqa: E402
 from hardware_monitor.processing import Alert, AlertManager  # noqa: E402
 from hardware_monitor.repository import (  # noqa: E402
     load_workstations_from_jsonl,
@@ -39,9 +40,42 @@ def workstations():
 
 
 @pytest.fixture
-def technicians():
-    """The 4 technicians from data/technicians.jsonl, freshly loaded (no calls assigned yet)."""
+def real_technicians():
+    """The technicians in data/technicians.jsonl, however many there are:
+    staff get hired and leave, so tests using this assume nothing about who
+    or how many."""
     return load_technicians_from_jsonl(TECHNICIANS_PATH)
+
+
+TEAM_NAMES = ("Dana Levi", "Yossi Cohen", "Noa Mizrahi", "Avi Peretz")
+
+
+@pytest.fixture
+def make_team():
+    """make_team(n): a test team of n technicians, T1..Tn, independent of
+    data/technicians.jsonl. The first four are named as in TEAM_NAMES."""
+    def build(size):
+        return {f"T{n}": Technician(f"T{n}", TEAM_NAMES[n - 1] if n <= len(TEAM_NAMES) else f"Technician {n}")
+                for n in range(1, size + 1)}
+    return build
+
+
+@pytest.fixture
+def technicians(make_team):
+    """A fixed four-person test team (T1 Dana Levi, T2 Yossi Cohen, T3 Noa
+    Mizrahi, T4 Avi Peretz) for tests that need exact numbers. It is not
+    read from data/technicians.jsonl, so hiring or firing staff can't break
+    those tests."""
+    return make_team(4)
+
+
+@pytest.fixture
+def technicians_file(technicians, tmp_path):
+    """The `technicians` test team written to a temporary technicians.jsonl."""
+    path = tmp_path / "technicians.jsonl"
+    path.write_text("".join(json.dumps({"tech_id": t.tech_id, "name": t.name}) + "\n" for t in technicians.values()),
+                    encoding="utf-8")
+    return str(path)
 
 
 # --- reusable mock objects ---

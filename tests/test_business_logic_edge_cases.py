@@ -27,7 +27,7 @@ from hardware_monitor.models import Camera, HardwareComponent, MaintenanceReques
 from hardware_monitor.processing import AlertManager
 from hardware_monitor.repository import load_technicians_from_jsonl, load_workstations_from_jsonl, request_number
 
-from conftest import SAMPLE_DATA_PATH, TECHNICIANS_PATH
+from conftest import SAMPLE_DATA_PATH
 
 
 # --- boundary conditions on thresholds ---
@@ -203,12 +203,12 @@ def test_request_number_handles_unknown_formats(request_id, number):
 
 # (who takes a call is specified in test_maintenance.py)
 
-def test_open_calls_survive_a_restart_and_resolved_ones_do_not(desk, alerts):
+def test_open_calls_survive_a_restart_and_resolved_ones_do_not(desk, alerts, technicians_file):
     still_open = desk.open_request_for_alert(alerts.camera())
     done = desk.open_request_for_alert(alerts.microphone())
     desk.resolve_request(done.request_id)
 
-    fresh_technicians = load_technicians_from_jsonl(TECHNICIANS_PATH)
+    fresh_technicians = load_technicians_from_jsonl(technicians_file)
     restarted = MaintenanceDesk(fresh_technicians, log_path=desk.log_path, report_csv_path=None)
 
     assert [r.request_id for r in restarted.open_requests()] == [still_open.request_id]
@@ -329,18 +329,18 @@ def no_latency(monkeypatch):
     monkeypatch.setattr(concurrency, "SOURCE_LATENCY_SECONDS", 0)
 
 
-def test_async_overview_matches_sequential(no_latency, tmp_path):
-    sources = (SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(tmp_path / "no_calls_yet.jsonl"))
+def test_async_overview_matches_sequential(no_latency, tmp_path, technicians_file):
+    sources = (SAMPLE_DATA_PATH, technicians_file, str(tmp_path / "no_calls_yet.jsonl"))
     overview = asyncio.run(gather_overview_concurrent(*sources))
 
     assert overview == asyncio.run(gather_overview_sequential(*sources))
     assert overview["fleet"] == {"workstations": 8,
                                  "components_by_status": {"ACTIVE": 11, "ERROR": 2, "DISCONNECTED": 3}}
-    assert overview["technicians"] == ["Dana Levi", "Yossi Cohen", "Noa Mizrahi", "Avi Peretz"]
+    assert overview["technicians"] == [t.name for t in load_technicians_from_jsonl(technicians_file).values()]
     assert overview["maintenance"] == {"total_calls": 0, "open_calls": []}  # missing log = no calls
 
 
-def test_async_overview_raises_when_a_source_fails(no_latency, tmp_path):
+def test_async_overview_raises_when_a_source_fails(no_latency, tmp_path, technicians_file):
     with pytest.raises(FileNotFoundError, match="missing.jsonl"):
-        asyncio.run(gather_overview_concurrent(str(tmp_path / "missing.jsonl"), TECHNICIANS_PATH,
+        asyncio.run(gather_overview_concurrent(str(tmp_path / "missing.jsonl"), technicians_file,
                                                str(tmp_path / "log.jsonl")))

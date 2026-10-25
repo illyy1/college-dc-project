@@ -27,7 +27,7 @@ from hardware_monitor.dashboard import HardwareMonitorApp
 from hardware_monitor.models import MaintenanceRequest
 from hardware_monitor.repository import load_maintenance_history
 
-from conftest import SAMPLE_DATA_PATH, TECHNICIANS_PATH
+from conftest import SAMPLE_DATA_PATH
 
 
 def run_together(worker, count=8):
@@ -88,7 +88,7 @@ def test_results_keep_input_order_when_tasks_finish_out_of_order(workstations, m
     assert snapshots == asyncio.run(fetch_statuses_sequential(workstations))
 
 
-def test_overview_matches_the_data_counted_independently(no_latency, workstations, technicians, tmp_path):
+def test_overview_matches_the_data_counted_independently(no_latency, workstations, technicians, tmp_path, technicians_file):
     log_path = tmp_path / "log.jsonl"
     log_path.write_text("\n".join(json.dumps(r) for r in [
         {"request_id": "MR-0001", "status": "IN_PROGRESS"},
@@ -97,7 +97,7 @@ def test_overview_matches_the_data_counted_independently(no_latency, workstation
         {"request_id": "MR-0003", "status": "IN_PROGRESS"},
     ]) + "\n", encoding="utf-8")
 
-    overview = asyncio.run(gather_overview_concurrent(SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(log_path)))
+    overview = asyncio.run(gather_overview_concurrent(SAMPLE_DATA_PATH, technicians_file, str(log_path)))
 
     statuses = Counter(c.connection_status for w in workstations for c in w.components)
     assert overview["fleet"] == {"workstations": len(workstations), "components_by_status": dict(statuses)}
@@ -106,8 +106,8 @@ def test_overview_matches_the_data_counted_independently(no_latency, workstation
     assert overview["maintenance"] == {"total_calls": len(history), "open_calls": ["MR-0002", "MR-0003"]}
 
 
-def test_repeated_concurrent_runs_give_identical_results(no_latency):
-    sources = (SAMPLE_DATA_PATH, TECHNICIANS_PATH, "missing.jsonl")
+def test_repeated_concurrent_runs_give_identical_results(no_latency, technicians_file):
+    sources = (SAMPLE_DATA_PATH, technicians_file, "missing.jsonl")
     first = asyncio.run(gather_overview_concurrent(*sources))
     assert all(asyncio.run(gather_overview_concurrent(*sources)) == first for _ in range(10))
 
@@ -135,16 +135,16 @@ def traced_sources(monkeypatch):
     return events
 
 
-def test_all_three_sources_run_at_the_same_time(traced_sources, tmp_path):
-    sources = (SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(tmp_path / "log.jsonl"))
+def test_all_three_sources_run_at_the_same_time(traced_sources, tmp_path, technicians_file):
+    sources = (SAMPLE_DATA_PATH, technicians_file, str(tmp_path / "log.jsonl"))
     overview = asyncio.run(gather_overview_concurrent(*sources))
 
     assert [kind for kind, _ in traced_sources[:3]] == ["start"] * 3  # all started before any finished
     assert overview == asyncio.run(gather_overview_sequential(*sources))  # and the real data came back
 
 
-def test_the_sequential_version_runs_one_source_at_a_time(traced_sources, tmp_path):
-    asyncio.run(gather_overview_sequential(SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(tmp_path / "log.jsonl")))
+def test_the_sequential_version_runs_one_source_at_a_time(traced_sources, tmp_path, technicians_file):
+    asyncio.run(gather_overview_sequential(SAMPLE_DATA_PATH, technicians_file, str(tmp_path / "log.jsonl")))
     assert [kind for kind, _ in traced_sources] == ["start", "end"] * 3
 
 
@@ -169,7 +169,7 @@ def test_workstation_statuses_are_fetched_concurrently(workstations, monkeypatch
     assert peak == 1
 
 
-def test_blocking_file_reads_do_not_freeze_the_event_loop(no_latency, monkeypatch, tmp_path):
+def test_blocking_file_reads_do_not_freeze_the_event_loop(no_latency, monkeypatch, tmp_path, technicians_file):
     real_load = concurrency.load_workstations_from_jsonl
 
     def slow_disk(path):
@@ -188,7 +188,7 @@ def test_blocking_file_reads_do_not_freeze_the_event_loop(no_latency, monkeypatc
                 await asyncio.sleep(0.01)
 
         beat = asyncio.create_task(heartbeat())
-        await gather_overview_concurrent(SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(tmp_path / "log.jsonl"))
+        await gather_overview_concurrent(SAMPLE_DATA_PATH, technicians_file, str(tmp_path / "log.jsonl"))
         done = True
         await beat
         return ticks
