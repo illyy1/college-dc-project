@@ -5,6 +5,7 @@ dashboard opens and resolves. It shows a summary, two pie charts (each
 technician's share of the calls and each alert type's share), the
 per-technician spread, and the recent calls with who took each one."""
 
+import colorsys
 import os
 import subprocess
 import sys
@@ -18,6 +19,7 @@ REFRESH_SECONDS = 2
 BAR, BAR_WIDTH = "█", 20  # the busiest technician's bar is BAR_WIDTH blocks long
 PIE_COLORS = ("#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#76b7b2", "#edc948", "#b07aa1", "#9c755f")
 PIE_DIAMETER, PIE_MARGIN = 180, 12
+LEGEND_ROW_HEIGHT = 22
 NO_CALLS = "No calls yet"
 TEXT_FONT = "TkFixedFont"  # monospaced, so the columns line up
 MAIN_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")
@@ -82,22 +84,51 @@ class Slice:
     color: str
 
 
+def pie_colors():
+    """The palette's colours first, then as many more as needed, each a new
+    hue: consecutive golden-ratio steps round the colour wheel stay far
+    apart, and the lightness alternates so neighbours differ more."""
+    yield from PIE_COLORS
+    step = 0
+    while True:
+        step += 1
+        hue = (step * 0.618033988749895) % 1
+        lightness = (0.45, 0.62)[step % 2]
+        red, green, blue = colorsys.hls_to_rgb(hue, lightness, 0.55)
+        yield f"#{round(red * 255):02x}{round(green * 255):02x}{round(blue * 255):02x}"
+
+
 def pie_slices(parts):
     """(label, value) pairs -> slices from 12 o'clock that fill the circle.
-    Parts with no value get no slice."""
+    Parts with no value get no slice. Every slice gets its own colour, however
+    many there are, so no two technicians ever look alike."""
     parts = [(label, value) for label, value in parts if value > 0]
     total = sum(value for _, value in parts)
+    colors, used = pie_colors(), set()
     slices, angle = [], 90.0
-    for index, (label, value) in enumerate(parts):
+    for label, value in parts:
+        color = next(colors)
+        while color in used:  # a generated colour could round to one already taken
+            color = next(colors)
+        used.add(color)
         extent = 360 * value / total
-        slices.append(Slice(label, value, 100 * value / total, angle, extent, PIE_COLORS[index % len(PIE_COLORS)]))
+        slices.append(Slice(label, value, 100 * value / total, angle, extent, color))
         angle += extent
     return slices
 
 
+def pie_canvas_height(entries):
+    """Tall enough for the pie and for a legend of `entries` lines."""
+    pie_bottom = PIE_MARGIN + PIE_DIAMETER
+    legend_bottom = PIE_MARGIN + 10 + (entries - 1) * LEGEND_ROW_HEIGHT + 6
+    return max(pie_bottom, legend_bottom) + PIE_MARGIN
+
+
 def draw_pie(canvas, slices):
-    """Draws the pie and a color-keyed legend, replacing what was there."""
+    """Draws the pie and a color-keyed legend, replacing what was there. The
+    canvas grows (or shrinks back) so the whole legend fits."""
     canvas.delete("all")
+    canvas.config(height=pie_canvas_height(len(slices)))
     left = top = PIE_MARGIN
     right = bottom = PIE_MARGIN + PIE_DIAMETER
     if not slices:
@@ -112,7 +143,7 @@ def draw_pie(canvas, slices):
                               fill=piece.color, outline="white")
     legend_x = right + 2 * PIE_MARGIN
     for row, piece in enumerate(slices):
-        y = top + 10 + row * 22
+        y = top + 10 + row * LEGEND_ROW_HEIGHT
         canvas.create_rectangle(legend_x, y - 6, legend_x + 12, y + 6, fill=piece.color, outline="")
         canvas.create_text(legend_x + 20, y, text=f"{piece.label}  {piece.percent:.1f}%", anchor="w")
 
@@ -160,7 +191,7 @@ class StatsViewer:
     def _add_pie(self, parent, title):
         frame = tk.LabelFrame(parent, text=title, padx=4, pady=4)
         frame.pack(side="left", fill="both", expand=True, padx=4, pady=4)
-        canvas = tk.Canvas(frame, width=PIE_DIAMETER + 250, height=PIE_DIAMETER + 2 * PIE_MARGIN,
+        canvas = tk.Canvas(frame, width=PIE_DIAMETER + 250, height=pie_canvas_height(0),
                            bg="white", highlightthickness=0)
         canvas.pack()
         return canvas
