@@ -31,6 +31,7 @@ from hardware_monitor.repository import (
     FILE_WRITE_ATTEMPTS,
     DataFileError,
     append_jsonl_record,
+    delete_log,
     load_maintenance_history,
 )
 
@@ -221,6 +222,21 @@ def test_a_log_held_for_a_moment_still_gets_the_record(make_call, write_jsonl, r
     assert retry_waits == FILE_WAITS
 
 
+def test_a_demo_log_held_for_a_moment_is_still_reset(write_jsonl, retry_waits):
+    log = write_jsonl("demo_log.jsonl", {"alert_id": 1})
+    real_remove, calls = os.remove, []
+
+    def held_once(path):
+        calls.append(path)
+        if len(calls) == 1:
+            raise PermissionError(13, "Permission denied")
+        real_remove(path)
+
+    with mock.patch("hardware_monitor.repository.os.remove", side_effect=held_once):
+        delete_log(log)
+    assert not os.path.exists(log) and len(retry_waits) == 1
+
+
 def test_a_report_held_for_a_moment_is_still_written(reports_log, tmp_path):
     csv_path = str(tmp_path / "report.csv")
     with file_locked("reports", csv_path, times=1):
@@ -319,8 +335,9 @@ def test_a_dashboard_crash_is_not_hidden_by_a_failed_report(run_main):
 @pytest.mark.parametrize("problem", [
     FileNotFoundError(2, "No such file or directory", "data/sample_data.jsonl"),
     DataFileError("data/technicians.jsonl line 3: duplicate tech_id 'T1'."),
-], ids=["missing", "broken"])
-def test_a_missing_or_broken_data_file_is_explained(run_main, capsys, problem):
+    PermissionError(13, "Permission denied", "logs/demo_hardware_history.jsonl"),  # e.g. a demo log still locked
+], ids=["missing", "broken", "no-permission"])
+def test_a_file_problem_is_explained(run_main, capsys, problem):
     assert run_main("--no-dashboard", demo_error=problem) == 1
     assert capsys.readouterr().err == f"Cannot start: {problem}\n"
 
