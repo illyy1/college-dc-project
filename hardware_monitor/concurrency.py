@@ -52,14 +52,11 @@ async def _gather_fleet_status(workstations_path: str) -> dict:
     return {"workstations": len(snapshots), "components_by_status": dict(statuses)}
 
 
-async def _gather_technician_roster(technicians_path: str) -> dict:
-    """Source 2: technician names grouped by specialty."""
+async def _gather_technician_roster(technicians_path: str) -> list:
+    """Source 2: the technicians' names, as listed in the data file."""
     await asyncio.sleep(SOURCE_LATENCY_SECONDS)
     technicians = await asyncio.to_thread(load_technicians_from_jsonl, technicians_path)
-    by_specialty = {}
-    for technician in technicians.values():
-        by_specialty.setdefault(technician.specialty, []).append(technician.name)
-    return by_specialty
+    return [technician.name for technician in technicians.values()]
 
 
 async def _gather_maintenance_summary(maintenance_log_path: str) -> dict:

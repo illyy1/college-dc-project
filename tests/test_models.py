@@ -7,9 +7,18 @@ from hardware_monitor.models import (
 )
 
 
-def test_sample_data_loads_all_workstations(workstations):
+def test_the_test_fleet_loads_all_workstations(workstations):
     assert len(workstations) == 8
     assert all(len(ws.components) == 2 for ws in workstations)
+
+
+def test_the_real_sample_data_is_a_valid_fleet(real_workstations):
+    # data/sample_data.jsonl can change, so only what any valid fleet must have
+    assert real_workstations, "the sample data has no workstations"
+    ids = [c.component_id for ws in real_workstations for c in ws.components]
+    assert len(ids) == len(set(ids))  # every component id is unique
+    for ws in real_workstations:
+        assert ws.components and all(c.workstation_id == ws.workstation_id for c in ws.components)
 
 
 def test_sample_data_builds_camera_and_microphone(workstations):

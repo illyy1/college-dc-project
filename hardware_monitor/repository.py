@@ -85,15 +85,16 @@ def load_technicians_from_jsonl(path):
     return technicians
 
 
-def load_maintenance_history(path):
+def load_maintenance_history(path, reported=None):
     """Reads the append-only maintenance log line-by-line. Every state change
     of a request is its own line, so the last line seen per request_id is its
-    current state. Returns those latest records ordered by request_id."""
+    current state. Returns those latest records ordered by request_id.
+    reported: see iter_jsonl_records."""
     if not os.path.exists(path):
         return []
 
     latest = {}
-    for record in iter_jsonl_records(path):
+    for record in iter_jsonl_records(path, reported):
         if "request_id" in record:
             latest[record["request_id"]] = record
 
@@ -124,10 +125,14 @@ def append_jsonl_record(path, record):
         log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def iter_jsonl_records(path):
+def iter_jsonl_records(path, reported=None):
     """Yields each JSON record of an append-only log line-by-line, skipping
     (with a warning) lines that are not valid JSON — e.g. a half-written last
-    line left behind when the program was killed mid-write."""
+    line left behind when the program was killed mid-write.
+
+    reported: for a caller that re-reads the same log again and again (the
+    statistics viewer), a set that remembers which broken lines were already
+    reported, so each is reported once instead of on every read."""
     if not os.path.exists(path):
         return
 
@@ -139,7 +144,10 @@ def iter_jsonl_records(path):
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
-                print(f"Warning: skipping corrupt line {line_number} in {path}.")
+                if reported is None or (path, line_number) not in reported:
+                    print(f"Warning: skipping corrupt line {line_number} in {path}.")
+                    if reported is not None:
+                        reported.add((path, line_number))
                 continue
             if isinstance(record, dict):
                 yield record

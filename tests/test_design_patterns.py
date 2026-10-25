@@ -6,8 +6,15 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from hardware_monitor.maintenance import AssignmentStrategy, LeastBusyStrategy, RoundRobinStrategy
+from hardware_monitor.maintenance import (
+    AssignmentStrategy,
+    FewestCallsStrategy,
+    LeastBusyStrategy,
+    RoundRobinStrategy,
+)
 from hardware_monitor.models import Camera, HardwareComponent, MaintenanceRequest, Microphone, Technician, Workstation
+
+from fake_random import FirstPick
 
 
 # --- Factory: HardwareComponent.from_dict builds the right product ---
@@ -101,26 +108,32 @@ def test_workstation_and_technician_factories_fill_defaults():
     workstation = Workstation.from_dict({"workstation_id": "WS-9"})
     assert (workstation.name, workstation.location, workstation.components) == ("WS-9", "", [])
 
-    technician = Technician.from_dict({"tech_id": "T9", "name": "Dana", "specialty": "General"})
-    assert technician.workstation_ids == () and technician.assigned_requests == []
+    technician = Technician.from_dict({"tech_id": "T9", "name": "Dana"})
+    assert technician.assigned_requests == [] and not hasattr(technician, "workstation_ids")
 
 
-# --- Strategy: which eligible technician gets the call ---
+# --- Strategy: which technician gets the call ---
+# The desk hands every technician to the strategy, with when each was last
+# given a call and how many calls each has saved in the log. The default,
+# FewestCallsStrategy, picks at random among those with the fewest calls;
+# LeastBusyStrategy and RoundRobinStrategy are alternatives.
 
-def technician(tech_id, open_calls=0, specialty="Camera"):
-    tech = Technician(tech_id, tech_id, specialty, workstation_ids=["WS-104"])
+def technician(tech_id, open_calls=0):
+    tech = Technician(tech_id, tech_id)
     tech.assigned_requests = [MaintenanceRequest(f"MR-{tech_id}-{n}", n, 1) for n in range(open_calls)]
     return tech
 
 
 @pytest.fixture
-def busy_but_waiting():
-    """C1 has two open calls but was last assigned long ago; C2 has none but
-    was just assigned. The two strategies disagree on this case."""
+def three_ways():
+    """C1: 2 open calls, 2 saved, last assigned long ago.
+    C2: no open calls but 5 saved, just assigned.
+    The three strategies each pick on a different rule here."""
     now = datetime.now()
     candidates = [technician("C1", open_calls=2), technician("C2")]
     last_assigned_at = {"C1": now - timedelta(hours=3), "C2": now}
-    return candidates, last_assigned_at
+    calls_taken = {"C1": 2, "C2": 5}
+    return candidates, last_assigned_at, calls_taken
 
 
 def test_strategy_interface_cannot_be_used_directly():
@@ -129,20 +142,22 @@ def test_strategy_interface_cannot_be_used_directly():
         AssignmentStrategy()
 
 
-def test_least_busy_picks_fewest_open_calls(busy_but_waiting):
-    candidates, last_assigned_at = busy_but_waiting
-    assert LeastBusyStrategy().choose(candidates, last_assigned_at).tech_id == "C2"
+def test_fewest_calls_picks_fewest_saved_even_if_busy(three_ways):
+    assert FewestCallsStrategy(rng=FirstPick()).choose(*three_ways).tech_id == "C1"  # 2 saved vs 5
 
 
-def test_round_robin_picks_longest_waiting(busy_but_waiting):
-    candidates, last_assigned_at = busy_but_waiting
-    assert RoundRobinStrategy().choose(candidates, last_assigned_at).tech_id == "C1"
+def test_least_busy_picks_fewest_open_calls(three_ways):
+    assert LeastBusyStrategy().choose(*three_ways).tech_id == "C2"  # 0 open vs 2
+
+
+def test_round_robin_picks_longest_waiting(three_ways):
+    assert RoundRobinStrategy().choose(*three_ways).tech_id == "C1"  # waited 3 hours
 
 
 @pytest.mark.parametrize("strategy", [LeastBusyStrategy(), RoundRobinStrategy()], ids=["least-busy", "round-robin"])
-def test_both_strategies_prefer_a_never_assigned_technician(strategy):
+def test_the_alternatives_prefer_a_never_assigned_technician(strategy):
     candidates = [technician("C1"), technician("C2")]
-    assert strategy.choose(candidates, {"C1": datetime.now()}).tech_id == "C2"
+    assert strategy.choose(candidates, {"C1": datetime.now()}, {}).tech_id == "C2"
 
 
 @pytest.mark.parametrize("strategy", [LeastBusyStrategy(), RoundRobinStrategy()], ids=["least-busy", "round-robin"])
@@ -150,25 +165,26 @@ def test_resolved_calls_do_not_count_as_load(strategy):
     done = technician("C1", open_calls=1)
     done.assigned_requests[0].resolve()
     candidates = [done, technician("C2")]
-    assert strategy.choose(candidates, {}).tech_id == "C1"  # tie: both free, first candidate wins
+    assert strategy.choose(candidates, {}, {}).tech_id == "C1"  # tie: both free, first candidate wins
 
 
 @pytest.fixture
-def camera_team():
-    """Two camera technicians, C1 and C2, both covering WS-104."""
-    return {tid: Technician(tid, tid, "Camera", workstation_ids=["WS-104"]) for tid in ("C1", "C2")}
+def pair():
+    """Two technicians, C1 and C2."""
+    return {tid: Technician(tid, tid) for tid in ("C1", "C2")}
 
 
-def test_desk_uses_least_busy_by_default(make_desk, camera_team):
-    assert isinstance(make_desk(camera_team).assignment_strategy, LeastBusyStrategy)
+def test_desk_uses_fewest_calls_by_default(make_desk, pair):
+    assert isinstance(make_desk(pair).assignment_strategy, FewestCallsStrategy)
 
 
 @pytest.mark.parametrize("strategy, third_call_goes_to", [
-    (LeastBusyStrategy(), "C2"),   # C2's call was resolved, so C2 is the free one
-    (RoundRobinStrategy(), "C1"),  # C1 was assigned longest ago, so it is C1's turn
-], ids=["least-busy", "round-robin"])
-def test_swapping_the_strategy_changes_who_gets_the_call(make_desk, camera_team, strategy, third_call_goes_to, alerts):
-    desk = make_desk(camera_team, assignment_strategy=strategy)
+    (FewestCallsStrategy(rng=FirstPick()), "C1"),  # 1 call each: a pick between both, here the first
+    (LeastBusyStrategy(), "C2"),                   # C2's call was resolved, so C2 is the free one
+    (RoundRobinStrategy(), "C1"),                  # C1 was assigned longest ago, so it is C1's turn
+], ids=["fewest-calls", "least-busy", "round-robin"])
+def test_swapping_the_strategy_changes_who_gets_the_call(make_desk, pair, strategy, third_call_goes_to, alerts):
+    desk = make_desk(pair, assignment_strategy=strategy)
     first = desk.open_request_for_alert(alerts.camera())
     second = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(second.request_id)
@@ -177,29 +193,33 @@ def test_swapping_the_strategy_changes_who_gets_the_call(make_desk, camera_team,
     assert desk.open_request_for_alert(alerts.camera()).assigned_tech_id == third_call_goes_to
 
 
-def test_strategy_can_be_changed_on_a_running_desk(make_desk, camera_team, alerts):
-    desk = make_desk(camera_team)
-    desk.open_request_for_alert(alerts.camera())
+def test_strategy_can_be_changed_on_a_running_desk(make_desk, pair, alerts):
+    desk = make_desk(pair)
+    first = desk.open_request_for_alert(alerts.camera())
     second = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(second.request_id)
 
     desk.assignment_strategy = RoundRobinStrategy()
-    assert desk.open_request_for_alert(alerts.camera()).assigned_tech_id == "C1"
+    assert desk.open_request_for_alert(alerts.camera()).assigned_tech_id == first.assigned_tech_id
 
 
-def test_desk_hands_a_custom_strategy_only_eligible_candidates(technicians, alerts, make_desk):
+def test_desk_hands_a_custom_strategy_every_technician_and_their_calls(technicians, alerts, make_desk):
     class RecordingStrategy(AssignmentStrategy):
         def __init__(self):
             self.seen = []
 
-        def choose(self, candidates, last_assigned_at):
-            self.seen.append(list(candidates))
+        def choose(self, candidates, last_assigned_at, calls_taken):
+            self.seen.append((list(candidates), dict(calls_taken)))
             return candidates[-1]
 
     strategy = RecordingStrategy()
     desk = make_desk(assignment_strategy=strategy)
-    request = desk.open_request_for_alert(alerts.camera())
+    first = desk.open_request_for_alert(alerts.camera())
+    desk.open_request_for_alert(alerts.microphone())
 
-    (candidates,) = strategy.seen
-    assert candidates == [t for t in technicians.values() if t.specialty == "Camera" and t.covers("WS-104")]
-    assert request.assigned_tech_id == candidates[-1].tech_id  # the desk used the strategy's choice
+    (candidates, calls_before), (_, calls_after) = strategy.seen
+    # everyone, whatever the call: no specialties and no workstation lists
+    assert candidates == list(technicians.values())
+    assert first.assigned_tech_id == candidates[-1].tech_id  # the desk used the strategy's choice
+    assert sum(calls_before.values()) == 0
+    assert calls_after.get(first.assigned_tech_id) == 1 and sum(calls_after.values()) == 1

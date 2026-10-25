@@ -11,11 +11,10 @@ import json
 import threading
 import time
 from collections import Counter
-from types import SimpleNamespace
 
 import pytest
 
-from hardware_monitor import concurrency, dashboard, maintenance
+from hardware_monitor import concurrency
 from hardware_monitor.concurrency import (
     LockedAlertLog,
     fetch_statuses_concurrent,
@@ -23,32 +22,11 @@ from hardware_monitor.concurrency import (
     gather_overview_concurrent,
     gather_overview_sequential,
 )
-from hardware_monitor.dashboard import HardwareMonitorApp
-from hardware_monitor.models import MaintenanceRequest
+from hardware_monitor.config import MAX_VISIBLE_ALERTS
 from hardware_monitor.repository import load_maintenance_history
 
-from conftest import SAMPLE_DATA_PATH, TECHNICIANS_PATH
-
-
-def run_together(worker, count=8):
-    """Starts count threads at the same moment and waits for all of them."""
-    barrier = threading.Barrier(count)
-    errors = []
-
-    def start():
-        barrier.wait()
-        try:
-            worker()
-        except Exception as e:  # surfaced by the assertion below
-            errors.append(e)
-
-    threads = [threading.Thread(target=start) for _ in range(count)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=30)
-    assert not any(t.is_alive() for t in threads), "threads did not finish (deadlock?)"
-    assert errors == []
+from conftest import TEST_FLEET_PATH, run_together
+from fake_tk import FakeToplevel
 
 
 @pytest.fixture
@@ -88,29 +66,27 @@ def test_results_keep_input_order_when_tasks_finish_out_of_order(workstations, m
     assert snapshots == asyncio.run(fetch_statuses_sequential(workstations))
 
 
-def test_overview_matches_the_data_counted_independently(no_latency, workstations, technicians, tmp_path):
-    log_path = tmp_path / "log.jsonl"
-    log_path.write_text("\n".join(json.dumps(r) for r in [
-        {"request_id": "MR-0001", "status": "IN_PROGRESS"},
-        {"request_id": "MR-0002", "status": "IN_PROGRESS"},
-        {"request_id": "MR-0001", "status": "RESOLVED"},   # later line wins
-        {"request_id": "MR-0003", "status": "IN_PROGRESS"},
-    ]) + "\n", encoding="utf-8")
+def test_overview_matches_the_data_counted_independently(no_latency, workstations, technicians, technicians_file,
+                                                         make_call, write_jsonl):
+    log_path = write_jsonl(
+        "log.jsonl",
+        make_call(1, "CAMERA_FAILURE", "T1", "IN_PROGRESS"),
+        make_call(2, "CAMERA_FAILURE", "T2", "IN_PROGRESS"),
+        make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED"),   # later line wins
+        make_call(3, "CAMERA_FAILURE", "T3", "IN_PROGRESS"),
+    )
 
-    overview = asyncio.run(gather_overview_concurrent(SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(log_path)))
+    overview = asyncio.run(gather_overview_concurrent(TEST_FLEET_PATH, technicians_file, str(log_path)))
 
     statuses = Counter(c.connection_status for w in workstations for c in w.components)
     assert overview["fleet"] == {"workstations": len(workstations), "components_by_status": dict(statuses)}
-    by_specialty = {}
-    for tech in technicians.values():
-        by_specialty.setdefault(tech.specialty, []).append(tech.name)
-    assert overview["technicians"] == by_specialty
+    assert overview["technicians"] == [tech.name for tech in technicians.values()]
     history = load_maintenance_history(str(log_path))
     assert overview["maintenance"] == {"total_calls": len(history), "open_calls": ["MR-0002", "MR-0003"]}
 
 
-def test_repeated_concurrent_runs_give_identical_results(no_latency):
-    sources = (SAMPLE_DATA_PATH, TECHNICIANS_PATH, "missing.jsonl")
+def test_repeated_concurrent_runs_give_identical_results(no_latency, technicians_file):
+    sources = (TEST_FLEET_PATH, technicians_file, "missing.jsonl")
     first = asyncio.run(gather_overview_concurrent(*sources))
     assert all(asyncio.run(gather_overview_concurrent(*sources)) == first for _ in range(10))
 
@@ -138,16 +114,16 @@ def traced_sources(monkeypatch):
     return events
 
 
-def test_all_three_sources_run_at_the_same_time(traced_sources, tmp_path):
-    sources = (SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(tmp_path / "log.jsonl"))
+def test_all_three_sources_run_at_the_same_time(traced_sources, tmp_path, technicians_file):
+    sources = (TEST_FLEET_PATH, technicians_file, str(tmp_path / "log.jsonl"))
     overview = asyncio.run(gather_overview_concurrent(*sources))
 
     assert [kind for kind, _ in traced_sources[:3]] == ["start"] * 3  # all started before any finished
     assert overview == asyncio.run(gather_overview_sequential(*sources))  # and the real data came back
 
 
-def test_the_sequential_version_runs_one_source_at_a_time(traced_sources, tmp_path):
-    asyncio.run(gather_overview_sequential(SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(tmp_path / "log.jsonl")))
+def test_the_sequential_version_runs_one_source_at_a_time(traced_sources, tmp_path, technicians_file):
+    asyncio.run(gather_overview_sequential(TEST_FLEET_PATH, technicians_file, str(tmp_path / "log.jsonl")))
     assert [kind for kind, _ in traced_sources] == ["start", "end"] * 3
 
 
@@ -172,7 +148,7 @@ def test_workstation_statuses_are_fetched_concurrently(workstations, monkeypatch
     assert peak == 1
 
 
-def test_blocking_file_reads_do_not_freeze_the_event_loop(no_latency, monkeypatch, tmp_path):
+def test_blocking_file_reads_do_not_freeze_the_event_loop(no_latency, monkeypatch, tmp_path, technicians_file):
     real_load = concurrency.load_workstations_from_jsonl
 
     def slow_disk(path):
@@ -191,7 +167,7 @@ def test_blocking_file_reads_do_not_freeze_the_event_loop(no_latency, monkeypatc
                 await asyncio.sleep(0.01)
 
         beat = asyncio.create_task(heartbeat())
-        await gather_overview_concurrent(SAMPLE_DATA_PATH, TECHNICIANS_PATH, str(tmp_path / "log.jsonl"))
+        await gather_overview_concurrent(TEST_FLEET_PATH, technicians_file, str(tmp_path / "log.jsonl"))
         done = True
         await beat
         return ticks
@@ -329,13 +305,8 @@ def test_snapshots_never_see_half_a_batch(make_batches):
     assert sizes and all(size % 10 == 0 for size in sizes)
 
 
-def test_concurrent_calls_and_resolutions_stay_consistent(desk, technicians, monkeypatch, alerts):
-    class SlowRequest(MaintenanceRequest):
-        def __init__(self, *args, **kwargs):
-            time.sleep(0.001)  # inside the critical section: reading and advancing the call number
-            super().__init__(*args, **kwargs)
-
-    monkeypatch.setattr(maintenance, "MaintenanceRequest", SlowRequest)
+def test_concurrent_calls_and_resolutions_stay_consistent(desk, technicians, slow_requests, alerts):
+    slow_requests(0.001)  # inside the critical section: reading and advancing the call number
 
     def worker():
         for _ in range(5):
@@ -353,75 +324,85 @@ def test_concurrent_calls_and_resolutions_stay_consistent(desk, technicians, mon
     assert Counter(r["status"] for r in records) == {"IN_PROGRESS": 40, "RESOLVED": 40}
 
 
-# --- the dashboard's locks ---
+# --- the dashboard's locks (the shared `dash` fixture: a real dashboard) ---
 
-@pytest.fixture
-def app(desk, tmp_path, alert_manager):
-    """A dashboard without its Tk window: just the state its locks guard."""
-    app = HardwareMonitorApp.__new__(HardwareMonitorApp)
-    app.maintenance_desk = desk
-    app.alert_manager = alert_manager
-    app.open_requests = {}
-    app._calls_lock = threading.Lock()
-    app._popup_lock = threading.Lock()
-    app.active_alerts = {"camera": None, "mic_conn": None, "mic_silence": None}
-    app._shown_at, app._closed_at, app._popup_slots, app._last_issue_at = {}, {}, {}, {}
-    app._last_popup_at = 0
-    return app
+def drawn_popups():
+    return [window for window in FakeToplevel.created if window.exists]
 
 
-def test_dashboard_methods_wait_for_their_locks(app):
+def test_dashboard_methods_wait_for_their_locks(dash):
+    app = dash.app
+    # the locks are private: proving a lock works means holding that exact lock
     assert waits_for_lock(app._calls_lock, lambda: app.open_maintenance_call("camera", "test"))
     assert waits_for_lock(app._calls_lock, lambda: app.resolve_maintenance_call("camera"))
-    assert waits_for_lock(app._popup_lock, lambda: app._reserve_popup_slot("camera"))
-    assert waits_for_lock(app._popup_lock, lambda: app._claim_github_issue("camera"))
+    # a new fault: deciding whether it may open a GitHub issue takes the popup lock
+    assert waits_for_lock(app._popup_lock, lambda: app.show_alert("mic_conn", "Microphone Disconnected", "test"))
+    # the same fault again: no new issue, so only reserving its popup slot can take the lock
+    assert waits_for_lock(app._popup_lock, lambda: app.show_alert("mic_conn", "Microphone Disconnected", "test"))
+    assert waits_for_lock(app._popup_lock, lambda: app.hide_alert("mic_conn"))
 
 
-def test_a_fault_reported_by_many_threads_opens_one_call(app, monkeypatch):
-    class SlowRequest(MaintenanceRequest):
-        def __init__(self, *args, **kwargs):
-            time.sleep(0.01)  # widens the check-then-open window
-            super().__init__(*args, **kwargs)
+def test_a_new_faults_github_issue_waits_for_the_popup_lock(dash):
+    # with the lock held, a new fault may not decide to open a GitHub issue yet
+    app = dash.app
+    worker = threading.Thread(target=app.show_alert, args=("camera", "Camera Disconnected", "test"), daemon=True)
+    with app._popup_lock:
+        worker.start()
+        worker.join(0.2)
+        assert dash.github.posted == []  # nothing sent while the lock is held
+    worker.join(5)
+    assert [p.key for p in dash.github.posted] == ["camera"]
 
-    monkeypatch.setattr(maintenance, "MaintenanceRequest", SlowRequest)
+
+def test_a_fault_reported_by_many_threads_opens_one_call(dash, slow_requests):
+    slow_requests(0.01)  # widens the check-then-open window
     results = []
-    run_together(lambda: results.append(app.open_maintenance_call("camera", "test")))
+    run_together(lambda: results.append(dash.app.open_maintenance_call("camera", "test")))
 
-    assert len(app.maintenance_desk.requests) == 1
+    assert len(dash.app.maintenance_desk.requests) == 1
     assert len({id(request) for request, _ in results}) == 1   # every thread got the same call
     assert sum(is_new for _, is_new in results) == 1           # and only one thread opened it
 
 
-def test_popup_slots_are_never_shared_or_overbooked(app):
-    keys = ["camera", "mic_conn", "mic_silence"]
-    results = SimpleNamespace(granted=[])
+def test_popup_slots_are_never_shared_or_overbooked(dash):
+    app = dash.app
+    faults = [("camera", "Camera Disconnected"), ("mic_conn", "Microphone Disconnected"),
+              ("mic_silence", "Microphone Silence")]
+    run_together(lambda: [app.show_alert(key, title, "test") for key, title in faults])
+    app.root.flush()  # the Tk loop draws the reserved popups
+
+    popups = drawn_popups()
+    assert len(popups) == MAX_VISIBLE_ALERTS                        # never more than the slots
+    assert len({p.window_title for p in popups}) == len(popups)    # each fault at most once
+    rows = sorted(int(p.spec.rsplit("+", 1)[1]) for p in popups)
+    assert len(set(rows)) == len(rows)                             # each in its own place on screen
+
+
+def test_only_one_github_issue_per_fault_within_the_cooldown(dash, capsys):
+    # threads keep opening and resolving the same fault, so new calls race each other;
+    # within the cooldown only one of them may open a GitHub issue
+    app = dash.app
 
     def worker():
-        for key in keys:
-            if app._reserve_popup_slot(key):
-                results.granted.append(key)
+        for _ in range(5):
+            app.show_alert("camera", "Camera Disconnected", "test")
+            app.resolve_maintenance_call("camera")
 
     run_together(worker)
+    new_calls = len(app.maintenance_desk.requests)
 
-    assert sorted(results.granted) == sorted(set(results.granted))  # each fault reserved at most once
-    assert len(results.granted) == dashboard.MAX_VISIBLE_ALERTS
-    assert sorted(app._popup_slots.values()) == list(range(dashboard.MAX_VISIBLE_ALERTS))
-
-
-def test_only_one_thread_may_open_a_github_issue_per_window(app, capsys):
-    claims = []
-    run_together(lambda: claims.append(app._claim_github_issue("camera")))
-
-    assert claims.count(True) == 1 and claims.count(False) == 7
-    assert capsys.readouterr().out.count("GitHub issue for camera skipped") == 7
+    assert new_calls > 1 and len(dash.github.posted) == 1
+    assert capsys.readouterr().out.count("GitHub issue for camera skipped") == new_calls - 1
 
 
-def test_mixed_dashboard_operations_finish_without_deadlock(app):
+def test_mixed_dashboard_operations_finish_without_deadlock(dash):
+    app = dash.app
+
     def worker():
         for _ in range(3):
+            app.show_alert("mic_conn", "Microphone Disconnected", "test")
             app.open_maintenance_call("mic_conn", "test")
-            app._reserve_popup_slot("mic_conn")
-            app._claim_github_issue("mic_conn")
+            app.hide_alert("mic_conn")
             app.resolve_maintenance_call("mic_conn")
 
     run_together(worker)  # fails if any thread is still stuck after 30 s

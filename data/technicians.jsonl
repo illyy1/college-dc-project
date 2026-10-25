@@ -1,4 +1,10 @@
-{"tech_id": "T1", "name": "Dana Levi", "specialty": "Camera", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104"]}
-{"tech_id": "T2", "name": "Yossi Cohen", "specialty": "Microphone", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104", "WS-105", "WS-106", "WS-107", "WS-108"]}
-{"tech_id": "T3", "name": "Noa Mizrahi", "specialty": "Camera", "workstation_ids": ["WS-105", "WS-106", "WS-107", "WS-108"]}
-{"tech_id": "T4", "name": "Avi Peretz", "specialty": "General", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104", "WS-105", "WS-106", "WS-107", "WS-108"]}
+{"tech_id": "T1", "name": "Dana Levi"}
+{"tech_id": "T2", "name": "Yossi Cohen"}
+{"tech_id": "T3", "name": "Noa Mizrahi"}
+{"tech_id": "T4", "name": "Avi Peretz"}
+{"tech_id": "T5", "name": "Michal Ben-David"}
+{"tech_id": "T6", "name": "Omer Friedman"}
+{"tech_id": "T7", "name": "Shira Katz"}
+{"tech_id": "T8", "name": "Eitan Mor"}
+{"tech_id": "T9", "name": "Tamar Azulay"}
+{"tech_id": "T10", "name": "Lior Gabay"}

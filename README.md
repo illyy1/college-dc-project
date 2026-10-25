@@ -5,9 +5,9 @@
 *   **Business need:** Meeting rooms often discover a dead camera or microphone only when a meeting starts. Faults are reported late, by phone, and nobody knows which room is affected or who is handling it.
 *   **Users and roles:**
     *   *IT help-desk administrator:* manages the hardware inventory and acknowledges every incoming alert.
-    *   *Technician:* receives maintenance calls that match their specialty (Camera, Microphone or General) and marks them resolved.
+    *   *Technician:* receives maintenance calls and marks them resolved. There are no specialists: every technician can take any call.
     *   *Automated monitor (system actor):* runs diagnostics on each component and creates alerts.
-*   **Main business process:** A diagnostic check or the live monitor detects a failed component. An alert is created, the help desk acknowledges it in arrival order, and a maintenance call is opened and assigned to the least-busy technician with the right specialty, most urgent fault first. The process ends when the technician resolves the call and the component is back to `ACTIVE`.
+*   **Main business process:** A diagnostic check or the live monitor detects a failed component. An alert is created, the help desk acknowledges it in arrival order, and a maintenance call is opened and assigned to one of the technicians with the fewest calls so far (picked at random among them), most urgent fault first. The process ends when the technician resolves the call and the component is back to `ACTIVE`.
 *   **Information flow:** In: the inventory of workstations and components (`data/sample_data.jsonl`), the technician list (`data/technicians.jsonl`) and live diagnostic results. The monitor creates alerts; the maintenance desk creates and updates maintenance calls. Out: an alert history log, a maintenance call history, a technician workload report and a CSV report for management.
 *   **Business value:** Faults are found before the meeting, urgent ones are fixed first, and work is spread evenly across technicians. This cuts room downtime and makes it clear who owns each fault.
 *   **Entities and relationships:**
@@ -51,9 +51,11 @@ Without `.env`, everything still runs: the dashboard prints a warning and shows 
 ## Running the project
 | Command | What it does |
 |---|---|
-| `python main.py` | Runs the step-by-step demonstration, then opens the live monitoring dashboard. When the dashboard closes, it prints and exports the maintenance history report. |
+| `python main.py` | Runs the step-by-step demonstration, then opens the live monitoring dashboard with the live statistics window next to it (see `--stats`). When the dashboard closes, the statistics window closes too, and the maintenance history report is printed and exported. |
+| `python main.py --no-stats` | The same, without the statistics window. |
 | `python main.py --no-dashboard` | Runs the demonstration and the history report from start to finish without opening a window. |
 | `python main.py --report` | Only prints the maintenance history report and exports it to `logs/maintenance_report.csv`. |
+| `python main.py --stats` | Opens only the live alert statistics window. It re-reads the maintenance log every 2 seconds, so it follows a dashboard running at the same time, even in another terminal. It shows:<ul><li>a summary;</li><li>a pie chart of each technician's share of the calls, and one of each alert type's share;</li><li>alerts by type (camera, microphone, other);</li><li>each technician's calls, open and resolved, with their share and a bar;</li><li>the latest calls and who took each.</li></ul> |
 
 The dashboard drives its microphone/camera alerts off synthetic signals (`hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behaviour can be tested on demand.
 
@@ -67,12 +69,22 @@ Run `pip install -r requirements.txt pytest`, then `pytest` from the project roo
 
 A check in `conftest.py` enforces this. It records every project file before the run and fails the run if any test created, changed or deleted one, naming the file.
 
-**Shared fixtures** (`tests/conftest.py`). Every test can request reusable mock data instead of building its own. Each fixture is rebuilt for every test, so one test's changes never leak into another.
-- `alerts`: a factory for fresh alerts. `alerts.camera()` (a lost camera on WS-104), `alerts.microphone()` (a silent mic on WS-105), or `alerts.make(...)` with any field overridden.
-- `bench_workstation`: a fake workstation with a healthy camera, a camera with an unusable resolution and a healthy microphone.
-- `workstations` and `technicians`: the synthetic fleet and technicians from `data/`.
-- `alert_manager`: an `AlertManager` whose log is a temporary file.
-- `make_desk` and `desk`: a `MaintenanceDesk` on a temporary log. `make_desk(team, csv_report=True, assignment_strategy=...)` builds a variant.
+**Shared fixtures and stand-ins** (`tests/conftest.py`, `tests/fake_*.py`). Every test uses the same object for the same purpose instead of building its own. Fixtures are rebuilt for every test, so one test's changes never leak into another.
+- **Test data the tests own:** the data files change as staff are hired and the fleet changes, so tests needing exact numbers never read `data/`.
+  - `technicians`: a fixed four-person test team. `make_team(n)` builds a team of any size, and `technicians_file` writes the team to a temporary file.
+  - `workstations`: the frozen test fleet in `tests/data/sample_fleet.jsonl`.
+  - `make_call(...)`: one maintenance-log record. `history` is a seven-call log, and `reports_log` is a saved log for the report tests.
+- **The real files:** `real_technicians` and `real_workstations` load `data/`, and their tests check only what any valid file must hold.
+- **Mock objects:**
+  - `alerts.camera()`, `alerts.microphone()` and `alerts.make(...)` build fresh alerts.
+  - `bench_workstation` is a fake workstation. `alert_manager`, `make_desk` and `desk` work on temporary logs.
+  - `write_jsonl(...)` writes any JSONL file, including a broken or half-written line.
+- **External dependencies:**
+  - `github` (`fake_github.py`) is the mocked `requests.post`.
+  - `dash` is a real dashboard built by its own constructor, with Tk (`fake_tk.py`), the clock, threads and signals (`fake_dashboard.py`) faked.
+  - `fake_random.FirstPick` stands in for `random`.
+- **Helpers:** `encrypt_token()` makes a throwaway encrypted token, `run_together()` starts threads at the same moment, and `slow_requests()` widens a race window.
+- **Settings:** tests read every setting from the config. One test per module pins the documented defaults, so changing a setting breaks only that test.
 
 **Isolation (mocking).** The tests run without an internet connection, without an API key, and without real waiting between retries. The rule: only external dependencies are mocked, never the function under test.
 - **Applied to every test** (`tests/conftest.py`): connecting to any non-local address fails as if the machine were offline. `load_dotenv` and the token variables are cleared, so the real `.env` is never read. The `sleep` between GitHub retries is a `unittest.mock` that records the waits instead of sleeping.
@@ -93,7 +105,7 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **Boundaries:** the 8000 Hz sample-rate threshold, the 3-year age cut-off, the smallest valid resolution, a limit of 0.
   - **Empty inputs:** empty files, fleets and alert queues.
   - **Invalid inputs:** wrong types, blank ids, impossible dates, records that aren't JSON objects, foreign or duplicate components.
-  - **Maintenance rules:** workstations nobody covers, overflow only when every specialist is busy, open calls surviving a restart.
+  - **Maintenance rules:** a workstation in no technician's list still gets a technician, two technicians share open calls evenly, open calls survive a restart.
   - **Phase 2 concurrency:** threads never overlap log writes or reuse a call number, and the async overview matches the sequential one.
 - `tests/test_design_patterns.py` — the two design patterns (see Design patterns):
   - **Factory:** picks the right product, gives each product only its own fields and validation, builds the same object as direct construction, and picks up a new subclass with no changes to the factory.
@@ -117,6 +129,11 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **Programming errors:** an unknown package attribute raises `AttributeError`, and the abstract base methods refuse to run.
 
   Across the suite, 45 `pytest.raises` checks verify both the exception type and its message, except where only the type matters or the message comes from the operating system.
+- `tests/test_stats.py` and `tests/test_stats_viewer.py` — the live statistics viewer, written test-first (TDD): the failing tests were committed before any of the code (the `RED:` commits on the `feature/live-stats` branch), then the code that makes them pass (`GREEN:`). They cover:
+  - **The numbers:** totals; alerts by type; each technician's spread, including idle, unassigned and removed technicians; and who took each recent call.
+  - **The text sections and the two pie charts:** slices filling exactly 360°, a single slice drawn as a circle, and legends with percentages.
+  - **The live window:** new and resolved calls appear on the next refresh, an unreadable log keeps the last numbers, and closing stops the refreshes.
+  - **`--stats`.**
 - `tests/test_failure_recovery.py` — real-world failures the system must survive. Each failure is caused at the external dependency, and the code that handles it runs for real:
   - **The CSV report locked by Excel:** the call is still opened or resolved and saved, a warning is printed, and the CSV catches up on the next change.
   - **A diagnostic that crashes:** the component is marked `ERROR` and alerted, and the sweep goes on.
@@ -144,10 +161,12 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/reports.py` — technician workload report, maintenance history report, CSV export, cross-file technician validation.
 - `hardware_monitor/concurrency.py` — async information gathering (`gather_overview_concurrent` starts three independent sources — fleet status, technician roster, maintenance history — with `asyncio.create_task` and collects them with `asyncio.gather`; demo step 11 times it against awaiting them one by one) and a lock-protected alert log for threads.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting.
+- `hardware_monitor/stats.py` — `compute_stats()` / `load_stats()`: the numbers behind the statistics window, computed from the maintenance log. Covers totals, alerts by type, the per-technician spread and the recent calls.
+- `hardware_monitor/stats_viewer.py` — the live statistics window (`python main.py --stats`): text sections, two pie charts drawn on Tk canvases, and a refresh every 2 seconds.
 - `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, network error, incomplete reply) comes back as a result instead of an exception. Temporary failures (timeouts, network errors, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …) and incomplete replies are not retried.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
-- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians, each listing the workstations from `sample_data.jsonl` they cover.
+- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 10 synthetic technicians (an id and a name each); any of them can take any call.
 - `tests/` — the pytest regression suite (see Testing). `.github/workflows/tests.yml` — runs it on GitHub.
 - `AI_USAGE.md` — how AI was used. `pyproject.toml`, `requirements.txt`, `.gitignore` — project settings.
 
@@ -155,14 +174,14 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 *   **Composition (הרכבה):** `Workstation` contains a list of `HardwareComponent` objects and offers `add_component`, `remove_component`, `find_component` and `run_all_diagnostics`.
 *   **Inheritance (הורשה):** `HardwareComponent` is the base class. `Camera` and `Microphone` are kinds of component and add their own fields (resolution, sample rate).
 *   **Polymorphism (פולימורפיזם):** `run_diagnostics()` and `alert_priority()` are defined in the base class and overridden in each subclass. The diagnostics sweep calls them through the common type, with no `if/elif` on the object's class. A camera fault outranks a microphone fault, and a lost device outranks a misconfigured one.
-*   **Validation:** `connection_status`, `Technician.specialty` and `MaintenanceRequest.status` are properties that raise `ValueError` with an explanation for an illegal value. `Workstation.add_component` refuses a component of another workstation or a reused id. The `from_dict` factories reject missing fields and wrong types.
+*   **Validation:** `connection_status` and `MaintenanceRequest.status` are properties that raise `ValueError` with an explanation for an illegal value. `Workstation.add_component` refuses a component of another workstation or a reused id. The `from_dict` factories reject missing fields and wrong types.
 *   **Other tools:** `@classmethod` factories (`from_dict`), a `@staticmethod` (`Camera.parse_resolution`), a computed property (`age_years`) and `__len__` on `AlertHistory`.
 
 ## Design patterns
 | Pattern | Where | What it gives us |
 |---|---|---|
 | **Factory** | `HardwareComponent.from_dict` (also `Workstation.from_dict`, `Technician.from_dict`) | The loader passes in a JSONL record and gets back the right subclass (`Camera`, `Microphone`, …) without any `if/elif` on the type. The factory finds the subclasses through `__subclasses__()`, so adding a new kind of component needs no change to the factory. Each subclass validates its own fields. |
-| **Strategy** | `AssignmentStrategy` in `maintenance.py` | The `MaintenanceDesk` decides which technicians are eligible (coverage, specialty, overflow), then hands the final choice to a strategy object. `LeastBusyStrategy` (default: fewest open calls, then whoever waited longest) and `RoundRobinStrategy` (strict turns, whatever the load) are interchangeable: `MaintenanceDesk(..., assignment_strategy=RoundRobinStrategy())`, or swap `desk.assignment_strategy` on a running desk. |
+| **Strategy** | `AssignmentStrategy` in `maintenance.py` | Every technician can take any call, so the `MaintenanceDesk` hands all of them to a strategy object, with how many calls each has saved in the log. `FewestCallsStrategy` (default: one of the technicians with the fewest calls, picked at random), `LeastBusyStrategy` (fewest open calls, then whoever waited longest) and `RoundRobinStrategy` (strict turns, whatever the load) are interchangeable: `MaintenanceDesk(..., assignment_strategy=RoundRobinStrategy())`, or swap `desk.assignment_strategy` on a running desk. |
 
 ## מבני נתונים (Data Structures)
 | Need | Structure chosen | Why it fits |
@@ -196,7 +215,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
     `{"workstation_id": "WS-101", "workstation_name": "Front Desk PC", "location": "Main Lobby", "component_type": "camera", "component_id": "CAM-101", "name": "Lobby Cam", "connection_status": "ACTIVE", "camera_index": 0, "resolution": "1920x1080", "installed_on": "2021-02-15"}`
     Microphones have `sample_rate` and `sensitivity_db` instead of `camera_index` and `resolution`.
 *   **Loading:** `repository.py` opens the file with `with open(..., encoding="utf-8")` and reads it one line at a time with `for line in file` (never `.read()` or `.readlines()`). Each line becomes a `dict` through `json.loads`, then an object through `Workstation.from_dict` and `HardwareComponent.from_dict` (which builds a `Camera` or `Microphone` from `component_type`). Technicians are loaded the same way through `Technician.from_dict`.
-*   **Validation:** invalid JSON, missing fields, ids that are not text, an unknown component type, an illegal status, specialty or date, wrong field types, a duplicate `component_id`, contradicting workstation details and a duplicate `tech_id` all raise `ValueError` with the file name and line number. Deliberately faulty values such as a `0x0` resolution or a 4000 Hz sample rate are accepted, because they are test cases for `run_diagnostics()` to catch.
+*   **Validation:** invalid JSON, missing fields, ids that are not text, an unknown component type, an illegal status or date, wrong field types, a duplicate `component_id`, contradicting workstation details and a duplicate `tech_id` all raise `ValueError` with the file name and line number. Deliberately faulty values such as a `0x0` resolution or a 4000 Hz sample rate are accepted, because they are test cases for `run_diagnostics()` to catch.
 *   **Output files** (all in `logs/`, not committed):
 
     | File | Written by | Contents |
@@ -222,8 +241,8 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 ## Maintenance Subsystem (team of four extension)
 *   **Business need:** an alert alone doesn't fix anything. Someone has to own each fault, and work must be spread fairly so urgent rooms are not stuck behind one overloaded technician.
 *   **Entities:** `Technician` and `MaintenanceRequest` (`models.py`). Technicians are loaded from `data/technicians.jsonl`; maintenance calls are saved to `logs/maintenance_requests.jsonl`.
-*   **Link between the data files:** each technician record lists the `workstation_ids` it covers, which are the `workstation_id` values in `data/sample_data.jsonl`. For example: `{"tech_id": "T1", "name": "Dana Levi", "specialty": "Camera", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104"]}`.
-*   **Process:** every alert opens a maintenance call (`OPEN`), which is assigned automatically (`IN_PROGRESS`) among the technicians who cover the alert's workstation (everyone, if nobody covers it): camera errors go to a Camera technician, microphone errors to a Microphone technician, overflow to a General technician, and ties to whoever was assigned least recently. When the fault clears, the call is `RESOLVED`. Pausing the dashboard for a break does not resolve it.
+*   **Links between the files:** the maintenance log links each call to a technician (`assigned_tech_id`, from `technicians.jsonl`) and to a workstation and component (`workstation_id`, `component_id`). Technicians are not tied to workstations, since any of them can take any call, so a technician record is just an id and a name: `{"tech_id": "T1", "name": "Dana Levi"}`.
+*   **Process:** every alert opens a maintenance call (`OPEN`), which is assigned automatically (`IN_PROGRESS`). Every technician can take any call, on any workstation; the technicians with the fewest calls saved in the log (resolved ones and earlier runs included) have priority, and the call goes to one of them picked at random. When the fault clears, the call is `RESOLVED`. Pausing the dashboard for a break does not resolve it.
 *   **Link to the main system:** each call stores the `alert_id`, `workstation_id` and `component_id` of the alert that opened it.
-*   **Data checks:** `find_unknown_workstation_references` flags a technician who covers a workstation that does not exist in `sample_data.jsonl`. `find_unknown_technician_references` flags calls assigned to a technician who does not exist in `technicians.jsonl`. The demo runs both on the real data and on a deliberately broken record.
+*   **Data checks:** `find_unknown_technician_references` flags calls in the maintenance log assigned to a technician who does not exist in `technicians.jsonl`. The demo runs it on the real log and on a deliberately broken record.
 *   **Reports (`reports.py`):** a workload report of open calls per technician, and a history report of every call with the technician who handled it, also exported to `logs/maintenance_report.csv` (opens in Excel).

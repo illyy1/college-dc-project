@@ -2,7 +2,6 @@
 data and critical failures, and a failure never leaves things half-done:
 no diagnostic port stays claimed and no lock stays held."""
 
-import json
 from unittest import mock
 
 import pytest
@@ -43,7 +42,7 @@ def test_a_failure_inside_the_session_is_reraised_after_cleanup():
 
 def test_a_failing_assignment_strategy_does_not_leave_the_desk_locked(alerts, make_desk):
     class BrokenStrategy(AssignmentStrategy):
-        def choose(self, candidates, last_assigned_at):
+        def choose(self, candidates, last_assigned_at, calls_taken):
             raise RuntimeError("strategy crashed")
 
     desk = make_desk(assignment_strategy=BrokenStrategy())
@@ -83,26 +82,24 @@ def test_a_missing_maintenance_log_is_not_an_error(tmp_path):
     assert load_maintenance_history(str(tmp_path / "not_yet_created.jsonl")) == []
 
 
-def test_bad_json_raises_a_plain_value_error_without_parser_internals(tmp_path):
-    path = tmp_path / "data.jsonl"
-    path.write_text('{"component_id": "CAM-1",\n', encoding="utf-8")
+def test_bad_json_raises_a_plain_value_error_without_parser_internals(write_jsonl):
+    path = write_jsonl("data.jsonl", '{"component_id": "CAM-1",')
 
     with pytest.raises(ValueError) as error:
-        load_workstations_from_jsonl(str(path))
+        load_workstations_from_jsonl(path)
 
     assert error.type is ValueError  # not json.JSONDecodeError, which is a subclass
     assert str(error.value).startswith(f"{path} line 1: invalid JSON")
     assert error.value.__cause__ is None and error.value.__suppress_context__  # "raise ... from None"
 
 
-def test_an_impossible_date_is_reported_for_the_component_not_by_date_parsing(tmp_path):
-    path = tmp_path / "data.jsonl"
-    path.write_text(json.dumps({"component_type": "Camera", "component_id": "CAM-1", "workstation_id": "WS-1",
-                                "installed_on": "2021-02-30"}) + "\n", encoding="utf-8")
+def test_an_impossible_date_is_reported_for_the_component_not_by_date_parsing(write_jsonl):
+    path = write_jsonl("data.jsonl", {"component_type": "Camera", "component_id": "CAM-1", "workstation_id": "WS-1",
+                                      "installed_on": "2021-02-30"})
 
     # Python's own wording of the date error varies by version; the prefix is ours
     with pytest.raises(ValueError, match=r"line 1: Component 'CAM-1': .*\bday\b") as error:
-        load_workstations_from_jsonl(str(path))
+        load_workstations_from_jsonl(path)
     assert error.value.__suppress_context__
 
 
