@@ -3,6 +3,8 @@ structures/queues, iterators, a lazy pipeline, a diagnostic context manager,
 a maintenance desk that assigns calls to technicians, workload/history
 reports, and the live monitoring dashboard."""
 
+from typing import TYPE_CHECKING
+
 from .models import (
     HardwareComponent,
     Camera,
@@ -47,6 +49,9 @@ from .concurrency import (
     LockedAlertLog,
     record_alerts_from_threads,
 )
+
+if TYPE_CHECKING:  # for editors and type checkers only; at runtime __getattr__ below imports it on first use
+    from .dashboard import HardwareMonitorApp
 
 __all__ = [
     "HardwareComponent",
