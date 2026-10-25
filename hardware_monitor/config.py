@@ -15,7 +15,7 @@ GITHUB_REPO = "illyy1/college-dc-project"
 COMPUTER_NAME = socket.gethostname()
 
 # --- Paths ---
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_PROJECT_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLE_DATA_PATH = os.path.join(_PROJECT_ROOT, "data", "sample_data.jsonl")
 LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "hardware_history.jsonl")
 TECHNICIANS_PATH = os.path.join(_PROJECT_ROOT, "data", "technicians.jsonl")
