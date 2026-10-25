@@ -104,15 +104,41 @@ def test_custom_timeout_is_passed_on_and_reported(github):
     assert "within 0.5 s" in result.error
 
 
-@pytest.mark.parametrize("network_error", [
+@pytest.mark.parametrize("connection_error", [
     requests.exceptions.ConnectionError("Name or service not known"),
     requests.exceptions.SSLError("certificate verify failed"),
-    requests.exceptions.TooManyRedirects("Exceeded 30 redirects"),
-], ids=["connection-error", "ssl-error", "redirect-loop"])
-def test_network_failures_are_reported_not_raised(github, network_error):
-    github.reply = network_error
+    requests.exceptions.ProxyError("proxy refused the connection"),
+], ids=["dns-failure", "ssl-error", "proxy-error"])
+def test_connection_errors_are_reported_not_raised(github, connection_error):
+    github.reply = connection_error
     result = send()
-    assert not result.ok and f"Last error: Network error: {network_error}" in result.error
+    assert not result.ok and result.error.endswith(f"Last error: Could not connect to GitHub: {connection_error}")
+
+
+@pytest.mark.parametrize("request_error", [
+    requests.exceptions.TooManyRedirects("Exceeded 30 redirects"),
+    requests.exceptions.ChunkedEncodingError("connection broken mid-reply"),
+    requests.exceptions.HTTPError("malformed HTTP response"),
+], ids=["redirect-loop", "reply-cut-off", "http-error"])
+def test_other_request_errors_are_reported_not_raised(github, request_error):
+    github.reply = request_error
+    result = send()
+    assert not result.ok and result.error.endswith(f"Last error: GitHub request failed: {request_error}")
+
+
+def test_a_connect_timeout_counts_as_a_timeout_not_a_connection_error(github):
+    # ConnectTimeout is both a Timeout and a ConnectionError: the timeout message is the more useful one
+    assert issubclass(requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError)
+    github.reply = requests.exceptions.ConnectTimeout("connect timed out")
+    assert send().error.endswith(f"Last error: {TIMED_OUT}")
+
+
+def test_an_error_outside_requests_is_not_hidden(github):
+    # only network problems become results; a bug in the code must still surface
+    github.reply = TypeError("unexpected argument")
+    with pytest.raises(TypeError, match="unexpected argument"):
+        send()
+    assert len(github.calls) == 1  # and is not retried
 
 
 # --- replies missing required fields ---
