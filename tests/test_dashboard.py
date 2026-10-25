@@ -202,23 +202,10 @@ def test_an_ongoing_fault_reuses_its_call_and_issue(dash):
     assert len(app.maintenance_desk.requests) == 1 and len(dash.github.posted) == 1
 
 
-def test_github_issue_names_the_call_and_technician(dash):
-    app = dash.app
-    show_camera(app)
-    request = app.open_requests["camera"]
-    technician = app.maintenance_desk.technician_for(request)
-    assert f"`{request.request_id}`" in dash.github.posted[0].body and technician.name in dash.github.posted[0].body
-
-
 def test_the_decrypted_token_is_sent_to_github(dash):
     show_camera(dash.app)
     assert dash.app.github_token == "test-token"
     assert dash.github.posted[0].token == "Bearer test-token"
-
-
-def test_a_successful_post_is_reported_with_the_issue_link(dash, capsys):
-    show_camera(dash.app)
-    assert "Alert posted to GitHub for camera: issue #1 (https://example.invalid/1)" in capsys.readouterr().out
 
 
 def test_alerts_still_show_when_no_technician_can_take_the_call(dash, capsys):

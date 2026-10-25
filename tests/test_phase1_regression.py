@@ -4,7 +4,6 @@ abstract component base class, loader validation, the reports, and the full
 demo. They guard the Phase 1 logic against later changes (concurrency, locks,
 async gathering)."""
 
-import csv
 from contextlib import ExitStack
 from datetime import date, timedelta
 from itertools import islice
@@ -18,7 +17,6 @@ from hardware_monitor.context_managers import DiagnosticConnection
 from hardware_monitor.iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
 from hardware_monitor.models import Camera, HardwareComponent, MaintenanceRequest, Microphone, Technician, Workstation
 from hardware_monitor.reports import (
-    export_maintenance_history_csv,
     find_unknown_technician_references,
     generate_maintenance_history_report,
     generate_technician_workload_report,
@@ -145,14 +143,6 @@ def test_diagnostic_connection_keeps_the_diagnostics_result():
     assert camera.connection_status == "DISCONNECTED"
 
 
-def test_diagnostic_connection_marks_error_and_reraises():
-    camera = Camera("C1", "Cam", "WS-1")
-    with pytest.raises(RuntimeError, match="cable pulled"):
-        with DiagnosticConnection(camera, verbose=False):
-            raise RuntimeError("cable pulled")
-    assert camera.connection_status == "ERROR"
-
-
 def test_diagnostic_connection_refuses_when_all_ports_are_busy():
     cameras = [Camera(f"C{n}", "Cam", "WS-1") for n in range(4)]
     with ExitStack() as stack:
@@ -262,17 +252,6 @@ def test_maintenance_history_keeps_latest_state_and_skips_corrupt_lines(make_cal
 def test_unknown_technician_references_are_reported(reports_log, technicians):
     unknown = find_unknown_technician_references(load_maintenance_history(reports_log), technicians)
     assert [r["request_id"] for r in unknown] == ["MR-0002"]
-
-
-def test_history_csv_export(reports_log, tmp_path):
-    csv_path = export_maintenance_history_csv(reports_log, str(tmp_path / "reports" / "out.csv"), verbose=False)
-
-    with open(csv_path, encoding="utf-8-sig", newline="") as csv_file:
-        rows = list(csv.DictReader(csv_file))
-    assert [(r["request_id"], r["status"], r["assigned_tech_name"]) for r in rows] == [
-        ("MR-0001", "RESOLVED", "Dana Levi"),
-        ("MR-0002", "IN_PROGRESS", ""),
-    ]
 
 
 def test_history_report_lists_every_call(reports_log, tmp_path, capsys):

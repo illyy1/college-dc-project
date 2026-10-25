@@ -53,7 +53,7 @@ def test_missing_token_sends_nothing(github, token):
     result = send(token=token)
 
     assert not result.ok and "token missing" in result.error
-    assert github.calls == []
+    assert github.calls == [] and result.attempts == 0
 
 
 # --- HTTP errors ---
@@ -319,11 +319,6 @@ def test_a_permanent_error_after_a_temporary_one_stops_the_retries(github):
 
     assert result.attempts == 2 and len(github.calls) == 2
     assert result.error == "GitHub returned HTTP 401: Bad credentials."
-
-
-def test_no_token_means_no_attempts(github, retry_waits):
-    result = send(token=None)
-    assert result.attempts == 0 and github.calls == [] and retry_waits == []
 
 
 # --- the dashboard's use of the client (the shared `dash` fixture) ---

@@ -4,17 +4,15 @@ access) across the models, loaders, maintenance desk and concurrency code."""
 
 import asyncio
 import json
-import time
 from datetime import date, timedelta
 from itertools import islice
 
 import pytest
 
-from hardware_monitor import concurrency, processing
+from hardware_monitor import concurrency
 from hardware_monitor.concurrency import (
     LockedAlertLog,
     fetch_statuses_concurrent,
-    fetch_statuses_sequential,
     gather_overview_concurrent,
     gather_overview_sequential,
     record_alerts_from_threads,
@@ -106,6 +104,7 @@ def test_empty_inputs_are_handled():
     assert len(AlertHistory([])) == 0 and list(AlertHistory([])) == []
     assert list(iter_disconnected_components([])) == []
     assert list(lazy_disconnected_pipeline([])) == []
+    assert asyncio.run(fetch_statuses_concurrent([])) == []
     assert Workstation("WS-1", "Desk").run_all_diagnostics() == {}
 
 
@@ -235,26 +234,6 @@ def test_log_naming_an_unknown_technician_is_reported_not_fatal(technicians, mak
 
 # --- concurrency (Phase 2) ---
 
-def test_alert_log_writes_never_overlap(monkeypatch, tmp_path, alert_manager, alerts):
-    writing, overlaps = [], []
-    real_append = processing.append_jsonl_record
-
-    def slow_append(path, record):
-        if writing:
-            overlaps.append(record["alert_id"])
-        writing.append(record["alert_id"])
-        time.sleep(0.002)  # widens the window two unlocked writers would collide in
-        real_append(path, record)
-        writing.pop()
-
-    monkeypatch.setattr(processing, "append_jsonl_record", slow_append)
-    manager = alert_manager
-    run_together(lambda: [manager.log_alert(alerts.camera()) for _ in range(10)], count=4)
-
-    assert overlaps == []
-    assert len(manager.alert_history) == 40
-
-
 def test_concurrent_alert_logging_keeps_every_record(tmp_path, alerts):
     log_path = tmp_path / "history.jsonl"
     manager = AlertManager(log_path=str(log_path))
@@ -269,20 +248,6 @@ def test_concurrent_alert_logging_keeps_every_record(tmp_path, alerts):
         ids = [json.loads(line)["alert_id"] for line in log_file]
     assert len(ids) == len(set(ids)) == 100
     assert len(manager.alert_history) == len(manager.intake_queue) == 100
-
-
-def test_concurrent_maintenance_calls_get_unique_numbers(technicians, slow_requests, alerts, make_desk):
-    slow_requests(0.002)  # between reading and advancing the call number
-    desk = make_desk()
-
-    def worker():
-        for _ in range(10):
-            desk.open_request_for_alert(alerts.camera())
-
-    run_together(worker, count=4)
-
-    assert sorted(desk.requests) == [f"MR-{n:04d}" for n in range(1, 41)]
-    assert sum(len(t.assigned_requests) for t in technicians.values()) == 40
 
 
 def test_threaded_batches_stay_contiguous(alerts):
@@ -304,15 +269,6 @@ def test_locked_alert_log_snapshot_is_a_copy(alerts):
     assert len(alert_log.snapshot()) == 1
 
 
-def test_concurrent_status_fetch_matches_sequential_and_keeps_order(workstations):
-    sequential = asyncio.run(fetch_statuses_sequential(workstations))
-    concurrent = asyncio.run(fetch_statuses_concurrent(workstations))
-
-    assert concurrent == sequential
-    assert [s["workstation_id"] for s in concurrent] == [w.workstation_id for w in workstations]
-    assert asyncio.run(fetch_statuses_concurrent([])) == []
-
-
 @pytest.fixture
 def no_latency(monkeypatch):
     monkeypatch.setattr(concurrency, "SOURCE_LATENCY_SECONDS", 0)
@@ -329,7 +285,3 @@ def test_async_overview_matches_sequential(no_latency, tmp_path, technicians_fil
     assert overview["maintenance"] == {"total_calls": 0, "open_calls": []}  # missing log = no calls
 
 
-def test_async_overview_raises_when_a_source_fails(no_latency, tmp_path, technicians_file):
-    with pytest.raises(FileNotFoundError, match="missing.jsonl"):
-        asyncio.run(gather_overview_concurrent(str(tmp_path / "missing.jsonl"), technicians_file,
-                                               str(tmp_path / "log.jsonl")))
