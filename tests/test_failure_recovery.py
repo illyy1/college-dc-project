@@ -337,8 +337,16 @@ CSV_LOCKED = PermissionError(13, "Permission denied", "logs/maintenance_report.c
 def test_a_report_that_cannot_be_written_is_explained(run_main, capsys, flags):
     assert run_main(*flags, report_error=CSV_LOCKED) == 1
     error = capsys.readouterr().err
-    assert "Could not write the maintenance report" in error and "Is it open in Excel?" in error
+    assert "Could not create the maintenance report" in error and "Is it open in Excel?" in error
     assert "logs/maintenance_report.csv" in error
+
+
+def test_a_log_that_cannot_be_read_is_not_blamed_on_excel(run_main, capsys):
+    log_locked = PermissionError(13, "Permission denied", "logs/maintenance_requests.jsonl")
+    assert run_main("--report", report_error=log_locked) == 1
+    error = capsys.readouterr().err
+    assert "Could not create the maintenance report" in error and "logs/maintenance_requests.jsonl" in error
+    assert "Excel" not in error
 
 
 def test_a_dashboard_crash_is_not_hidden_by_a_failed_report(run_main):
