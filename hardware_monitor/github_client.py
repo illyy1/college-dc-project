@@ -29,9 +29,10 @@ class IssueResult:
 
 
 def create_issue(token, repo, title, body, labels=(), timeout=REQUEST_TIMEOUT_SECONDS, max_attempts=MAX_ATTEMPTS):
-    """Opens a GitHub issue, retrying temporary failures (timeouts, network
-    errors, HTTP 429/5xx) up to max_attempts times with a growing wait.
-    Permanent failures (bad token, missing repo, invalid request) and
+    """Opens a GitHub issue, retrying temporary failures (timeouts, connection
+    errors, a reply cut off mid-way, HTTP 429/5xx) up to max_attempts times with
+    a growing wait. Permanent failures (bad token, missing repo, invalid request,
+    a bad URL or header, a redirect loop) and
     incomplete replies are not retried: the first would fail again, and an
     incomplete 201 reply means the issue was already created.
 
@@ -70,13 +71,16 @@ def _try_once(token, repo, title, body, labels, timeout):
             timeout=timeout,
         )
     # most specific first: ConnectTimeout is both a Timeout and a ConnectionError,
-    # and every requests error is a RequestException
+    # and every requests error is a RequestException. Only the exception's name is
+    # reported: requests quotes the headers or URL in its messages, and with them the key.
     except requests.exceptions.Timeout:
         return IssueResult(False, error=f"GitHub did not answer within {timeout} s."), True
     except requests.exceptions.ConnectionError as e:  # DNS failure, refused/reset connection, SSL, proxy
-        return IssueResult(False, error=f"Could not connect to GitHub: {e}"), True
-    except requests.exceptions.RequestException as e:  # any other request problem: redirects, a cut-off reply, ...
-        return IssueResult(False, error=f"GitHub request failed: {e}"), True
+        return IssueResult(False, error=f"Could not connect to GitHub ({type(e).__name__})."), True
+    except requests.exceptions.RequestException as e:  # any other request problem: redirects, a bad URL or header, ...
+        # only a reply cut off mid-way may work next time; the rest would fail the same way again
+        retryable = isinstance(e, requests.exceptions.ChunkedEncodingError)
+        return IssueResult(False, error=f"GitHub request failed ({type(e).__name__})."), retryable
 
     if response.status_code != 201:
         error = f"GitHub returned HTTP {response.status_code}{_api_message(response)}."

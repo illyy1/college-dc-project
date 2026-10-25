@@ -112,25 +112,37 @@ def test_custom_timeout_is_passed_on_and_reported(github):
 def test_connection_errors_are_reported_not_raised(github, connection_error):
     github.reply = connection_error
     result = send()
-    assert not result.ok and result.error.endswith(f"Last error: Could not connect to GitHub: {connection_error}")
+    expected = f"Could not connect to GitHub ({type(connection_error).__name__})."
+    assert not result.ok and result.error.endswith(f"Last error: {expected}")
 
 
 @pytest.mark.parametrize("request_error", [
     requests.exceptions.TooManyRedirects("Exceeded 30 redirects"),
     requests.exceptions.ChunkedEncodingError("connection broken mid-reply"),
-    requests.exceptions.HTTPError("malformed HTTP response"),
-], ids=["redirect-loop", "reply-cut-off", "http-error"])
+    requests.exceptions.InvalidURL("Failed to parse: https://api.github.com/repos/owner repo/issues"),
+    requests.exceptions.InvalidHeader("Invalid return character(s) in header value"),
+], ids=["redirect-loop", "reply-cut-off", "invalid-url", "invalid-header"])
 def test_other_request_errors_are_reported_not_raised(github, request_error):
     github.reply = request_error
     result = send()
-    assert not result.ok and result.error.endswith(f"Last error: GitHub request failed: {request_error}")
+    assert not result.ok and result.error.endswith(f"GitHub request failed ({type(request_error).__name__}).")
 
 
-def test_a_connect_timeout_counts_as_a_timeout_not_a_connection_error(github):
-    # ConnectTimeout is both a Timeout and a ConnectionError: the timeout message is the more useful one
-    assert issubclass(requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError)
-    github.reply = requests.exceptions.ConnectTimeout("connect timed out")
-    assert send().error.endswith(f"Last error: {TIMED_OUT}")
+@pytest.mark.parametrize("leaking_error", [
+    # requests quotes the whole header when it rejects one, e.g. a key read with its trailing newline
+    requests.exceptions.InvalidHeader(
+        "Invalid leading whitespace, reserved character(s), or return character(s) "
+        "in header value: 'Bearer secret-token\\n'"),
+    # a service that takes its key in the URL gets it quoted in connection errors
+    requests.exceptions.ConnectionError(
+        "HTTPSConnectionPool(host='api.example.com', port=443): Max retries exceeded with url: "
+        "/issues?api_key=secret-token"),
+], ids=["key-in-header", "key-in-url"])
+def test_the_key_never_appears_in_an_error(github, capsys, leaking_error):
+    github.reply = leaking_error
+    result = send(token="secret-token")
+    assert "secret-token" not in result.error
+    assert "secret-token" not in capsys.readouterr().out  # nor in the retry messages
 
 
 def test_an_error_outside_requests_is_not_hidden(github):
@@ -286,6 +298,27 @@ def test_permanent_http_errors_stop_immediately(github, retry_waits, status):
     assert not result.ok and result.attempts == 1
     assert len(github.calls) == 1 and retry_waits == []
     assert result.error == f"GitHub returned HTTP {status}: nope."  # no "Gave up": it was not a retry problem
+
+
+@pytest.mark.parametrize("request_error", [
+    requests.exceptions.TooManyRedirects("Exceeded 30 redirects"),
+    requests.exceptions.InvalidURL("Failed to parse"),
+    requests.exceptions.InvalidHeader("Invalid return character(s) in header value"),
+    requests.exceptions.MissingSchema("No scheme supplied"),
+], ids=["redirect-loop", "invalid-url", "invalid-header", "missing-schema"])
+def test_request_errors_that_would_happen_again_stop_immediately(github, retry_waits, request_error):
+    # a bad URL or header, or a redirect loop, fails the same way every time
+    github.reply = request_error
+    result = send()
+
+    assert not result.ok and result.attempts == 1
+    assert len(github.calls) == 1 and retry_waits == []
+    assert result.error == f"GitHub request failed ({type(request_error).__name__})."
+
+
+def test_a_reply_cut_off_mid_way_is_retried(github):
+    github.reply = [requests.exceptions.ChunkedEncodingError("connection broken"), created()]
+    assert send().attempts == 2
 
 
 def test_an_incomplete_reply_is_not_retried(github, retry_waits):
