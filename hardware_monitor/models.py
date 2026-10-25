@@ -75,6 +75,9 @@ class HardwareComponent(ABC):
                              f"string like '2021-05-30', got {installed_on!r}.")
         cls._validate_record(record)
         try:
+            # cls is always a subclass here (the base class returned above), whose __init__
+            # takes its RECORD_FIELDS; PyCharm checks the call against HardwareComponent.__init__
+            # noinspection PyArgumentList
             return cls(
                 component_id=record["component_id"],
                 name=record.get("name") or record["component_id"],
