@@ -54,6 +54,7 @@ Without `.env`, everything still runs: the dashboard prints a warning and shows 
 | `python main.py` | Runs the step-by-step demonstration, then opens the live monitoring dashboard. When the dashboard closes, it prints and exports the maintenance history report. |
 | `python main.py --no-dashboard` | Runs the demonstration and the history report from start to finish without opening a window. |
 | `python main.py --report` | Only prints the maintenance history report and exports it to `logs/maintenance_report.csv`. |
+| `python main.py --stats` | Opens the live alert statistics window. It re-reads the maintenance log every 2 seconds, so it follows a dashboard running at the same time, even in another terminal. It shows:<ul><li>a summary;</li><li>a pie chart of each technician's share of the calls, and one of each alert type's share;</li><li>alerts by type (camera, microphone, other);</li><li>each technician's calls, open and resolved, with their share and a bar;</li><li>the latest calls and who took each.</li></ul> |
 
 The dashboard drives its microphone/camera alerts off synthetic signals (`hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behaviour can be tested on demand.
 
@@ -117,6 +118,11 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **Programming errors:** an unknown package attribute raises `AttributeError`, and the abstract base methods refuse to run.
 
   Across the suite, 45 `pytest.raises` checks verify both the exception type and its message, except where only the type matters or the message comes from the operating system.
+- `tests/test_stats.py` and `tests/test_stats_viewer.py` — the live statistics viewer, written test-first (TDD): the failing tests were committed before any of the code (the `RED:` commits on the `feature/live-stats` branch), then the code that makes them pass (`GREEN:`). They cover:
+  - **The numbers:** totals; alerts by type; each technician's spread, including idle, unassigned and removed technicians; and who took each recent call.
+  - **The text sections and the two pie charts:** slices filling exactly 360°, a single slice drawn as a circle, and legends with percentages.
+  - **The live window:** new and resolved calls appear on the next refresh, an unreadable log keeps the last numbers, and closing stops the refreshes.
+  - **`--stats`.**
 - `tests/test_failure_recovery.py` — real-world failures the system must survive. Each failure is caused at the external dependency, and the code that handles it runs for real:
   - **The CSV report locked by Excel:** the call is still opened or resolved and saved, a warning is printed, and the CSV catches up on the next change.
   - **A diagnostic that crashes:** the component is marked `ERROR` and alerted, and the sweep goes on.
@@ -144,6 +150,8 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/reports.py` — technician workload report, maintenance history report, CSV export, cross-file technician validation.
 - `hardware_monitor/concurrency.py` — async information gathering (`gather_overview_concurrent` starts three independent sources — fleet status, technician roster, maintenance history — with `asyncio.create_task` and collects them with `asyncio.gather`; demo step 11 times it against awaiting them one by one) and a lock-protected alert log for threads.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting.
+- `hardware_monitor/stats.py` — `compute_stats()` / `load_stats()`: the numbers behind the statistics window, computed from the maintenance log. Covers totals, alerts by type, the per-technician spread and the recent calls.
+- `hardware_monitor/stats_viewer.py` — the live statistics window (`python main.py --stats`): text sections, two pie charts drawn on Tk canvases, and a refresh every 2 seconds.
 - `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, network error, incomplete reply) comes back as a result instead of an exception. Temporary failures (timeouts, network errors, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …) and incomplete replies are not retried.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.

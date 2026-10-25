@@ -8,6 +8,7 @@ printed and exported to CSV.
     python main.py                  demo + live dashboard + history report
     python main.py --no-dashboard   demo + history report, no window (runs start to finish)
     python main.py --report         only print/export the maintenance history report
+    python main.py --stats          only open the live alert statistics window
 """
 
 import argparse
@@ -31,10 +32,18 @@ def main():
                         help="only print and export the maintenance history report")
     parser.add_argument("--no-dashboard", action="store_true",
                         help="run the demo and reports without opening the live dashboard window")
+    parser.add_argument("--stats", action="store_true",
+                        help="only open the live alert statistics window (follows the maintenance log)")
     args = parser.parse_args()
 
     if args.report:
         publish_maintenance_reports()
+        return
+
+    if args.stats:
+        # imported here, like the dashboard, so the other modes work without tkinter
+        from hardware_monitor.stats_viewer import run_stats_viewer
+        run_stats_viewer()
         return
 
     run_demo()

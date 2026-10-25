@@ -139,6 +139,11 @@ def test_an_idle_technician_has_no_bar(make_call, technicians):
     assert columns(idle) == ["Avi Peretz", "0 calls", "0 open", "0 resolved", "0.0%"]
 
 
+def test_the_spread_with_no_technicians_at_all():
+    # an empty technician file and no calls: nothing to scale the bars to
+    assert format_technicians(compute_stats([], {})) == "No technicians."
+
+
 def test_the_spread_lines_up_in_columns(stats):
     lines = format_technicians(stats).splitlines()
     assert len({line.index(" call") for line in lines}) == 1  # the counts line up
@@ -349,6 +354,13 @@ def test_closing_stops_the_refreshes(open_viewer):
     _, pending = viewer.root.scheduled.pop()
     pending()  # a refresh that was already queued when the window closed
     assert viewer.root.scheduled == []
+
+
+def test_closing_still_works_if_cancelling_the_refresh_fails(open_viewer):
+    viewer = open_viewer()
+    with mock.patch.object(viewer.root, "after_cancel", side_effect=FAKE_TK.TclError("already ran")):
+        viewer.close()
+    assert viewer.root.destroyed and not viewer.running
 
 
 def test_the_close_button_closes_the_viewer(open_viewer):
