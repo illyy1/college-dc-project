@@ -12,6 +12,7 @@ from hardware_monitor.maintenance import AssignmentStrategy
 from hardware_monitor.models import Camera, HardwareComponent
 from hardware_monitor.processing import AlertManager
 from hardware_monitor.repository import (
+    DataFileError,
     load_maintenance_history,
     load_technicians_from_jsonl,
     load_workstations_from_jsonl,
@@ -82,13 +83,13 @@ def test_a_missing_maintenance_log_is_not_an_error(tmp_path):
     assert load_maintenance_history(str(tmp_path / "not_yet_created.jsonl")) == []
 
 
-def test_bad_json_raises_a_plain_value_error_without_parser_internals(write_jsonl):
+def test_bad_json_raises_a_data_file_error_without_parser_internals(write_jsonl):
     path = write_jsonl("data.jsonl", '{"component_id": "CAM-1",')
 
-    with pytest.raises(ValueError) as error:
+    with pytest.raises(DataFileError) as error:
         load_workstations_from_jsonl(path)
 
-    assert error.type is ValueError  # not json.JSONDecodeError, which is a subclass
+    assert error.type is DataFileError  # not json.JSONDecodeError, which is also a ValueError
     assert str(error.value).startswith(f"{path} line 1: invalid JSON")
     assert error.value.__cause__ is None and error.value.__suppress_context__  # "raise ... from None"
 
@@ -98,7 +99,7 @@ def test_an_impossible_date_is_reported_for_the_component_not_by_date_parsing(wr
                                       "installed_on": "2021-02-30"})
 
     # Python's own wording of the date error varies by version; the prefix is ours
-    with pytest.raises(ValueError, match=r"line 1: Component 'CAM-1': .*\bday\b") as error:
+    with pytest.raises(DataFileError, match=r"line 1: Component 'CAM-1': .*\bday\b") as error:
         load_workstations_from_jsonl(path)
     assert error.value.__suppress_context__
 

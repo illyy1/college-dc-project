@@ -1,21 +1,38 @@
 """Real-world failures the system must survive: the CSV report locked by
 Excel, a diagnostic that crashes, a log line half-written when the program
-was killed, and the `--report` command end to end. Each failure is caused at
-the external dependency (the file system, a component's own test); the code
-that has to cope with it always runs for real."""
+was killed, the `--report` command end to end, a file held for a moment by
+another program, a log that can't be written, a monitor that crashes, and
+main.py explaining a failure instead of printing a traceback. Each failure is caused at
+the external dependency (the file system, a component's own test, a device);
+the code that has to cope with it always runs for real. main.py's tests make
+the step it calls fail, as the other main.py tests in test_stats_viewer.py do."""
 
+import builtins
 import csv
+import errno
 import json
+import os
+import sys
 from unittest import mock
 
 import pytest
 
+import main
+from fake_dashboard import ScriptedMic
+from hardware_monitor import processing
 from hardware_monitor.context_managers import DiagnosticConnection
+from hardware_monitor.dashboard import MONITOR_RESTART_SECONDS
 from hardware_monitor.maintenance import MaintenanceDesk
 from hardware_monitor.models import Camera, Microphone, Workstation
 from hardware_monitor.processing import run_diagnostics_and_log_alerts
 from hardware_monitor.reports import publish_maintenance_reports
-from hardware_monitor.repository import append_jsonl_record, load_maintenance_history
+from hardware_monitor.repository import (
+    FILE_RETRY_BACKOFF_SECONDS,
+    FILE_WRITE_ATTEMPTS,
+    DataFileError,
+    append_jsonl_record,
+    load_maintenance_history,
+)
 
 
 def read_csv(path):
@@ -167,3 +184,183 @@ def test_report_fails_loudly_if_the_csv_cannot_be_written(reports_log, tmp_path)
     # unlike the automatic refresh, an explicit --report must not hide the problem
     with excel_has_the_csv_open(), pytest.raises(PermissionError):
         publish_maintenance_reports(log_path=reports_log, csv_path=str(tmp_path / "report.csv"))
+
+
+# --- 5. a file held for a moment by antivirus, OneDrive or the search indexer ---
+
+REAL_OPEN = builtins.open
+
+
+def file_locked(module, path, times=None, error=None):
+    """Opening `path` from hardware_monitor.<module> fails `times` times (None:
+    every time), by default with the PermissionError Windows gives while another
+    program holds the file. Every other file opens normally."""
+    error = error or PermissionError(13, "Permission denied")
+    left = [times]
+
+    def fake_open(file, *args, **kwargs):
+        if os.path.abspath(file) == os.path.abspath(path) and (left[0] is None or left[0] > 0):
+            if left[0] is not None:
+                left[0] -= 1
+            raise error
+        return REAL_OPEN(file, *args, **kwargs)
+
+    return mock.patch(f"hardware_monitor.{module}.open", create=True, side_effect=fake_open)
+
+
+DISK_FULL = OSError(errno.ENOSPC, "No space left on device")
+FILE_WAITS = [FILE_RETRY_BACKOFF_SECONDS * 2 ** n for n in range(FILE_WRITE_ATTEMPTS - 1)]
+
+
+def test_a_log_held_for_a_moment_still_gets_the_record(make_call, write_jsonl, retry_waits):
+    log = write_jsonl("log.jsonl", make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED"))
+    with file_locked("repository", log, times=FILE_WRITE_ATTEMPTS - 1):
+        append_jsonl_record(log, {"request_id": "MR-0002", "status": "IN_PROGRESS"})
+
+    assert [r["request_id"] for r in load_maintenance_history(log)] == ["MR-0001", "MR-0002"]
+    assert retry_waits == FILE_WAITS
+
+
+def test_a_log_that_stays_locked_raises_after_the_last_attempt(write_jsonl, retry_waits):
+    log = write_jsonl("log.jsonl")
+    with file_locked("repository", log), pytest.raises(PermissionError):
+        append_jsonl_record(log, {"request_id": "MR-0001"})
+    assert retry_waits == FILE_WAITS  # no wait after the final attempt
+
+
+def test_a_full_disk_is_not_retried(write_jsonl, retry_waits):
+    log = write_jsonl("log.jsonl")
+    with file_locked("repository", log, error=DISK_FULL), pytest.raises(OSError, match="No space left"):
+        append_jsonl_record(log, {"request_id": "MR-0001"})
+    assert retry_waits == []
+
+
+def test_a_report_held_for_a_moment_is_still_written(reports_log, tmp_path):
+    csv_path = str(tmp_path / "report.csv")
+    with file_locked("reports", csv_path, times=1):
+        publish_maintenance_reports(log_path=reports_log, csv_path=csv_path)
+    assert [r["request_id"] for r in read_csv(csv_path)] == ["MR-0001", "MR-0002"]
+
+
+# --- 6. the maintenance log cannot be written ---
+
+def test_a_call_is_still_opened_when_the_log_cannot_be_written(desk, alerts, capsys):
+    with file_locked("repository", desk.log_path):
+        request = desk.open_request_for_alert(alerts.camera())
+
+    assert request.status == "IN_PROGRESS" and desk.open_requests() == [request]
+    assert f"could not save call {request.request_id}" in capsys.readouterr().out
+
+
+def test_the_log_catches_up_on_the_calls_next_change(desk, alerts):
+    with file_locked("repository", desk.log_path):
+        request = desk.open_request_for_alert(alerts.camera())
+    desk.resolve_request(request.request_id)  # the log works again
+
+    (saved,) = load_maintenance_history(desk.log_path)
+    assert (saved["request_id"], saved["status"]) == (request.request_id, "RESOLVED")
+    assert saved["assigned_tech_name"] == desk.technician_for(request).name
+
+
+def test_a_csv_that_cannot_be_written_for_another_reason_does_not_stop_the_call(desk, alerts, capsys):
+    with file_locked("reports", desk.report_csv_path, error=DISK_FULL):
+        request = desk.open_request_for_alert(alerts.camera())
+
+    assert [r["request_id"] for r in load_maintenance_history(desk.log_path)] == [request.request_id]
+    output = capsys.readouterr().out
+    assert "could not update" in output and "No space left" in output and "Excel" not in output
+
+
+# --- 7. the live dashboard keeps monitoring ---
+
+def test_a_fault_still_gets_its_call_when_the_alert_log_cannot_be_written(dash, capsys):
+    with file_locked("repository", processing.LOG_PATH):
+        dash.app.show_alert("camera", "Camera Disconnected", "no frame")
+
+    assert dash.app.open_requests["camera"].status == "IN_PROGRESS"
+    assert "Could not save the camera alert" in capsys.readouterr().out
+
+
+class MicThatVanishesOnce(ScriptedMic):
+    """A microphone whose first check fails, like a USB device unplugged mid-read."""
+
+    def is_connected(self):
+        self.calls += 1
+        if self.calls == 1:
+            raise OSError("device vanished mid-read")
+        return True
+
+
+def test_a_crashed_monitor_is_restarted(dash, capsys):
+    dash.app.mic_source = mic = MicThatVanishesOnce()
+    dash.clock.stop_after = 3
+    dash.app.start()
+
+    assert mic.calls > 1  # still checked after the crash
+    assert ("Microphone monitoring stopped by an error (OSError: device vanished mid-read); "
+            f"restarting in {MONITOR_RESTART_SECONDS} s.") in capsys.readouterr().out
+
+
+def test_a_monitor_that_keeps_crashing_stops_when_the_dashboard_closes(dash):
+    crashes = []
+
+    def always_crash():
+        crashes.append(dash.clock.now)
+        raise RuntimeError("bug")
+
+    dash.clock.stop_after = 3
+    dash.app.run_monitor("Camera", always_crash)  # returns: the dashboard closed after 3 restarts
+
+    assert len(crashes) == 3
+    assert [b - a for a, b in zip(crashes, crashes[1:])] == [MONITOR_RESTART_SECONDS] * 2
+
+
+# --- 8. main.py explains a failure instead of a traceback ---
+
+@pytest.fixture
+def run_main(monkeypatch):
+    """run_main(*flags, demo_error=..., report_error=..., dashboard_error=...)
+    runs main.main() with the demo, the report and the dashboard window mocked,
+    each failing with the error given, and returns main's exit code."""
+    def run(*flags, demo_error=None, report_error=None, dashboard_error=None):
+        monkeypatch.setattr(sys, "argv", ["main.py", *flags])
+        with mock.patch.object(main, "run_demo", side_effect=demo_error), \
+                mock.patch.object(main, "publish_maintenance_reports", side_effect=report_error), \
+                mock.patch("hardware_monitor.dashboard.HardwareMonitorApp") as app_class:
+            app_class.return_value.start.side_effect = dashboard_error
+            return main.main()
+    return run
+
+
+CSV_LOCKED = PermissionError(13, "Permission denied", "logs/maintenance_report.csv")
+
+
+@pytest.mark.parametrize("flags", [("--report",), ("--no-stats",)], ids=["report", "after-the-dashboard"])
+def test_a_report_that_cannot_be_written_is_explained(run_main, capsys, flags):
+    assert run_main(*flags, report_error=CSV_LOCKED) == 1
+    error = capsys.readouterr().err
+    assert "Could not write the maintenance report" in error and "Is it open in Excel?" in error
+    assert "logs/maintenance_report.csv" in error
+
+
+def test_a_dashboard_crash_is_not_hidden_by_a_failed_report(run_main):
+    with pytest.raises(RuntimeError, match="dashboard crashed"):
+        run_main("--no-stats", report_error=CSV_LOCKED, dashboard_error=RuntimeError("dashboard crashed"))
+
+
+@pytest.mark.parametrize("problem", [
+    FileNotFoundError(2, "No such file or directory", "data/sample_data.jsonl"),
+    DataFileError("data/technicians.jsonl line 3: duplicate tech_id 'T1'."),
+], ids=["missing", "broken"])
+def test_a_missing_or_broken_data_file_is_explained(run_main, capsys, problem):
+    assert run_main("--no-dashboard", demo_error=problem) == 1
+    assert capsys.readouterr().err == f"Cannot start: {problem}\n"
+
+
+def test_a_bug_is_not_reported_as_a_data_problem(run_main):
+    with pytest.raises(ValueError, match="a bug"):
+        run_main("--no-dashboard", demo_error=ValueError("a bug"))
+
+
+def test_a_run_that_works_exits_with_0(run_main):
+    assert run_main("--no-dashboard") == 0
