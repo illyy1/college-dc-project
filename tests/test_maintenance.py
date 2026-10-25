@@ -1,12 +1,14 @@
 """The maintenance desk. Who gets a call: there are no specialists, so every
-technician can take any open call, of any kind, on any workstation. The
-technicians with the fewest calls saved in the maintenance log (every call
-they were ever given, resolved ones and earlier runs included) have
-priority, and the call goes to one of them picked at random.
+technician can take any open call, of any kind, on any workstation. Each
+call is a random draw between every technician, weighted towards those with
+fewer calls saved in the maintenance log (every call they were ever given,
+resolved ones and earlier runs included): someone k calls ahead of the
+least-loaded technician weighs 1 / (1 + k). Anyone can still get the call.
 
-The default strategy is FewestCallsStrategy(rng=random): rng.choice() is
-given the tied technicians. Tests that need to know who is picked pass a
-`picker` that records what it was offered and takes the first."""
+The default strategy is FewestCallsStrategy(rng=random): rng.choices() gets
+every technician and their weights. Tests that need to know who is picked
+pass a `picker` (fake_random.LikeliestPick), which records each draw and
+takes the likeliest technician; statistical tests use a seeded Random."""
 
 import csv
 import json
@@ -20,7 +22,7 @@ from hardware_monitor.maintenance import FewestCallsStrategy
 from hardware_monitor.models import Technician
 
 from conftest import TECHNICIANS_PATH
-from fake_random import FirstPick
+from fake_random import LikeliestPick
 
 
 @pytest.fixture
@@ -37,8 +39,8 @@ def team():
 
 @pytest.fixture
 def picker():
-    """Stands in for random: records each draw and takes the first option."""
-    return FirstPick()
+    """Stands in for random: records each draw and takes the likeliest technician."""
+    return LikeliestPick()
 
 
 @pytest.fixture
@@ -117,100 +119,130 @@ def roster_desk(make_desk, roster):
     return make_desk(roster)
 
 
-def test_everyone_takes_every_kind_of_call(roster_desk, roster, alerts):
-    # no history: the first N calls go to N different people, whatever the device
-    faults = [alerts.camera, alerts.microphone] * len(roster)
-    taken = [roster_desk.open_request_for_alert(fault()).assigned_tech_id for fault in faults[:len(roster)]]
-    assert sorted(taken) == sorted(roster)
+def weights(calls):
+    """The weights FewestCallsStrategy gives for these saved-call counts."""
+    picker = LikeliestPick()
+    team = [Technician(tech_id, tech_id) for tech_id in calls]
+    FewestCallsStrategy(rng=picker).choose(team, {}, calls)
+    return picker.draws[0]
 
 
-def test_the_fewest_calls_saved_gets_the_next_one(make_desk, team, alerts):
-    desk = make_desk(team)
-    assert sorted(take_calls(desk, alerts, 6)) == ["A", "A", "B", "B", "C", "C"]
+def test_the_weights_favour_fewer_calls():
+    # someone k calls ahead of the least-loaded technician weighs 1 / (1 + k)
+    assert weights({"A": 0, "B": 1, "C": 3}) == {"A": 1, "B": 1 / 2, "C": 1 / 4}
 
 
-def test_only_the_technicians_with_the_fewest_calls_are_drawn_from(picked_desk, picker, alerts):
+def test_the_bias_depends_on_the_gap_not_the_totals():
+    # after months of calls (100 vs 103) the bias is as strong as on day one (0 vs 3)
+    assert weights({"A": 100, "B": 101, "C": 103}) == weights({"A": 0, "B": 1, "C": 3})
+
+
+def test_everyone_is_in_every_draw(picked_desk, picker, alerts):
+    take_calls(picked_desk, alerts, 6)
+    for draw in picker.draws:
+        assert set(draw) == {"A", "B", "C"} and all(weight > 0 for weight in draw.values())
+
+
+def test_the_technicians_with_the_fewest_calls_are_favoured(picked_desk, picker, alerts):
     take_calls(picked_desk, alerts, 4)
-    assert picker.offered == [
-        ["A", "B", "C"],   # nobody has a call yet: all three
+    assert picker.favoured == [
+        ["A", "B", "C"],   # nobody has a call yet: all three equally
         ["B", "C"],        # A has 1
-        ["C"],             # A and B have 1: only C is left at 0
+        ["C"],             # A and B have 1: C is the only one at 0
         ["A", "B", "C"],   # all have 1 again
     ]
 
 
+def test_with_the_likeliest_pick_the_first_calls_go_to_different_people(make_desk, roster, alerts):
+    desk = make_desk(roster, assignment_strategy=FewestCallsStrategy(rng=LikeliestPick()))
+    faults = [alerts.camera, alerts.microphone] * len(roster)
+    taken = [desk.open_request_for_alert(fault()).assigned_tech_id for fault in faults[:len(roster)]]
+    assert sorted(taken) == sorted(roster)  # whatever the device
+
+
 def test_resolved_calls_still_count(picked_desk, picker, alerts):
-    # fewest calls saved, not fewest open: A and B are free right now, but
-    # once C has had a call too, all three have 1 and all three are drawn from
+    # fewer calls saved, not fewer open: A and B are free right now, but once C
+    # has had a call too, all three have 1 and are favoured equally
     take_calls(picked_desk, alerts, 2)                  # A, B: resolved
     take_calls(picked_desk, alerts, 1, resolve=False)   # C: still open
     take_calls(picked_desk, alerts, 1)
-    assert picker.offered[-1] == ["A", "B", "C"]
+    assert picker.favoured[-1] == ["A", "B", "C"]
 
 
-def test_a_busy_technician_with_fewer_calls_has_priority(picked_desk, picker, alerts):
+def test_a_busy_technician_with_fewer_calls_is_favoured(picked_desk, picker, alerts):
     assert take_calls(picked_desk, alerts, 1) == ["A"]                 # A: 1, resolved
     assert take_calls(picked_desk, alerts, 1, resolve=False) == ["B"]  # B: 1, still open
     assert take_calls(picked_desk, alerts, 2) == ["C", "A"]            # C: 1; then A: 2
-    # B is busy, but B and C have had fewer calls than A, so the draw is between them
+    # B is busy, but B and C have had fewer calls than A
     assert take_calls(picked_desk, alerts, 1) == ["B"]
-    assert picker.offered[-1] == ["B", "C"]
+    assert picker.favoured[-1] == ["B", "C"]
 
 
-def test_the_pick_among_equals_is_random(team):
-    strategy = FewestCallsStrategy(rng=random.Random(2026))
-    candidates = list(team.values())
-    picks = Counter(strategy.choose(candidates, {}, {"A": 3, "B": 3, "C": 3}).tech_id for _ in range(3000))
-
-    assert set(picks) == {"A", "B", "C"}
-    assert all(800 < count < 1200 for count in picks.values())  # about 1000 each
+DRAWS = 6000
 
 
-def test_someone_with_more_calls_is_never_picked(team):
-    strategy = FewestCallsStrategy(rng=random.Random(2026))
-    candidates = list(team.values())
-    picks = {strategy.choose(candidates, {}, {"A": 2, "B": 2, "C": 5}).tech_id for _ in range(500)}
-    assert picks == {"A", "B"}
+def picks(calls, seed=2026):
+    """How often each technician is picked, over DRAWS real random draws."""
+    strategy = FewestCallsStrategy(rng=random.Random(seed))
+    team = [Technician(tech_id, tech_id) for tech_id in ("A", "B", "C")]
+    return Counter(strategy.choose(team, {}, calls).tech_id for _ in range(DRAWS))
 
 
-def test_a_technician_with_no_saved_calls_counts_as_zero(team):
-    strategy = FewestCallsStrategy(rng=random.Random(2026))
-    picks = {strategy.choose(list(team.values()), {}, {"A": 1, "B": 1}).tech_id for _ in range(50)}
-    assert picks == {"C"}
+def test_anyone_can_still_get_the_call():
+    # C has 20 more calls than A, yet still gets some
+    assert set(picks({"A": 0, "B": 5, "C": 20})) == {"A", "B", "C"}
 
 
-def test_the_default_desk_picks_with_pythons_random(roster_desk, roster, alerts):
-    with mock.patch("hardware_monitor.maintenance.random.choice", side_effect=lambda options: options[-1]) as choice:
+def test_fewer_calls_means_picked_more_often():
+    counts = picks({"A": 0, "B": 1, "C": 3})
+    total_weight = 1 + 1 / 2 + 1 / 4
+    for tech_id, weight in (("A", 1), ("B", 1 / 2), ("C", 1 / 4)):
+        assert counts[tech_id] / DRAWS == pytest.approx(weight / total_weight, abs=0.03)
+    assert counts["A"] > counts["B"] > counts["C"]
+
+
+def test_equal_calls_give_equal_chances():
+    counts = picks({"A": 3, "B": 3, "C": 3})
+    assert all(counts[t] / DRAWS == pytest.approx(1 / 3, abs=0.03) for t in "ABC")
+
+
+def test_a_technician_with_no_saved_calls_counts_as_zero():
+    counts = picks({"A": 1, "B": 1})  # C has none saved: the fewest, so the most likely
+    assert counts["C"] / DRAWS == pytest.approx(0.5, abs=0.03)
+
+
+def test_the_default_desk_draws_with_pythons_random(roster_desk, roster, alerts):
+    with mock.patch("hardware_monitor.maintenance.random.choices",
+                    side_effect=lambda population, weights, k=1: [population[-1]]) as choices:
         request = roster_desk.open_request_for_alert(alerts.camera())
 
-    (offered,), _ = choice.call_args
-    assert [t.tech_id for t in offered] == list(roster)  # nobody has a call yet: everyone is in the draw
+    (population, drawn_weights), _ = choices.call_args
+    assert [t.tech_id for t in population] == list(roster)  # everyone is in the draw
+    assert set(drawn_weights) == {1}                        # nobody has a call yet: equal weights
     assert request.assigned_tech_id == list(roster)[-1]
 
 
-def test_the_dashboards_own_machine_spreads_calls_to_everyone(roster_desk, roster, alerts):
-    # the live dashboard's machine isn't in sample_data.jsonl; its camera and mic
-    # faults come one at a time and clear quickly. 2 x N calls: 2 each
-    faults = [lambda: alerts.camera(workstation_id="Aliza-HomePC"),
-              lambda: alerts.microphone(workstation_id="Aliza-HomePC")]
-    taken = []
-    for n in range(2 * len(roster)):
-        taken += take_calls(roster_desk, alerts, 1, make=faults[n % 2])
-    assert Counter(taken) == {tech_id: 2 for tech_id in roster}
+def test_over_many_calls_the_work_evens_out(roster):
+    # 30 calls per technician, one at a time, each counted as it is given: with
+    # real random picks, everyone gets calls and nobody falls far behind
+    strategy = FewestCallsStrategy(rng=random.Random(7))
+    candidates, calls_taken = list(roster.values()), Counter()
+    for _ in range(30 * len(roster)):
+        calls_taken[strategy.choose(candidates, {}, calls_taken).tech_id] += 1
+    assert set(calls_taken) == set(roster)                               # everyone got calls
+    assert max(calls_taken.values()) - min(calls_taken.values()) <= 6    # about 30 each, none far off
 
 
-def test_calls_saved_by_an_earlier_run_count(make_desk, team, alerts, saved_log):
+def test_calls_saved_by_an_earlier_run_count(make_desk, team, picker, alerts, saved_log):
     saved_log("A", "A", "B")                          # an earlier run: A had 2 calls, B had 1
-    desk = make_desk(team)
-    taken = take_calls(desk, alerts, 3)
-    assert taken[0] == "C"                            # the only one with none
-    assert sorted(taken[1:]) == ["B", "C"]            # then B and C (1 each), in random order
-    assert Counter(taken) + Counter({"A": 2, "B": 1}) == {"A": 2, "B": 2, "C": 2}
+    desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))
+    assert take_calls(desk, alerts, 3) == ["C", "B", "C"]
+    assert picker.favoured == [["C"], ["B", "C"], ["C"]]
 
 
 def test_a_call_logged_twice_counts_once(make_desk, team, picker, make_call, write_jsonl, alerts):
     # every call is in the log once when opened and again when resolved; A's
-    # call must count once, so all three have 1 and all three are in the draw
+    # call must count once, so all three have 1 and are favoured equally
     write_jsonl("logs/maintenance_requests.jsonl",
                 make_call(1, "CAMERA_FAILURE", "A", "IN_PROGRESS"),
                 make_call(1, "CAMERA_FAILURE", "A", "RESOLVED"),
@@ -218,18 +250,18 @@ def test_a_call_logged_twice_counts_once(make_desk, team, picker, make_call, wri
                 make_call(3, "CAMERA_FAILURE", "C", "RESOLVED"))
     desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))
     take_calls(desk, alerts, 1)
-    assert picker.offered == [["A", "B", "C"]]
+    assert picker.favoured == [["A", "B", "C"]]
 
 
-def test_open_calls_saved_by_an_earlier_run_count_too(make_desk, team, alerts, saved_log):
+def test_open_calls_saved_by_an_earlier_run_count_too(make_desk, team, picker, alerts, saved_log):
     saved_log("A", "B", status="IN_PROGRESS")
-    desk = make_desk(team)
+    desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))
     assert take_calls(desk, alerts, 1) == ["C"]
 
 
-def test_a_technician_who_left_doesnt_affect_the_rest(make_desk, team, alerts, saved_log):
+def test_a_technician_who_left_doesnt_affect_the_rest(make_desk, team, picker, alerts, saved_log):
     saved_log("T42", "T42", "T42")                    # in the log, no longer in technicians.jsonl
-    desk = make_desk(team)
+    desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))
     assert sorted(take_calls(desk, alerts, 3)) == ["A", "B", "C"]
 
 

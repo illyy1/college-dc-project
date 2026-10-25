@@ -14,7 +14,7 @@ from hardware_monitor.maintenance import (
 )
 from hardware_monitor.models import Camera, HardwareComponent, MaintenanceRequest, Microphone, Technician, Workstation
 
-from fake_random import FirstPick
+from fake_random import LikeliestPick
 
 
 # --- Factory: HardwareComponent.from_dict builds the right product ---
@@ -115,7 +115,7 @@ def test_workstation_and_technician_factories_fill_defaults():
 # --- Strategy: which technician gets the call ---
 # The desk hands every technician to the strategy, with when each was last
 # given a call and how many calls each has saved in the log. The default,
-# FewestCallsStrategy, picks at random among those with the fewest calls;
+# FewestCallsStrategy, draws at random between everyone, favouring fewer calls;
 # LeastBusyStrategy and RoundRobinStrategy are alternatives.
 
 def technician(tech_id, open_calls=0):
@@ -143,7 +143,7 @@ def test_strategy_interface_cannot_be_used_directly():
 
 
 def test_fewest_calls_picks_fewest_saved_even_if_busy(three_ways):
-    assert FewestCallsStrategy(rng=FirstPick()).choose(*three_ways).tech_id == "C1"  # 2 saved vs 5
+    assert FewestCallsStrategy(rng=LikeliestPick()).choose(*three_ways).tech_id == "C1"  # 2 saved vs 5
 
 
 def test_least_busy_picks_fewest_open_calls(three_ways):
@@ -179,7 +179,7 @@ def test_desk_uses_fewest_calls_by_default(make_desk, pair):
 
 
 @pytest.mark.parametrize("strategy, third_call_goes_to", [
-    (FewestCallsStrategy(rng=FirstPick()), "C1"),  # 1 call each: a pick between both, here the first
+    (FewestCallsStrategy(rng=LikeliestPick()), "C1"),  # 1 call each: equally likely, here the first
     (LeastBusyStrategy(), "C2"),                   # C2's call was resolved, so C2 is the free one
     (RoundRobinStrategy(), "C1"),                  # C1 was assigned longest ago, so it is C1's turn
 ], ids=["fewest-calls", "least-busy", "round-robin"])
@@ -194,10 +194,14 @@ def test_swapping_the_strategy_changes_who_gets_the_call(make_desk, pair, strate
 
 
 def test_strategy_can_be_changed_on_a_running_desk(make_desk, pair, alerts):
-    desk = make_desk(pair)
+    # the first two calls must go to C1 then C2: with the default's real random
+    # draw the second could go to C1 again, so use the likeliest pick
+    desk = make_desk(pair, assignment_strategy=FewestCallsStrategy(rng=LikeliestPick()))
     first = desk.open_request_for_alert(alerts.camera())
     second = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(second.request_id)
+
+    assert (first.assigned_tech_id, second.assigned_tech_id) == ("C1", "C2")
 
     desk.assignment_strategy = RoundRobinStrategy()
     assert desk.open_request_for_alert(alerts.camera()).assigned_tech_id == first.assigned_tech_id

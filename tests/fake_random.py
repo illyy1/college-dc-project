@@ -1,12 +1,18 @@
 """A predictable stand-in for Python's random, for tests of the
-FewestCallsStrategy: it always takes the first option, and records which
-technicians each draw was between."""
+FewestCallsStrategy. The strategy makes a weighted draw between every
+technician (random.choices); this stand-in records each draw's weights and
+always takes the likeliest technician (the first, among equals)."""
 
 
-class FirstPick:
+class LikeliestPick:
     def __init__(self):
-        self.offered = []  # the tech_ids of each draw, in order
+        self.draws = []  # one {tech_id: weight} per draw, in order
 
-    def choice(self, options):
-        self.offered.append([t.tech_id for t in options])
-        return options[0]
+    def choices(self, population, weights, k=1):
+        self.draws.append({t.tech_id: w for t, w in zip(population, weights)})
+        return [population[weights.index(max(weights))]]
+
+    @property
+    def favoured(self):
+        """The tech_ids with the highest weight in each draw."""
+        return [[tech_id for tech_id, w in draw.items() if w == max(draw.values())] for draw in self.draws]

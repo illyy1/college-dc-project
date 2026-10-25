@@ -7,9 +7,8 @@ current even if the program is killed rather than closed.
 There are no specialists: every technician can take any call, of any kind,
 on any workstation. Which one gets it is a Strategy: the desk hands every
 technician to an AssignmentStrategy object, so the rule can be swapped
-without touching the desk. The default, FewestCallsStrategy, gives the
-call to a random one of the technicians with the fewest calls saved in the
-log; LeastBusyStrategy and RoundRobinStrategy are alternatives."""
+without touching the desk. The default, FewestCallsStrategy, draws at
+random between everyone, favouring those with fewer calls saved in the log; LeastBusyStrategy and RoundRobinStrategy are alternatives."""
 
 import random
 import threading
@@ -43,18 +42,21 @@ def _last_assigned(technician, last_assigned_at):
 
 
 class FewestCallsStrategy(AssignmentStrategy):
-    """Default: the technicians with the fewest calls saved in the log have
-    priority, and the call goes to one of them picked at random. Every call
-    counts, resolved ones and earlier runs included, so the work evens out.
-    rng: anything with a choice() method; Python's random by default."""
+    """Default: a random draw between every technician, weighted towards
+    fewer calls saved in the log (resolved ones and earlier runs included).
+    Someone k calls ahead of the least-loaded technician weighs 1 / (1 + k),
+    so anyone can still get the call, and the bias depends on the gap, not
+    on the totals. rng: anything with a choices() method; Python's random
+    by default."""
 
     def __init__(self, rng=random):
         self.rng = rng
 
     def choose(self, candidates, last_assigned_at, calls_taken):
-        fewest = min(calls_taken.get(t.tech_id, 0) for t in candidates)
-        tied = [t for t in candidates if calls_taken.get(t.tech_id, 0) == fewest]
-        return self.rng.choice(tied)
+        counts = [calls_taken.get(t.tech_id, 0) for t in candidates]
+        fewest = min(counts)
+        weights = [1 / (1 + count - fewest) for count in counts]
+        return self.rng.choices(candidates, weights, k=1)[0]
 
 
 class LeastBusyStrategy(AssignmentStrategy):
