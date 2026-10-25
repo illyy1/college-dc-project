@@ -9,6 +9,7 @@ import time
 import threading
 import tkinter as tk
 from datetime import datetime
+from functools import partial
 
 from .config import (
     SILENCE_THRESHOLD, SILENCE_DURATION,
@@ -380,7 +381,7 @@ class HardwareMonitorApp:
     def start(self):
         for name, loop in (("Microphone", self.monitor_mic), ("Camera", self.monitor_camera),
                            ("Quiet-period watchdog", self.keep_room_busy)):
-            threading.Thread(target=lambda name=name, loop=loop: self.run_monitor(name, loop), daemon=True).start()
+            threading.Thread(target=partial(self.run_monitor, name, loop), daemon=True).start()
         self.root.mainloop()
 
     def stop(self):

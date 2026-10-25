@@ -51,11 +51,11 @@ def create_issue(token, repo, title, body, labels=(), timeout=REQUEST_TIMEOUT_SE
     def attempt():
         nonlocal attempts
         attempts += 1
-        result, retryable = _try_once(token, repo, title, body, labels, timeout)
-        result.attempts = attempts
-        if not result.ok and retryable:
-            raise _TemporaryFailure(result)
-        return result
+        outcome, retryable = _try_once(token, repo, title, body, labels, timeout)
+        outcome.attempts = attempts
+        if not outcome.ok and retryable:
+            raise _TemporaryFailure(outcome)
+        return outcome
 
     try:
         return retry(attempt, retry_on=_TemporaryFailure, max_attempts=max_attempts,

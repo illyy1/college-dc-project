@@ -53,7 +53,7 @@ def run_demo():
     demo_lazy_pipeline(workstations, limit=2, min_age_years=3)
 
     _header(10, "Maintenance calls opened and assigned to technicians")
-    demo_maintenance_workflow(alert_manager, workstations)
+    demo_maintenance_workflow(alert_manager)
 
     _header(11, "Async information gathering: three independent sources with create_task + gather")
     demo_async_overview()
@@ -236,7 +236,7 @@ def demo_lazy_pipeline(workstations, limit, min_age_years):
           f"(last: {inspected[-1]}); the rest were never touched.")
 
 
-def demo_maintenance_workflow(alert_manager, workstations):
+def demo_maintenance_workflow(alert_manager):
     """Loads the technicians, opens a maintenance call for every unresolved
     alert (auto-assigned to a technician with the fewest calls, and saved to the
     demo maintenance log), resolves one, and prints the workload report.
