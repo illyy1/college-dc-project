@@ -194,10 +194,14 @@ def test_swapping_the_strategy_changes_who_gets_the_call(make_desk, pair, strate
 
 
 def test_strategy_can_be_changed_on_a_running_desk(make_desk, pair, alerts):
-    desk = make_desk(pair)
+    # the first two calls must go to C1 then C2: with the default's real random
+    # draw the second could go to C1 again, so use the likeliest pick
+    desk = make_desk(pair, assignment_strategy=FewestCallsStrategy(rng=LikeliestPick()))
     first = desk.open_request_for_alert(alerts.camera())
     second = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(second.request_id)
+
+    assert (first.assigned_tech_id, second.assigned_tech_id) == ("C1", "C2")
 
     desk.assignment_strategy = RoundRobinStrategy()
     assert desk.open_request_for_alert(alerts.camera()).assigned_tech_id == first.assigned_tech_id
