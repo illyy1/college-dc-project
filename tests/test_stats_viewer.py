@@ -27,12 +27,20 @@ What the module must provide:
     opens the viewer on the real files, runs it, and returns it once closed.
 - main.py: `--stats` starts only the viewer. Like the dashboard, main.py
   imports it inside main(), so the other modes work without tkinter.
+- launch_in_background() -> the viewer's process (subprocess.Popen running
+  `MAIN_SCRIPT --stats` with the same Python), or None if it could not start
+- stop_background_viewer(process): closes it if it is still running (kills it
+  if it doesn't close within 5 s); does nothing for None or an exited process
+- main.py without flags opens the viewer next to the dashboard and closes it
+  when the dashboard closes; `--no-stats` leaves it out.
 
 The tests replace tkinter with a fake, so no window is opened.
 """
 
 import json
+import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -540,6 +548,135 @@ def test_main_stats_flag_starts_only_the_viewer(monkeypatch):
     viewer.assert_called_once_with()
     demo.assert_not_called()
     reports.assert_not_called()
+
+
+# --- opening with the dashboard: `python main.py` ---
+
+@pytest.fixture
+def popen():
+    """Mocks subprocess.Popen, the external dependency that starts processes."""
+    with mock.patch("hardware_monitor.stats_viewer.subprocess.Popen", autospec=True) as started:
+        started.return_value.poll.return_value = None  # still running
+        yield started
+
+
+def test_the_viewer_is_launched_as_its_own_process(popen):
+    process = stats_viewer.launch_in_background()
+
+    popen.assert_called_once_with([sys.executable, stats_viewer.MAIN_SCRIPT, "--stats"])
+    assert process is popen.return_value
+
+
+def test_the_launched_script_is_this_projects_main_py():
+    assert os.path.samefile(stats_viewer.MAIN_SCRIPT, main.__file__)
+
+
+def test_a_viewer_that_cannot_start_is_reported_not_fatal(popen, capsys):
+    popen.side_effect = OSError("no such file")
+    assert stats_viewer.launch_in_background() is None
+    assert "Could not open the statistics window" in capsys.readouterr().out
+
+
+def test_stopping_closes_a_running_viewer(popen):
+    process = stats_viewer.launch_in_background()
+    stats_viewer.stop_background_viewer(process)
+
+    process.terminate.assert_called_once_with()
+    process.wait.assert_called_once_with(timeout=5)
+    process.kill.assert_not_called()
+
+
+def test_stopping_a_viewer_that_wont_close_kills_it(popen):
+    process = stats_viewer.launch_in_background()
+    process.wait.side_effect = [subprocess.TimeoutExpired("main.py", 5), 0]
+    stats_viewer.stop_background_viewer(process)
+    process.kill.assert_called_once_with()
+
+
+def test_a_viewer_the_user_already_closed_is_left_alone(popen):
+    process = stats_viewer.launch_in_background()
+    process.poll.return_value = 0  # the window was closed by hand
+    stats_viewer.stop_background_viewer(process)
+    process.terminate.assert_not_called()
+
+
+def test_stopping_nothing_does_nothing():
+    stats_viewer.stop_background_viewer(None)  # the viewer never started: no error
+
+
+@pytest.fixture
+def program(monkeypatch, popen):
+    """Runs main.main() with the dashboard window and the demo mocked out."""
+    monkeypatch.setattr(stats_viewer, "tk", FAKE_TK)
+    calls = SimpleNamespace(popen=popen)
+
+    def run(*flags, dashboard_error=None):
+        monkeypatch.setattr(sys, "argv", ["main.py", *flags])
+        with mock.patch("hardware_monitor.dashboard.HardwareMonitorApp") as app_class, \
+                mock.patch.object(main, "run_demo") as demo, \
+                mock.patch.object(main, "publish_maintenance_reports") as reports:
+            app = app_class.return_value
+            calls.viewer_open_when_dashboard_started = None
+
+            def start():
+                calls.viewer_open_when_dashboard_started = popen.called
+                if dashboard_error:
+                    raise dashboard_error
+
+            app.start.side_effect = start
+            calls.app, calls.demo, calls.reports = app, demo, reports
+            main.main()
+        return calls
+
+    return run
+
+
+def test_the_program_opens_the_viewer_next_to_the_dashboard(program):
+    calls = program()
+
+    calls.popen.assert_called_once_with([sys.executable, stats_viewer.MAIN_SCRIPT, "--stats"])
+    assert calls.viewer_open_when_dashboard_started is True  # opened first, so it's there while monitoring
+    calls.app.start.assert_called_once_with()
+
+
+def test_closing_the_dashboard_closes_the_viewer(program):
+    calls = program()
+    viewer = calls.popen.return_value
+    viewer.terminate.assert_called_once_with()
+    calls.reports.assert_called_once_with()  # the history report is still published
+
+
+def test_the_viewer_is_closed_even_if_the_dashboard_crashes(program):
+    with pytest.raises(RuntimeError, match="dashboard crashed"):
+        program(dashboard_error=RuntimeError("dashboard crashed"))
+    # program() raised, so look at the mock directly
+    stats_viewer.subprocess.Popen.return_value.terminate.assert_called_once_with()
+
+
+def test_the_dashboard_still_runs_if_the_viewer_cannot_start(program, capsys):
+    stats_viewer.subprocess.Popen.side_effect = OSError("no such file")
+    calls = program()
+    calls.app.start.assert_called_once_with()
+    assert "Could not open the statistics window" in capsys.readouterr().out
+
+
+def test_no_stats_opens_only_the_dashboard(program):
+    calls = program("--no-stats")
+    calls.popen.assert_not_called()
+    calls.app.start.assert_called_once_with()
+
+
+@pytest.mark.parametrize("flag", ["--no-dashboard", "--report"])
+def test_modes_without_the_dashboard_open_no_viewer(program, flag):
+    calls = program(flag)
+    calls.popen.assert_not_called()
+
+
+def test_the_no_stats_flag_is_listed_in_the_help(capsys, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["main.py", "--help"])
+    with pytest.raises(SystemExit):
+        main.main()
+    assert "--no-stats" in capsys.readouterr().out
 
 
 def test_the_stats_flag_is_listed_in_the_help(capsys, monkeypatch):
