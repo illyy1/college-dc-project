@@ -29,39 +29,7 @@ from hardware_monitor.repository import load_maintenance_history
 from conftest import TECHNICIANS_PATH
 
 
-# --- test data ---
-
-@pytest.fixture
-def make_call():
-    """Builds one maintenance-log record, shaped like the ones MaintenanceDesk writes."""
-    names = {"T1": "Dana Levi", "T2": "Yossi Cohen", "T3": "Noa Mizrahi", "T4": "Avi Peretz"}
-
-    def build(number, error_type, tech_id, status, opened_at, workstation_id="WS-104"):
-        return {
-            "request_id": f"MR-{number:04d}", "alert_id": number, "priority": 1,
-            "error_type": error_type, "workstation_id": workstation_id, "component_id": "CAM-104",
-            "status": status, "assigned_tech_id": tech_id, "assigned_tech_name": names.get(tech_id),
-            "opened_at": f"2026-10-20T{opened_at}:00",
-            "resolved_at": f"2026-10-20T{opened_at}:30" if status == "RESOLVED" else None,
-        }
-
-    return build
-
-
-@pytest.fixture
-def history(make_call):
-    """Seven calls: 4 camera, 2 microphone, 1 other; 3 still open.
-    Dana 3 calls, Yossi 2, Noa 1, Avi 1."""
-    return [
-        make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED", "09:00"),
-        make_call(2, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "09:10", workstation_id="WS-107"),
-        make_call(3, "MICROPHONE_DISCONNECTED", "T2", "RESOLVED", "09:20", workstation_id="WS-105"),
-        make_call(4, "MICROPHONE_SILENCE", "T2", "IN_PROGRESS", "09:30", workstation_id="WS-105"),
-        make_call(5, "CAMERA_FAILURE", "T1", "RESOLVED", "09:40"),
-        make_call(6, "MONITOR_OFF", "T4", "RESOLVED", "09:50", workstation_id="WS-101"),
-        make_call(7, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "10:00"),
-    ]
-
+# --- test data (make_call and history are in conftest.py) ---
 
 @pytest.fixture
 def write_log(tmp_path):

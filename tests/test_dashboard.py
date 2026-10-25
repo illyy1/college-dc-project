@@ -28,82 +28,10 @@ from hardware_monitor.config import (
 from hardware_monitor.dashboard import HardwareMonitorApp
 from hardware_monitor.maintenance import MaintenanceDesk
 
-
-# --- fakes ---
-
-class FakeTclError(Exception):
-    pass
+from fake_tk import FAKE_TK, FakeTclError, FakeToplevel
 
 
-class FakeWidget:
-    def __init__(self, *args, **options):
-        self.options = dict(options)
-
-    def pack(self, **kwargs):
-        pass
-
-    def config(self, **options):
-        self.options.update(options)
-
-
-class FakeToplevel:
-    created = []
-
-    def __init__(self, root):
-        self.exists, self.window_title = True, None
-        FakeToplevel.created.append(self)
-
-    def title(self, text):
-        self.window_title = text
-
-    def geometry(self, spec):
-        self.spec = spec
-
-    def attributes(self, *args):
-        pass
-
-    def configure(self, **kwargs):
-        pass
-
-    def winfo_screenwidth(self):
-        return 1920
-
-    def winfo_exists(self):
-        return self.exists
-
-    def destroy(self):
-        self.exists = False
-
-
-class FakeTk:
-    """Queues after() callbacks the way Tk's main loop would run them."""
-
-    def __init__(self):
-        self.pending, self.destroyed = [], False
-
-    def title(self, text):
-        pass
-
-    def geometry(self, spec):
-        pass
-
-    def protocol(self, name, handler):
-        pass
-
-    def after(self, delay, callback):
-        if self.destroyed:
-            raise FakeTclError("application has been destroyed")
-        self.pending.append(callback)
-
-    def flush(self):
-        while self.pending:
-            self.pending.pop(0)()
-
-    def destroy(self):
-        self.destroyed = True
-
-
-FAKE_TK = SimpleNamespace(Tk=FakeTk, Label=FakeWidget, Button=FakeWidget, Toplevel=FakeToplevel, TclError=FakeTclError)
+# --- fakes (Tk itself is faked in fake_tk.py) ---
 
 
 class FakeClock:

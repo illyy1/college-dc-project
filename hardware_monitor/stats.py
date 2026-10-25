@@ -61,58 +61,74 @@ def is_open(record):
     return record.get("status") != "RESOLVED"
 
 
-def compute_stats(history, technicians, recent_limit=10):
-    """history: the latest record of each call (load_maintenance_history);
-    technicians: tech_id -> Technician."""
-    total = len(history)
-    open_calls = sum(1 for record in history if is_open(record))
+def technician_name(record, technicians):
+    """Who took the call: the technician's current name from the data file
+    (not the one saved in the log), the logged name or id for a technician
+    who has since been removed, or "Unassigned"."""
+    tech_id = record.get("assigned_tech_id")
+    if not tech_id:
+        return UNASSIGNED
+    if tech_id in technicians:
+        return technicians[tech_id].name
+    return record.get("assigned_tech_name") or tech_id
 
-    def technician_name(record):
-        tech_id = record.get("assigned_tech_id")
-        if not tech_id:
-            return UNASSIGNED
-        if tech_id in technicians:
-            return technicians[tech_id].name  # the current name, not the one saved in the log
-        return record.get("assigned_tech_name") or tech_id
 
+def count_alert_types(history):
+    """Calls per alert type, busiest first; equal counts alphabetically."""
     types = {}
     for record in history:
-        count = types.setdefault(alert_type_for(record.get("error_type")), AlertTypeCount("", 0, 0, 0))
+        alert_type = alert_type_for(record.get("error_type"))
+        count = types.setdefault(alert_type, AlertTypeCount(alert_type, 0, 0, 0))
         count.total += 1
         count.open += is_open(record)
-    for alert_type, count in types.items():
-        count.alert_type, count.resolved = alert_type, count.total - count.open
+    for count in types.values():
+        count.resolved = count.total - count.open
+    return sorted(types.values(), key=lambda t: (-t.total, t.alert_type))
 
-    # every technician is listed, even with no calls, so the spread shows who is idle
+
+def technician_loads(history, technicians):
+    """Each technician's calls and share of all calls, busiest first; equal
+    counts alphabetically. Every technician is listed, even with no calls,
+    so the spread shows who is idle."""
     loads = {tech_id: TechnicianLoad(tech_id, tech.name, 0, 0, 0, 0.0) for tech_id, tech in technicians.items()}
     for record in history:
         tech_id = record.get("assigned_tech_id") or None
-        load = loads.setdefault(tech_id, TechnicianLoad(tech_id, technician_name(record), 0, 0, 0, 0.0))
+        load = loads.setdefault(tech_id, TechnicianLoad(tech_id, technician_name(record, technicians), 0, 0, 0, 0.0))
         load.total += 1
         load.open += is_open(record)
     for load in loads.values():
         load.resolved = load.total - load.open
-        load.share = 100 * load.total / total if total else 0.0
+        load.share = 100 * load.total / len(history) if history else 0.0
+    return sorted(loads.values(), key=lambda t: (-t.total, t.name))
 
+
+def recent_calls(history, technicians, limit):
+    """The newest calls first, with who took each. Calls opened at the same
+    moment: highest number first; calls with no open time go last."""
     newest_first = sorted(
         history,
         key=lambda r: (r.get("opened_at") is not None, r.get("opened_at") or "", request_number(r.get("request_id"))),
-        reverse=True,  # dated calls first, newest first; same moment: highest number first
+        reverse=True,
     )
-    recent = [
+    return [
         CallRow(record.get("request_id"), alert_type_for(record.get("error_type")), record.get("error_type") or "",
-                record.get("workstation_id") or "", technician_name(record), record.get("status") or "",
-                record.get("opened_at"))
-        for record in newest_first[:recent_limit]
+                record.get("workstation_id") or "", technician_name(record, technicians),
+                record.get("status") or "", record.get("opened_at"))
+        for record in newest_first[:limit]
     ]
 
+
+def compute_stats(history, technicians, recent_limit=10):
+    """history: the latest record of each call (load_maintenance_history);
+    technicians: tech_id -> Technician."""
+    open_calls = sum(1 for record in history if is_open(record))
     return Stats(
-        total_calls=total,
+        total_calls=len(history),
         open_calls=open_calls,
-        resolved_calls=total - open_calls,
-        alert_types=sorted(types.values(), key=lambda t: (-t.total, t.alert_type)),
-        technicians=sorted(loads.values(), key=lambda t: (-t.total, t.name)),
-        recent_calls=recent,
+        resolved_calls=len(history) - open_calls,
+        alert_types=count_alert_types(history),
+        technicians=technician_loads(history, technicians),
+        recent_calls=recent_calls(history, technicians, recent_limit),
     )
 
 

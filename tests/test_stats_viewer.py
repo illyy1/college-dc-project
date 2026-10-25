@@ -45,6 +45,7 @@ import main
 from hardware_monitor import stats_viewer
 from hardware_monitor.config import MAINTENANCE_LOG_PATH, TECHNICIANS_PATH
 from hardware_monitor.stats import compute_stats
+from fake_tk import FAKE_TK
 from hardware_monitor.stats_viewer import (
     PIE_COLORS,
     StatsViewer,
@@ -63,33 +64,7 @@ def columns(line):
     return re.split(r"\s{2,}", line.strip())
 
 
-# --- test data ---
-
-@pytest.fixture
-def make_call():
-    names = {"T1": "Dana Levi", "T2": "Yossi Cohen", "T3": "Noa Mizrahi", "T4": "Avi Peretz"}
-
-    def build(number, error_type, tech_id, status, opened_at="09:00", workstation_id="WS-104"):
-        return {"request_id": f"MR-{number:04d}", "error_type": error_type, "workstation_id": workstation_id,
-                "status": status, "assigned_tech_id": tech_id, "assigned_tech_name": names.get(tech_id),
-                "opened_at": f"2026-10-20T{opened_at}:00"}
-
-    return build
-
-
-@pytest.fixture
-def history(make_call):
-    """Dana 3 calls (1 open), Yossi 2 (1 open), Noa 1 (open), Avi 1 (resolved)."""
-    return [
-        make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED", "09:00"),
-        make_call(2, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "09:10", workstation_id="WS-107"),
-        make_call(3, "MICROPHONE_DISCONNECTED", "T2", "RESOLVED", "09:20", workstation_id="WS-105"),
-        make_call(4, "MICROPHONE_SILENCE", "T2", "IN_PROGRESS", "09:30", workstation_id="WS-105"),
-        make_call(5, "CAMERA_FAILURE", "T1", "RESOLVED", "09:40"),
-        make_call(6, "MONITOR_OFF", "T4", "RESOLVED", "09:50", workstation_id="WS-101"),
-        make_call(7, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "10:00"),
-    ]
-
+# --- test data (make_call and history are in conftest.py) ---
 
 @pytest.fixture
 def stats(history, technicians):
@@ -165,93 +140,6 @@ def test_recent_calls_section_with_no_calls(technicians):
 
 # --- the live window ---
 
-class FakeWidget:
-    def __init__(self, *args, **options):
-        self.options = dict(options)
-
-    def pack(self, **kwargs):
-        pass
-
-    def grid(self, **kwargs):
-        pass
-
-    def config(self, **options):
-        self.options.update(options)
-
-    configure = config
-
-
-class FakeTk(FakeWidget):
-    """Records scheduled callbacks instead of running a real event loop."""
-
-    def __init__(self):
-        super().__init__()
-        self.scheduled, self.window_title, self.destroyed, self.loop_started = [], None, False, False
-
-    def title(self, text):
-        self.window_title = text
-
-    def geometry(self, spec):
-        pass
-
-    def protocol(self, name, handler):
-        self.close_handler = handler
-
-    def after(self, delay_ms, callback):
-        self.scheduled.append((delay_ms, callback))
-        return f"after#{len(self.scheduled)}"
-
-    def after_cancel(self, ident):
-        pass
-
-    def mainloop(self):
-        self.loop_started = True
-
-    def destroy(self):
-        self.destroyed = True
-
-    def run_next(self):
-        """Runs the most recently scheduled callback, like Tk's loop would."""
-        _, callback = self.scheduled.pop()
-        callback()
-
-
-class FakeCanvas(FakeWidget):
-    """Records what is drawn on it, like a tk.Canvas the tests can inspect."""
-
-    def __init__(self, *args, **options):
-        super().__init__(*args, **options)
-        self.items = []
-
-    def _add(self, kind, coords, options):
-        self.items.append(SimpleNamespace(kind=kind, coords=coords, **options))
-        return len(self.items)
-
-    def create_arc(self, *coords, **options):
-        return self._add("arc", coords, options)
-
-    def create_oval(self, *coords, **options):
-        return self._add("oval", coords, options)
-
-    def create_rectangle(self, *coords, **options):
-        return self._add("rectangle", coords, options)
-
-    def create_text(self, *coords, **options):
-        return self._add("text", coords, options)
-
-    def delete(self, tag):
-        assert tag == "all"
-        self.items = []
-
-    def of_kind(self, *kinds):
-        return [item for item in self.items if item.kind in kinds]
-
-    def texts(self):
-        return [item.text for item in self.of_kind("text")]
-
-
-FAKE_TK = SimpleNamespace(Tk=FakeTk, Label=FakeWidget, Frame=FakeWidget, LabelFrame=FakeWidget,
-                          Text=FakeWidget, Canvas=FakeCanvas, StringVar=None, TclError=RuntimeError)
 
 
 @pytest.fixture

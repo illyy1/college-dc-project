@@ -21,13 +21,11 @@ TEXT_FONT = "TkFixedFont"  # monospaced, so the columns line up
 
 # --- the text of each section ---
 
-def _calls(count):
-    return f"{count} call" if count == 1 else f"{count} calls"
-
-
-def _call_column(count):
-    """'  1 call ' / '  3 calls': the numbers and the word line up from row to row."""
-    return f"{count:>3} {'call' if count == 1 else 'calls':<5}"
+def _calls(count, column=False):
+    """'1 call' / '3 calls'. As a column ('  1 call ' / '  3 calls') the
+    numbers and the word line up from row to row."""
+    word = "call" if count == 1 else "calls"
+    return f"{count:>3} {word:<5}" if column else f"{count} {word}"
 
 
 def format_summary(stats):
@@ -40,7 +38,7 @@ def format_alert_types(stats):
     if not stats.alert_types:
         return "No alerts yet."
     return "\n".join(
-        f"{t.alert_type:<12}  {_call_column(t.total)}  {t.open:>3} open  {t.resolved:>3} resolved"
+        f"{t.alert_type:<12}  {_calls(t.total, column=True)}  {t.open:>3} open  {t.resolved:>3} resolved"
         for t in stats.alert_types
     )
 
@@ -53,7 +51,7 @@ def format_technicians(stats):
     lines = []
     for t in stats.technicians:
         bar = BAR * round(BAR_WIDTH * t.total / busiest) if busiest else ""
-        lines.append(f"{t.name:<{width}}  {_call_column(t.total)}  {t.open:>3} open  {t.resolved:>3} resolved  "
+        lines.append(f"{t.name:<{width}}  {_calls(t.total, column=True)}  {t.open:>3} open  {t.resolved:>3} resolved  "
                      f"{t.share:5.1f}%  {bar}".rstrip())
     return "\n".join(lines)
 
