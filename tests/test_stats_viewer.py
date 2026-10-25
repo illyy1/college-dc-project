@@ -34,6 +34,8 @@ The tests replace tkinter with a fake, so no window is opened.
 import json
 import re
 import sys
+import threading
+import time
 from types import SimpleNamespace
 from unittest import mock
 
@@ -517,6 +519,116 @@ def test_an_unreadable_log_leaves_the_pies_as_they_were(open_viewer):
         viewer.root.run_next()
     assert viewer.pies() == before
     assert len(viewer.technician_pie_canvas.of_kind("arc")) == 4
+
+
+# --- running alongside the dashboard ---
+# The dashboard runs in another process and appends to the same log while
+# the viewer re-reads it. The viewer only reads, on Tk's single thread, so
+# it needs no lock; what it must survive is reading a line mid-write.
+
+def test_a_half_written_call_appears_once_it_is_complete(open_viewer, log, make_call):
+    viewer = open_viewer()
+    line = json.dumps(make_call(8, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "10:10")) + "\n"
+    middle = len(line) // 2
+
+    with open(log.path, "a", encoding="utf-8") as f:
+        f.write(line[:middle])  # the dashboard is halfway through writing it
+    viewer.root.run_next()
+    assert viewer.displayed()["summary"] == "7 calls: 3 open, 4 resolved"  # not counted yet, and no crash
+
+    with open(log.path, "a", encoding="utf-8") as f:
+        f.write(line[middle:])
+    viewer.root.run_next()
+    assert viewer.displayed()["summary"] == "8 calls: 4 open, 4 resolved"
+
+
+def test_refreshing_while_the_desk_keeps_writing(open_viewer, make_desk, alerts):
+    # a real MaintenanceDesk in another thread stands in for the dashboard's process
+    desk = make_desk()
+    viewer = open_viewer(log_path=desk.log_path)
+    done = threading.Event()
+
+    def dashboard():
+        for _ in range(30):
+            request = desk.open_request_for_alert(alerts.camera())
+            desk.resolve_request(request.request_id)
+            time.sleep(0.002)
+        done.set()
+
+    writer = threading.Thread(target=dashboard)
+    writer.start()
+    totals = []
+    while not done.is_set():
+        viewer.root.run_next()
+        totals.append(int(viewer.displayed()["summary"].split()[0]) if viewer.displayed()["summary"][0].isdigit() else 0)
+    writer.join()
+    viewer.root.run_next()
+
+    assert totals == sorted(totals)  # the count only ever goes up: no call is lost or double counted mid-write
+    assert viewer.displayed()["summary"] == "30 calls: 0 open, 30 resolved"
+
+
+def test_refreshing_while_lines_arrive_in_pieces(open_viewer, log, make_call):
+    # each line reaches the disk in two pieces, so refreshes keep landing mid-line
+    viewer = open_viewer()
+    done = threading.Event()
+
+    def slow_writer():
+        for n in range(8, 28):
+            line = json.dumps(make_call(n, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "10:10")) + "\n"
+            with open(log.path, "a", encoding="utf-8") as f:
+                f.write(line[:20])
+                f.flush()
+                time.sleep(0.003)
+                f.write(line[20:])
+        done.set()
+
+    writer = threading.Thread(target=slow_writer)
+    writer.start()
+    totals = []
+    while not done.is_set():
+        viewer.root.run_next()
+        totals.append(int(viewer.displayed()["summary"].split()[0]))
+    writer.join()
+    viewer.root.run_next()
+
+    assert totals == sorted(totals) and min(totals) >= 7
+    assert viewer.displayed()["summary"] == "27 calls: 23 open, 4 resolved"
+
+
+def test_a_broken_line_is_reported_once_not_on_every_refresh(open_viewer, log, make_call, capsys):
+    # a run killed mid-write left a fragment; later runs appended after it
+    with open(log.path, "a", encoding="utf-8") as f:
+        f.write('{"request_id": "MR-0050", "sta\n')
+    log.append(make_call(8, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "10:10"))
+
+    viewer = open_viewer()
+    for _ in range(5):
+        viewer.root.run_next()
+
+    output = capsys.readouterr().out
+    assert output.count("skipping corrupt line 8") == 1
+    assert viewer.displayed()["summary"] == "8 calls: 4 open, 4 resolved"  # the calls around it still count
+
+
+def test_a_new_broken_line_is_still_reported(open_viewer, log, capsys):
+    viewer = open_viewer()
+    viewer.root.run_next()
+    with open(log.path, "a", encoding="utf-8") as f:
+        f.write('{"request_id": "MR-0051", "sta\n')  # broken while the viewer is running
+    for _ in range(3):
+        viewer.root.run_next()
+
+    assert capsys.readouterr().out.count("skipping corrupt line 8") == 1
+
+
+def test_the_viewer_never_writes_to_the_log(open_viewer, log):
+    before = open(log.path, "rb").read()
+    viewer = open_viewer()
+    for _ in range(3):
+        viewer.root.run_next()
+    viewer.close()
+    assert open(log.path, "rb").read() == before  # read-only: it can't clash with the dashboard's writes
 
 
 # --- starting it: `python main.py --stats` ---
