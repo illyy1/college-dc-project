@@ -14,7 +14,13 @@ import requests
 
 from hardware_monitor import dashboard, github_client
 from hardware_monitor.dashboard import HardwareMonitorApp
-from hardware_monitor.github_client import IssueResult, create_issue
+from hardware_monitor.github_client import (
+    MAX_ATTEMPTS,
+    REQUEST_TIMEOUT_SECONDS,
+    RETRY_BACKOFF_SECONDS,
+    IssueResult,
+    create_issue,
+)
 
 NOT_JSON = object()
 
@@ -139,7 +145,7 @@ def test_a_success_code_other_than_201_is_not_trusted(github):
 def test_timeouts_are_reported(github, timeout_error):
     github.reply = timeout_error
     result = send()
-    assert not result.ok and result.error.endswith("Last error: GitHub did not answer within 5 s.")
+    assert not result.ok and result.error.endswith(f"Last error: {TIMED_OUT}")
 
 
 def test_custom_timeout_is_passed_on_and_reported(github):
@@ -197,6 +203,19 @@ def created():
     return api_response(201, CREATED)
 
 
+def expected_waits(attempts):
+    """The waits between `attempts` attempts: the backoff, doubling each time."""
+    return [RETRY_BACKOFF_SECONDS * 2 ** n for n in range(attempts - 1)]
+
+
+TIMED_OUT = f"GitHub did not answer within {REQUEST_TIMEOUT_SECONDS} s."
+
+
+def test_the_default_retry_policy():
+    # the one place the defaults are pinned; every other test reads them from github_client
+    assert (MAX_ATTEMPTS, RETRY_BACKOFF_SECONDS, REQUEST_TIMEOUT_SECONDS) == (3, 1, 5)
+
+
 @pytest.mark.parametrize("temporary_failure", [
     requests.exceptions.ReadTimeout("read timed out"),
     requests.exceptions.ConnectionError("connection reset"),
@@ -212,15 +231,16 @@ def test_recovers_after_one_temporary_failure(github, waits, temporary_failure):
 
     assert result == IssueResult(True, issue_number=42, url=CREATED["html_url"], attempts=2)
     assert len(github.calls) == 2
-    assert waits == [1]
+    assert waits == expected_waits(2)
 
 
 def test_recovers_on_the_last_allowed_attempt(github, waits):
-    github.reply = [requests.exceptions.ConnectTimeout(), api_response(502, NOT_JSON), created()]
+    failures = [requests.exceptions.ConnectTimeout(), api_response(502, NOT_JSON)] * MAX_ATTEMPTS
+    github.reply = failures[:MAX_ATTEMPTS - 1] + [created()]
     result = send()
 
-    assert result.ok and result.attempts == 3
-    assert waits == [1, 2]  # the wait doubles each time
+    assert result.ok and result.attempts == MAX_ATTEMPTS
+    assert waits == expected_waits(MAX_ATTEMPTS)  # the wait doubles each time
 
 
 def test_every_retry_sends_the_same_request(github):
@@ -237,8 +257,8 @@ def test_each_retry_is_reported_while_it_happens(github, capsys):
     github.reply = [api_response(503, {"message": "Service Unavailable"}), created()]
     send()
 
-    assert "GitHub attempt 1/3 failed (GitHub returned HTTP 503: Service Unavailable.) Retrying in 1 s." \
-        in capsys.readouterr().out
+    assert (f"GitHub attempt 1/{MAX_ATTEMPTS} failed (GitHub returned HTTP 503: Service Unavailable.) "
+            f"Retrying in {RETRY_BACKOFF_SECONDS} s.") in capsys.readouterr().out
 
 
 # --- retry: stopping after the maximum number of attempts ---
@@ -247,38 +267,35 @@ def test_gives_up_after_the_maximum_attempts(github, waits):
     github.reply = requests.exceptions.ReadTimeout()
     result = send()
 
-    assert not result.ok and result.attempts == 3
-    assert len(github.calls) == 3
-    assert waits == [1, 2]  # no pointless wait after the final attempt
-    assert result.error == "Gave up after 3 attempt(s). Last error: GitHub did not answer within 5 s."
+    assert not result.ok and result.attempts == MAX_ATTEMPTS
+    assert len(github.calls) == MAX_ATTEMPTS
+    assert waits == expected_waits(MAX_ATTEMPTS)  # no pointless wait after the final attempt
+    assert result.error == f"Gave up after {MAX_ATTEMPTS} attempt(s). Last error: {TIMED_OUT}"
 
 
 def test_never_tries_past_the_limit_even_if_the_next_try_would_work(github):
-    github.reply = [api_response(500, NOT_JSON)] * 3 + [created()]
+    github.reply = [api_response(500, NOT_JSON)] * MAX_ATTEMPTS + [created()]
     result = send()
 
     assert not result.ok
-    assert len(github.calls) == 3 and len(github.reply) == 1  # the 4th reply was never requested
+    assert len(github.calls) == MAX_ATTEMPTS and len(github.reply) == 1  # the next reply was never requested
 
 
 def test_reports_the_last_of_several_different_failures(github):
-    github.reply = [requests.exceptions.ConnectionError("reset"), api_response(500, NOT_JSON),
-                    api_response(503, {"message": "Service Unavailable"})]
+    earlier = [requests.exceptions.ConnectionError("reset"), api_response(500, NOT_JSON)] * MAX_ATTEMPTS
+    github.reply = earlier[:MAX_ATTEMPTS - 1] + [api_response(503, {"message": "Service Unavailable"})]
     result = send()
-    assert result.error == "Gave up after 3 attempt(s). Last error: GitHub returned HTTP 503: Service Unavailable."
+    assert result.error == (f"Gave up after {MAX_ATTEMPTS} attempt(s). "
+                            f"Last error: GitHub returned HTTP 503: Service Unavailable.")
 
 
-@pytest.mark.parametrize("max_attempts, expected_waits", [
-    (1, []),
-    (2, [1]),
-    (5, [1, 2, 4, 8]),
-], ids=["1-attempt", "2-attempts", "5-attempts"])
-def test_the_attempt_limit_is_configurable(github, waits, max_attempts, expected_waits):
+@pytest.mark.parametrize("max_attempts", [1, 2, 5], ids=["1-attempt", "2-attempts", "5-attempts"])
+def test_the_attempt_limit_is_configurable(github, waits, max_attempts):
     github.reply = requests.exceptions.ConnectionError("down")
     result = send(max_attempts=max_attempts)
 
     assert len(github.calls) == result.attempts == max_attempts
-    assert waits == expected_waits
+    assert waits == expected_waits(max_attempts)
     assert result.error.startswith(f"Gave up after {max_attempts} attempt(s).")
 
 
@@ -360,7 +377,7 @@ def test_dashboard_posts_the_call_and_technician(app, github, capsys, alerts):
 
 @pytest.mark.parametrize("reply, message", [
     (api_response(401, {"message": "Bad credentials"}), "HTTP 401: Bad credentials"),
-    (requests.exceptions.ReadTimeout(), "did not answer within 5 s"),
+    (requests.exceptions.ReadTimeout(), TIMED_OUT),
     (api_response(201, {"number": 42}), "missing 'html_url'"),
 ], ids=["http-error", "timeout", "incomplete-reply"])
 def test_dashboard_reports_failures_without_crashing(app, github, capsys, reply, message):
@@ -381,8 +398,8 @@ def test_dashboard_reports_when_retries_are_exhausted(app, github, capsys):
     github.reply = api_response(503, NOT_JSON)
     app.send_github_alert("camera", "Camera Disconnected", "no frame")
 
-    assert len(github.calls) == 3
-    assert "GitHub alert for camera not sent: Gave up after 3 attempt(s)." in capsys.readouterr().out
+    assert len(github.calls) == MAX_ATTEMPTS
+    assert f"GitHub alert for camera not sent: Gave up after {MAX_ATTEMPTS} attempt(s)." in capsys.readouterr().out
 
 
 def test_dashboard_without_token_does_not_call_github(app, github, capsys):

@@ -32,10 +32,15 @@ from conftest import TEST_FLEET_PATH
 
 # --- boundary conditions on thresholds ---
 
+def test_the_minimum_sample_rate():
+    # the one place the default is pinned; the boundary tests below read it from Microphone
+    assert Microphone.MIN_SAMPLE_RATE == 8000
+
+
 @pytest.mark.parametrize("sample_rate, healthy", [
-    (7999, False),
-    (8000, True),     # exactly MIN_SAMPLE_RATE is accepted
-    (8000.0, True),
+    (Microphone.MIN_SAMPLE_RATE - 1, False),
+    (Microphone.MIN_SAMPLE_RATE, True),     # exactly the minimum is accepted
+    (float(Microphone.MIN_SAMPLE_RATE), True),
     (True, False),    # a bool is not a sample rate
     ("44100", False),
 ])

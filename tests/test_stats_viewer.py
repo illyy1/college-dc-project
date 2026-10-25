@@ -55,6 +55,7 @@ from hardware_monitor.config import MAINTENANCE_LOG_PATH, TECHNICIANS_PATH
 from hardware_monitor.stats import compute_stats
 from fake_tk import FAKE_TK
 from hardware_monitor.stats_viewer import (
+    BAR_WIDTH,
     PIE_COLORS,
     StatsViewer,
     format_alert_types,
@@ -114,7 +115,8 @@ def test_technician_spread_section(stats):
 
 def test_the_spread_bar_is_scaled_to_the_busiest_technician(stats):
     bars = [columns(line)[5] for line in format_technicians(stats).splitlines()]
-    assert [len(bar) for bar in bars] == [20, 13, 7, 7]  # 3, 2, 1 and 1 calls; 20 blocks for the busiest
+    # 3, 2, 1 and 1 calls: BAR_WIDTH blocks for the busiest, the rest in proportion
+    assert [len(bar) for bar in bars] == [BAR_WIDTH, round(BAR_WIDTH * 2 / 3), round(BAR_WIDTH / 3), round(BAR_WIDTH / 3)]
     assert all(set(bar) == {BAR} for bar in bars)
 
 
@@ -186,9 +188,14 @@ def test_the_window_shows_the_statistics_at_once(open_viewer, stats):
     }
 
 
-def test_the_window_refreshes_itself_every_two_seconds(open_viewer):
+def test_the_viewer_defaults():
+    # the one place the defaults are pinned; every other test reads them from stats_viewer
+    assert (stats_viewer.REFRESH_SECONDS, BAR_WIDTH, stats_viewer.STOP_TIMEOUT_SECONDS) == (2, 20, 5)
+
+
+def test_the_window_refreshes_itself_at_the_refresh_interval(open_viewer):
     viewer = open_viewer()
-    assert [delay for delay, _ in viewer.root.scheduled] == [2000]
+    assert [delay for delay, _ in viewer.root.scheduled] == [stats_viewer.REFRESH_SECONDS * 1000]
 
 
 def test_the_refresh_interval_can_be_changed(open_viewer):
@@ -583,13 +590,13 @@ def test_stopping_closes_a_running_viewer(popen):
     stats_viewer.stop_background_viewer(process)
 
     process.terminate.assert_called_once_with()
-    process.wait.assert_called_once_with(timeout=5)
+    process.wait.assert_called_once_with(timeout=stats_viewer.STOP_TIMEOUT_SECONDS)
     process.kill.assert_not_called()
 
 
 def test_stopping_a_viewer_that_wont_close_kills_it(popen):
     process = stats_viewer.launch_in_background()
-    process.wait.side_effect = [subprocess.TimeoutExpired("main.py", 5), 0]
+    process.wait.side_effect = [subprocess.TimeoutExpired("main.py", stats_viewer.STOP_TIMEOUT_SECONDS), 0]
     stats_viewer.stop_background_viewer(process)
     process.kill.assert_called_once_with()
 

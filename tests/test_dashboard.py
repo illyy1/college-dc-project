@@ -17,6 +17,7 @@ from cryptography.fernet import Fernet
 
 from hardware_monitor import dashboard
 from hardware_monitor.config import (
+    MAX_VISIBLE_ALERTS,
     ALERT_COOLDOWN_SECONDS,
     ALERT_MIN_DISPLAY_SECONDS,
     COMPUTER_NAME,
@@ -153,6 +154,12 @@ def open_calls(app):
 def popup(app, key):
     win = app.active_alerts[key]
     return win if isinstance(win, FakeToplevel) and win.exists else None
+
+
+def test_the_dashboard_defaults():
+    # the one place the defaults are pinned; every other test reads them from config
+    assert (SILENCE_DURATION, ALERT_MIN_DISPLAY_SECONDS, ALERT_COOLDOWN_SECONDS, GITHUB_ISSUE_COOLDOWN_SECONDS,
+            MAX_QUIET_SECONDS, MAX_VISIBLE_ALERTS) == (8, 5, 10, 600, 45, 2)
 
 
 # --- microphone loop ---
