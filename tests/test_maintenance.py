@@ -208,6 +208,19 @@ def test_calls_saved_by_an_earlier_run_count(make_desk, team, alerts, saved_log)
     assert Counter(taken) + Counter({"A": 2, "B": 1}) == {"A": 2, "B": 2, "C": 2}
 
 
+def test_a_call_logged_twice_counts_once(make_desk, team, picker, make_call, write_jsonl, alerts):
+    # every call is in the log once when opened and again when resolved; A's
+    # call must count once, so all three have 1 and all three are in the draw
+    write_jsonl("logs/maintenance_requests.jsonl",
+                make_call(1, "CAMERA_FAILURE", "A", "IN_PROGRESS"),
+                make_call(1, "CAMERA_FAILURE", "A", "RESOLVED"),
+                make_call(2, "CAMERA_FAILURE", "B", "RESOLVED"),
+                make_call(3, "CAMERA_FAILURE", "C", "RESOLVED"))
+    desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))
+    take_calls(desk, alerts, 1)
+    assert picker.offered == [["A", "B", "C"]]
+
+
 def test_open_calls_saved_by_an_earlier_run_count_too(make_desk, team, alerts, saved_log):
     saved_log("A", "B", status="IN_PROGRESS")
     desk = make_desk(team)

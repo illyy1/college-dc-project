@@ -53,7 +53,7 @@ import main
 from hardware_monitor import stats_viewer
 from hardware_monitor.config import MAINTENANCE_LOG_PATH, TECHNICIANS_PATH
 from hardware_monitor.stats import compute_stats
-from fake_tk import FAKE_TK
+from fake_tk import FAKE_TK, FakeCanvas
 from hardware_monitor.stats_viewer import (
     BAR_WIDTH,
     PIE_COLORS,
@@ -317,10 +317,24 @@ def test_every_slice_gets_its_own_color():
     assert [s.color for s in slices] == list(PIE_COLORS)
 
 
-def test_colors_repeat_only_after_the_palette_runs_out():
-    slices = pie_slices([(f"tech {n}", 1) for n in range(len(PIE_COLORS) + 2)])
-    assert slices[len(PIE_COLORS)].color == PIE_COLORS[0]
-    assert len(PIE_COLORS) >= 6 and len(set(PIE_COLORS)) == len(PIE_COLORS)
+HEX_COLOR = re.compile(r"^#[0-9a-f]{6}$")
+
+
+@pytest.mark.parametrize("count", [1, 8, 9, 12, 25, 50])
+def test_colors_never_repeat_however_many_slices(count):
+    # the staff can grow past any fixed palette: two technicians must never look alike
+    colors = [s.color for s in pie_slices([(f"tech {n}", 1) for n in range(count)])]
+    assert len(set(colors)) == count
+    assert all(HEX_COLOR.match(color) for color in colors)  # a colour tk.Canvas accepts
+
+
+def test_the_real_staff_all_get_their_own_color(real_technicians):
+    colors = [s.color for s in pie_slices([(t.name, 1) for t in real_technicians.values()])]
+    assert len(set(colors)) == len(real_technicians)
+
+
+def test_the_palette_has_no_duplicates():
+    assert len(set(PIE_COLORS)) == len(PIE_COLORS)
 
 
 # --- pie charts: in the window ---
@@ -354,6 +368,41 @@ def test_each_pie_has_a_legend_with_percentages(open_viewer):
         assert any(label in text and percent in text for text in technician_legend)
     for label, percent in [("Camera", "57.1%"), ("Microphone", "28.6%"), ("Other", "14.3%")]:
         assert any(label in text and percent in text for text in type_legend)
+
+
+def drawn_bottom(canvas):
+    """The lowest point of anything drawn on the canvas."""
+    return max(max(item.coords[1::2]) for item in canvas.items)
+
+
+@pytest.mark.parametrize("entries", [1, 2, 9, 10, 25])
+def test_the_legend_always_fits_on_the_canvas(entries):
+    canvas = FakeCanvas(height=stats_viewer.PIE_DIAMETER + 2 * stats_viewer.PIE_MARGIN)
+    stats_viewer.draw_pie(canvas, pie_slices([(f"tech {n}", 1) for n in range(entries)]))
+
+    assert len(canvas.of_kind("text")) == entries  # one legend line per slice
+    assert drawn_bottom(canvas) <= canvas.options["height"]  # nothing drawn below the canvas
+
+
+def test_the_canvas_never_gets_shorter_than_the_pie():
+    canvas = FakeCanvas(height=stats_viewer.PIE_DIAMETER + 2 * stats_viewer.PIE_MARGIN)
+    stats_viewer.draw_pie(canvas, pie_slices([("only one", 1)]))
+    assert canvas.options["height"] >= stats_viewer.PIE_DIAMETER + 2 * stats_viewer.PIE_MARGIN
+
+
+def test_the_whole_team_fits_in_the_window(make_team, write_jsonl, make_call, monkeypatch):
+    # the real staff can grow: a dozen technicians, all with calls, all in the legend
+    team = make_team(12)
+    technicians_path = write_jsonl("big_team.jsonl", *({"tech_id": t, "name": tech.name} for t, tech in team.items()))
+    log_path = write_jsonl("big_log.jsonl", *(make_call(n, "CAMERA_FAILURE", f"T{n}", "RESOLVED")
+                                               for n in range(1, 13)))
+    monkeypatch.setattr(stats_viewer, "tk", FAKE_TK)
+    viewer = StatsViewer(log_path, technicians_path)
+
+    canvas = viewer.technician_pie_canvas
+    assert len(canvas.of_kind("text")) == 12
+    assert drawn_bottom(canvas) <= canvas.options["height"]
+    assert len({s.color for s in viewer.pies()["technicians"]}) == 12
 
 
 def test_each_legend_entry_has_a_color_key_matching_its_slice(open_viewer):
