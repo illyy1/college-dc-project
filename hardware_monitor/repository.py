@@ -172,6 +172,19 @@ def append_jsonl_record(path, record):
           backoff_seconds=FILE_RETRY_BACKOFF_SECONDS, label=f"Writing {path}")
 
 
+def delete_log(path):
+    """Deletes a log, if there is one, to start it afresh. A file held for a
+    moment by another program is tried again, as when appending."""
+    def remove():
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass  # nothing to reset
+
+    retry(remove, retry_on=TEMPORARY_FILE_ERRORS, max_attempts=FILE_WRITE_ATTEMPTS,
+          backoff_seconds=FILE_RETRY_BACKOFF_SECONDS, label=f"Deleting {path}")
+
+
 def _append_line(path, record):
     """One attempt of append_jsonl_record. Checks the last byte each time, so a
     retry after a partly written attempt still starts on a fresh line."""

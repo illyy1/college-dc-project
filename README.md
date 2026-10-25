@@ -141,10 +141,10 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **A diagnostic that crashes:** the component is marked `ERROR` and alerted, and the sweep goes on.
   - **A log line half-written when the program was killed:** the next record starts on a fresh line, and the desk keeps numbering correctly.
   - **`--report` end to end:** it prints the history and exports the CSV, creating the folder if needed. Unlike the automatic refresh, it fails loudly if the CSV can't be written.
-  - **A file held for a moment by another program** (antivirus, OneDrive, the search indexer): a log or report write is retried; a full disk is not.
+  - **A file held for a moment by another program** (antivirus, OneDrive, the search indexer): a log or report write, or resetting a demo log, is retried; a full disk is not.
   - **A maintenance log that can't be written:** the call is still opened and kept in the run, and the log catches up on the call's next change. Any CSV write error, not only Excel's lock, leaves the call alone.
   - **The live dashboard keeps monitoring:** a fault still gets its call when the alert log can't be written, and a monitoring loop that crashes is reported and restarted.
-  - **`main.py` explains instead of a traceback:** a report it can't write, or a missing or broken data file, gives a one-line message and exit code 1. A bug is still raised, and a dashboard crash is not hidden by a failed report.
+  - **`main.py` explains instead of a traceback:** a report it can't write, or a data file or log that is missing, broken, unreadable or still locked, gives a one-line message and exit code 1. A bug is still raised, and a dashboard crash is not hidden by a failed report.
 - `tests/test_retry.py` — the one retry mechanism the GitHub client, the log writes and the report share: recovery with a doubling wait, giving up with the last error, only the listed errors retried, and the attempt limit checked.
 - `tests/test_concurrency.py` — concurrency validations. These tests are deterministic: they hold a lock and check that callers wait for it, or slow down a critical section so that code without the lock would fail every time.
   - **Async accuracy:** results match the data counted independently. Results stay in input order even when the tasks finish in reverse order, and repeated runs give identical results.
@@ -156,7 +156,7 @@ GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every pull requ
 
 ## Project layout
 The course template's `project_name/` package is named `hardware_monitor/` here.
-- `main.py` — entry point only: reads the command-line flags and calls the package. No business classes. Exits with 1 and a one-line message for a report it can't write or a missing or broken data file.
+- `main.py` — entry point only: reads the command-line flags and calls the package. No business classes. Exits with 1 and a one-line message for a file problem: a report it can't write, or a data file or log that is missing, broken, unreadable or still locked.
 - `hardware_monitor/__init__.py` — package definition and public API.
 - `hardware_monitor/models.py` — `HardwareComponent`, `Camera`, `Microphone`, `Workstation`, `Technician`, `MaintenanceRequest` (OOP, validation, `from_dict` factories).
 - `hardware_monitor/repository.py` — loads `data/*.jsonl` line by line into objects and validates them (a bad line raises `DataFileError`), and appends to the logs, retrying a file another program holds for a moment.
