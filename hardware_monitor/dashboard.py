@@ -55,7 +55,8 @@ class HardwareMonitorApp:
         self.silence_start = time.time()
         self.is_silent = False
 
-        self.active_alerts = {
+        # alert_key -> its popup window, "pending" while one is being drawn, or None
+        self.active_alerts: dict[str, tk.Toplevel | str | None] = {
             "camera": None,
             "mic_conn": None,
             "mic_silence": None,

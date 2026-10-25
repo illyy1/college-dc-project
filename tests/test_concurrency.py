@@ -109,8 +109,9 @@ def traced_sources(monkeypatch):
         return source
 
     for name in ("fleet_status", "technician_roster", "maintenance_summary"):
-        real_source = getattr(concurrency, f"_gather_{name}")
-        monkeypatch.setattr(concurrency, f"_gather_{name}", traced(name, real_source))
+        attribute = f"_gather_{name}"  # a name built at runtime: PyCharm would read the f-string literally
+        real_source = getattr(concurrency, attribute)
+        monkeypatch.setattr(concurrency, attribute, traced(name, real_source))
     return events
 
 

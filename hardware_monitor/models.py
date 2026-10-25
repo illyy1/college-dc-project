@@ -56,7 +56,8 @@ class HardwareComponent(ABC):
         Raises ValueError on a missing field, unknown type or bad value."""
         _require_fields(record, cls.REQUIRED_FIELDS, "Component")
 
-        component_type = str(record["component_type"]).strip().lower()
+        component_type = str(record["component_type"])
+        component_type = component_type.strip().lower()
         if cls is HardwareComponent:
             subclasses = {sub.__name__.lower(): sub for sub in cls.__subclasses__()}
             if component_type not in subclasses:

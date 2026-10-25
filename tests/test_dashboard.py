@@ -43,6 +43,12 @@ def popup(app, key):
     return win if isinstance(win, FakeToplevel) and win.exists else None
 
 
+def popup_title(app, key):
+    """The title of the popup showing for `key`, or None if there is none."""
+    win = popup(app, key)
+    return win.window_title if win is not None else None
+
+
 def test_the_dashboard_defaults():
     # the one place the defaults are pinned; every other test reads them from config
     assert (SILENCE_DURATION, ALERT_MIN_DISPLAY_SECONDS, ALERT_COOLDOWN_SECONDS, GITHUB_ISSUE_COOLDOWN_SECONDS,
@@ -57,7 +63,7 @@ def test_mic_disconnect_opens_a_call_and_reconnect_resolves_it(dash):
     run_loop(dash, app.monitor_mic, 1)
 
     assert open_calls(app) == [("MIC-LOCAL", "MICROPHONE_DISCONNECTED")]
-    assert popup(app, "mic_conn").window_title == "Microphone Disconnected"
+    assert popup_title(app, "mic_conn") == "Microphone Disconnected"
     assert [p.key for p in dash.github.posted] == ["mic_conn"]
 
     run_loop(dash, app.monitor_mic, ALERT_MIN_DISPLAY_SECONDS)  # connected again, popup old enough
@@ -116,7 +122,7 @@ def test_camera_faults(dash, connected, frame_ok, title):
     run_loop(dash, app.monitor_camera, 1)
 
     assert open_calls(app) == [("CAM-LOCAL", "CAMERA_FAILURE")]
-    assert popup(app, "camera").window_title == title
+    assert popup_title(app, "camera") == title
     assert dash.github.posted[0].title.endswith(title)
 
 

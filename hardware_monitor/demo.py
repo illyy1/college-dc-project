@@ -163,16 +163,17 @@ def demo_queues(alert_manager):
     print("  Still to acknowledge (set difference):", sorted(alert_manager.unacknowledged_alert_ids()))
 
     print("  Technicians dispatched by urgency (heapq.heappop, lower number = more urgent):")
-    first_dispatched = None
+    dispatched = []
     while (alert := alert_manager.dispatch_next()) is not None:
-        first_dispatched = first_dispatched or alert
+        dispatched.append(alert)
         print(f"    dispatch #{alert.alert_id} priority {alert.priority} ({alert.component_id})")
     print(f"  Dispatch queue empty: dispatch_next() returned {alert_manager.dispatch_next()}")
     while alert_manager.acknowledge_next() is not None:
         pass
     print(f"  Intake queue empty: acknowledge_next() returned {alert_manager.acknowledge_next()}")
 
-    if first_dispatched is not None:
+    if dispatched:
+        first_dispatched = dispatched[0]
         first_dispatched.resolved = True
         print(f"  Alert #{first_dispatched.alert_id} fixed on site and marked resolved.")
 
