@@ -21,7 +21,7 @@ import pytest
 from hardware_monitor.maintenance import FewestCallsStrategy
 from hardware_monitor.models import Technician
 
-from conftest import TECHNICIANS_PATH
+from conftest import BAD_FIELDS, TECHNICIANS_PATH
 from fake_random import LikeliestPick
 
 
@@ -263,6 +263,30 @@ def test_a_technician_who_left_doesnt_affect_the_rest(make_desk, team, picker, a
     saved_log("T42", "T42", "T42")                    # in the log, no longer in technicians.jsonl
     desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))
     assert sorted(take_calls(desk, alerts, 3)) == ["A", "B", "C"]
+
+
+@pytest.mark.parametrize("bad_field", BAD_FIELDS)
+def test_the_desk_starts_on_a_log_with_a_wrongly_typed_call(bad_field, make_desk, team, picker, make_call,
+                                                            write_jsonl, alerts, capsys):
+    write_jsonl("logs/maintenance_requests.jsonl",
+                make_call(1, "CAMERA_FAILURE", "A", "RESOLVED"),
+                {**make_call(2, "CAMERA_FAILURE", "B", "IN_PROGRESS"), **bad_field})  # line 2
+
+    desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))  # must not crash
+
+    output = capsys.readouterr().out
+    assert "skipping" in output and "line 2" in output
+    assert desk.open_requests() == []        # the unreadable call isn't restored
+    take_calls(desk, alerts, 1)
+    assert picker.favoured == [["B", "C"]]   # only A's readable call counts
+
+
+def test_the_number_of_a_skipped_call_is_never_reused(make_desk, make_call, write_jsonl, alerts):
+    write_jsonl("logs/maintenance_requests.jsonl",
+                make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED"),
+                {**make_call(2, "CAMERA_FAILURE", "T2", "IN_PROGRESS"), "opened_at": 5})
+    # MR-0002 is already in the log, readable or not: a second MR-0002 would mix up the two calls
+    assert make_desk().open_request_for_alert(alerts.camera()).request_id == "MR-0003"
 
 
 def test_a_single_technician_takes_everything(make_desk, alerts):

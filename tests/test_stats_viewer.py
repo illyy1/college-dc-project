@@ -53,6 +53,7 @@ import main
 from hardware_monitor import stats_viewer
 from hardware_monitor.config import MAINTENANCE_LOG_PATH, TECHNICIANS_PATH
 from hardware_monitor.stats import compute_stats
+from conftest import BAD_FIELDS
 from fake_tk import FAKE_TK, FakeCanvas
 from hardware_monitor.stats_viewer import (
     BAR_WIDTH,
@@ -565,6 +566,28 @@ def test_a_new_broken_line_is_still_reported(open_viewer, log, capsys):
         viewer.root.run_next()
 
     assert capsys.readouterr().out.count("skipping corrupt line 8") == 1
+
+
+@pytest.mark.parametrize("bad_field", BAD_FIELDS)
+def test_a_wrongly_typed_call_doesnt_stop_the_refreshes(bad_field, open_viewer, log, make_call, capsys):
+    viewer = open_viewer()
+    before = viewer.displayed()
+    log.append({**make_call(8, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "10:10"), **bad_field})  # line 8
+
+    for _ in range(3):
+        viewer.root.run_next()  # must not crash the window
+
+    assert len(viewer.root.scheduled) == 1  # it keeps refreshing
+    assert viewer.displayed() == before     # the unreadable call is skipped
+    log.append(make_call(9, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "10:20"))
+    viewer.root.run_next()
+    assert viewer.displayed()["summary"] == "8 calls: 4 open, 4 resolved"  # later calls still appear
+    assert capsys.readouterr().out.count("line 8") == 1  # reported once, not on every refresh
+
+
+def test_the_viewer_opens_on_a_log_that_already_has_a_wrongly_typed_call(open_viewer, log, make_call, stats):
+    log.append({**make_call(8, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "10:10"), "opened_at": 5})
+    assert open_viewer().displayed()["summary"] == format_summary(stats)  # the 7 readable calls
 
 
 def test_the_viewer_never_writes_to_the_log(open_viewer, log):

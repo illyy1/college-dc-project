@@ -170,6 +170,19 @@ def make_call():
     return build
 
 
+# a saved call with one field of the wrong type, as a hand-edited or damaged
+# log could hold it (the app itself never writes these): {**make_call(...), **bad_field}
+BAD_FIELDS = [
+    pytest.param({"opened_at": 5}, id="open-time-a-number"),
+    pytest.param({"opened_at": "yesterday"}, id="open-time-not-a-date"),
+    pytest.param({"assigned_tech_id": 7}, id="technician-id-a-number"),
+    pytest.param({"assigned_tech_id": ["T1"]}, id="technician-id-a-list"),
+    pytest.param({"error_type": 3}, id="error-type-a-number"),
+    pytest.param({"error_type": ["CAMERA_FAILURE"]}, id="error-type-a-list"),
+    pytest.param({"request_id": ["MR-0008"]}, id="request-id-a-list"),
+]
+
+
 @pytest.fixture
 def reports_log(make_call, write_jsonl):
     """A saved maintenance log for the report tests: Dana's call MR-0001, opened

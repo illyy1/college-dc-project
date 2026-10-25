@@ -25,6 +25,8 @@ import pytest
 from hardware_monitor.stats import AlertTypeCount, CallRow, TechnicianLoad, compute_stats, load_stats
 from hardware_monitor.repository import load_maintenance_history
 
+from conftest import BAD_FIELDS
+
 
 
 # --- test data (make_call and history are in conftest.py) ---
@@ -196,6 +198,28 @@ def test_load_stats_uses_the_latest_state_of_each_call(make_call, write_log, tec
 def test_load_stats_with_no_log_yet(tmp_path, technicians_file, technicians):
     stats = load_stats(str(tmp_path / "not_created_yet.jsonl"), technicians_file)
     assert stats.total_calls == 0 and len(stats.technicians) == len(technicians)
+
+
+# --- a saved call with a field of the wrong type ---
+
+@pytest.mark.parametrize("bad_field", BAD_FIELDS)
+def test_a_call_with_a_wrongly_typed_field_is_skipped(bad_field, history, make_call, write_log,
+                                                      technicians_file, capsys):
+    bad_call = {**make_call(8, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "10:10"), **bad_field}
+    with_bad_call = load_stats(write_log([*history, bad_call]), technicians_file)  # line 8
+
+    assert with_bad_call == load_stats(write_log(history), technicians_file)  # as if it weren't there
+    output = capsys.readouterr().out
+    assert "skipping" in output and "line 8" in output
+
+
+def test_a_wrongly_typed_call_is_reported_once_when_read_again(history, make_call, write_log,
+                                                              technicians_file, capsys):
+    path = write_log([*history, {**make_call(8, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "10:10"), "opened_at": 5}])
+    reported = set()
+    for _ in range(3):
+        load_stats(path, technicians_file, reported=reported)
+    assert capsys.readouterr().out.count("line 8") == 1
 
 
 def test_load_stats_skips_a_half_written_line(history, write_jsonl, capsys, technicians_file):
