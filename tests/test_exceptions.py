@@ -43,7 +43,7 @@ def test_a_failure_inside_the_session_is_reraised_after_cleanup():
 
 def test_a_failing_assignment_strategy_does_not_leave_the_desk_locked(alerts, make_desk):
     class BrokenStrategy(AssignmentStrategy):
-        def choose(self, candidates, last_assigned_at):
+        def choose(self, candidates, last_assigned_at, calls_taken):
             raise RuntimeError("strategy crashed")
 
     desk = make_desk(assignment_strategy=BrokenStrategy())

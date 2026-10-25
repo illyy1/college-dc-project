@@ -119,7 +119,7 @@ def test_empty_and_blank_line_files(tmp_path):
     assert load_technicians_from_jsonl(str(empty)) == {}
 
     spaced = tmp_path / "spaced.jsonl"
-    record = {"tech_id": "T1", "name": "Dana", "specialty": "Camera"}
+    record = {"tech_id": "T1", "name": "Dana"}
     spaced.write_text("\n\n" + json.dumps(record) + "\n   \n", encoding="utf-8")
     assert list(load_technicians_from_jsonl(str(spaced))) == ["T1"]
 
@@ -165,11 +165,11 @@ def test_loader_rejects_a_json_line_that_is_not_an_object(tmp_path):
 
 
 @pytest.mark.parametrize("record, message", [
-    ({"tech_id": "T1", "name": "   ", "specialty": "Camera"}, "missing name"),
-    ({"tech_id": 7, "name": "Dana", "specialty": "Camera"}, "must be text"),
-    ({"tech_id": "T1", "name": "Dana", "specialty": "Plumbing"}, "Invalid specialty"),
-    ({"tech_id": "T1", "name": "Dana", "specialty": "Camera", "workstation_ids": ["WS-1", 2]}, "workstation_ids"),
-], ids=["blank-name", "numeric-id", "unknown-specialty", "numeric-workstation-id"])
+    ({"tech_id": "T1", "name": "   "}, "missing name"),
+    ({"tech_id": "T1"}, "missing name"),
+    ({"tech_id": 7, "name": "Dana"}, "must be text"),
+    ({"tech_id": "T1", "name": "Dana", "workstation_ids": ["WS-1", 2]}, "workstation_ids"),
+], ids=["blank-name", "no-name", "numeric-id", "numeric-workstation-id"])
 def test_technician_records_with_bad_values_are_rejected(record, message):
     with pytest.raises(ValueError, match=message):
         Technician.from_dict(record)
@@ -202,30 +202,15 @@ def test_request_number_handles_unknown_formats(request_id, number):
 
 # --- maintenance desk business rules ---
 
-def test_uncovered_workstation_considers_every_technician(desk, alerts):
+# (who takes a call is specified in test_maintenance.py)
+
+def test_an_unknown_workstation_can_still_get_a_technician(desk, alerts):
     request = desk.open_request_for_alert(alerts.camera(workstation_id="DASHBOARD-PC"))
-    assert desk.technician_for(request).specialty == "Camera"
+    assert request.assigned_tech_id in {"T1", "T2", "T3", "T4"}
 
 
-def test_no_overflow_while_one_specialist_is_still_free(alerts, make_desk):
-    room = ["WS-104"]
-    team = {
-        "C1": Technician("C1", "Cam One", "Camera", workstation_ids=room),
-        "C2": Technician("C2", "Cam Two", "Camera", workstation_ids=room),
-        "G1": Technician("G1", "Generalist", "General", workstation_ids=room),
-    }
-    desk = make_desk(team)
-    busy = desk.open_request_for_alert(alerts.camera())
-    recent = desk.open_request_for_alert(alerts.camera())
-    desk.resolve_request(recent.request_id)
-    # one specialist is busy, the other is free but was assigned more recently
-    # than the generalist; the free specialist must still win
-    assert desk.open_request_for_alert(alerts.camera()).assigned_tech_id == recent.assigned_tech_id != busy.assigned_tech_id
-    assert recent.assigned_tech_id in {"C1", "C2"}  # a specialist from this team, not the generalist
-
-
-def test_busy_specialists_without_a_generalist_share_the_load(alerts, make_desk):
-    team = {tid: Technician(tid, tid, "Camera", workstation_ids=["WS-104"]) for tid in ("C1", "C2")}
+def test_two_technicians_share_open_calls_evenly(alerts, make_desk):
+    team = {tid: Technician(tid, tid) for tid in ("C1", "C2")}
     desk = make_desk(team)
     assigned = [desk.open_request_for_alert(alerts.camera()).assigned_tech_id for _ in range(4)]
     assert sorted(assigned) == ["C1", "C1", "C2", "C2"]

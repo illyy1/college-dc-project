@@ -101,10 +101,7 @@ def test_overview_matches_the_data_counted_independently(no_latency, workstation
 
     statuses = Counter(c.connection_status for w in workstations for c in w.components)
     assert overview["fleet"] == {"workstations": len(workstations), "components_by_status": dict(statuses)}
-    by_specialty = {}
-    for tech in technicians.values():
-        by_specialty.setdefault(tech.specialty, []).append(tech.name)
-    assert overview["technicians"] == by_specialty
+    assert overview["technicians"] == [tech.name for tech in technicians.values()]
     history = load_maintenance_history(str(log_path))
     assert overview["maintenance"] == {"total_calls": len(history), "open_calls": ["MR-0002", "MR-0003"]}
 

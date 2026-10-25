@@ -230,12 +230,17 @@ def test_workstation_loader_rejects_bad_records_with_line_number(tmp_path, bad_l
     assert message in str(error.value)
 
 
-def test_technician_loader_rejects_duplicate_and_bad_specialty(tmp_path):
-    tech = {"tech_id": "T1", "name": "Dana", "specialty": "Camera"}
+def test_technician_loader_rejects_a_duplicate_id(tmp_path):
+    tech = {"tech_id": "T1", "name": "Dana"}
     with pytest.raises(ValueError, match="line 2: duplicate tech_id 'T1'"):
         load_technicians_from_jsonl(write_jsonl(tmp_path / "dup.jsonl", tech, tech))
-    with pytest.raises(ValueError, match="Invalid specialty"):
-        load_technicians_from_jsonl(write_jsonl(tmp_path / "bad.jsonl", {**tech, "specialty": "camera"}))
+
+
+def test_an_old_technician_file_with_a_specialty_still_loads(tmp_path):
+    # technicians used to have a specialty; a file that still lists one loads, and it is ignored
+    old = {"tech_id": "T1", "name": "Dana", "specialty": "Camera", "workstation_ids": ["WS-101"]}
+    loaded = load_technicians_from_jsonl(write_jsonl(tmp_path / "old.jsonl", old))
+    assert loaded["T1"].name == "Dana" and not hasattr(loaded["T1"], "specialty")
 
 
 def test_maintenance_history_keeps_latest_state_and_skips_corrupt_lines(tmp_path):
@@ -318,7 +323,7 @@ def test_assignment_validation_and_reassignment(technicians, capsys):
 
 
 def test_technician_str_counts_only_open_calls():
-    tech = Technician("T1", "Dana", "Camera")
+    tech = Technician("T1", "Dana")
     done = MaintenanceRequest("MR-1", 1, 1)
     done.resolve()
     tech.assigned_requests += [MaintenanceRequest("MR-2", 2, 1), done]

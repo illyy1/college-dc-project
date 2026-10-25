@@ -55,7 +55,7 @@ class AlertFactory:
         return Alert(component_id, workstation_id, error_type, message, priority=priority, **fields)
 
     def camera(self, **fields):
-        """A lost camera on WS-104 (covered by Camera technicians in technicians.jsonl)."""
+        """A lost camera on WS-104."""
         return self.make(**fields)
 
     def microphone(self, **fields):
