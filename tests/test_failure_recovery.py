@@ -33,6 +33,8 @@ from hardware_monitor.repository import (
     append_jsonl_record,
     delete_log,
     load_maintenance_history,
+    load_technicians_from_jsonl,
+    load_workstations_from_jsonl,
 )
 
 
@@ -220,6 +222,18 @@ def test_a_log_held_for_a_moment_still_gets_the_record(make_call, write_jsonl, r
 
     assert [r["request_id"] for r in load_maintenance_history(log)] == ["MR-0001", "MR-0002"]
     assert retry_waits == FILE_WAITS
+
+
+@pytest.mark.parametrize("loader, line", [
+    (load_workstations_from_jsonl, {"component_type": "Camera", "component_id": "CAM-1", "workstation_id": "WS-1"}),
+    (load_technicians_from_jsonl, {"tech_id": "T1", "name": "Dana Levi"}),
+    (load_maintenance_history, {"request_id": "MR-0001", "status": "IN_PROGRESS"}),
+], ids=["fleet", "technicians", "maintenance-log"])
+def test_a_file_held_for_a_moment_is_still_read(write_jsonl, retry_waits, loader, line):
+    path = write_jsonl("held.jsonl", line)
+    with file_locked("repository", path, times=1):
+        assert len(loader(path)) == 1
+    assert retry_waits == FILE_WAITS[:1]
 
 
 def test_a_demo_log_held_for_a_moment_is_still_reset(write_jsonl, retry_waits):
