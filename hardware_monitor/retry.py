@@ -16,12 +16,11 @@ def retry(operation, *, retry_on, max_attempts, backoff_seconds, label):
     if max_attempts < 1:
         raise ValueError(f"max_attempts must be at least 1, got {max_attempts}.")
 
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(1, max_attempts):
         try:
             return operation()
         except retry_on as error:
-            if attempt == max_attempts:
-                raise
             delay = backoff_seconds * 2 ** (attempt - 1)
             print(f"{label} attempt {attempt}/{max_attempts} failed ({error}) Retrying in {delay} s.")
             sleep(delay)
+    return operation()  # the final attempt: whatever it raises is raised
