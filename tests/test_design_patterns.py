@@ -107,7 +107,7 @@ def test_workstation_and_technician_factories_fill_defaults():
     assert (workstation.name, workstation.location, workstation.components) == ("WS-9", "", [])
 
     technician = Technician.from_dict({"tech_id": "T9", "name": "Dana"})
-    assert technician.workstation_ids == () and technician.assigned_requests == []
+    assert technician.assigned_requests == [] and not hasattr(technician, "workstation_ids")
 
 
 # --- Strategy: which technician gets the call ---
@@ -223,7 +223,7 @@ def test_desk_hands_a_custom_strategy_every_technician_and_their_calls(technicia
     desk.open_request_for_alert(alerts.microphone())
 
     (candidates, calls_before), (_, calls_after) = strategy.seen
-    # everyone, whatever the call: no specialties and no coverage limits
+    # everyone, whatever the call: no specialties and no workstation lists
     assert [t.name for t in candidates] == ["Dana Levi", "Yossi Cohen", "Noa Mizrahi", "Avi Peretz"]
     assert first.assigned_tech_id == candidates[-1].tech_id  # the desk used the strategy's choice
     assert sum(calls_before.values()) == 0

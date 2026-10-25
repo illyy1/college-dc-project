@@ -168,8 +168,7 @@ def test_loader_rejects_a_json_line_that_is_not_an_object(tmp_path):
     ({"tech_id": "T1", "name": "   "}, "missing name"),
     ({"tech_id": "T1"}, "missing name"),
     ({"tech_id": 7, "name": "Dana"}, "must be text"),
-    ({"tech_id": "T1", "name": "Dana", "workstation_ids": ["WS-1", 2]}, "workstation_ids"),
-], ids=["blank-name", "no-name", "numeric-id", "numeric-workstation-id"])
+], ids=["blank-name", "no-name", "numeric-id"])
 def test_technician_records_with_bad_values_are_rejected(record, message):
     with pytest.raises(ValueError, match=message):
         Technician.from_dict(record)

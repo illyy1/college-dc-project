@@ -236,11 +236,13 @@ def test_technician_loader_rejects_a_duplicate_id(tmp_path):
         load_technicians_from_jsonl(write_jsonl(tmp_path / "dup.jsonl", tech, tech))
 
 
-def test_an_old_technician_file_with_a_specialty_still_loads(tmp_path):
-    # technicians used to have a specialty; a file that still lists one loads, and it is ignored
+def test_an_old_technician_file_still_loads(tmp_path):
+    # technicians used to have a specialty and a workstation list; a file that
+    # still has them loads, and both are ignored
     old = {"tech_id": "T1", "name": "Dana", "specialty": "Camera", "workstation_ids": ["WS-101"]}
     loaded = load_technicians_from_jsonl(write_jsonl(tmp_path / "old.jsonl", old))
-    assert loaded["T1"].name == "Dana" and not hasattr(loaded["T1"], "specialty")
+    assert loaded["T1"].name == "Dana"
+    assert not hasattr(loaded["T1"], "specialty") and not hasattr(loaded["T1"], "workstation_ids")
 
 
 def test_maintenance_history_keeps_latest_state_and_skips_corrupt_lines(tmp_path):
@@ -345,3 +347,5 @@ def test_full_demo_runs_from_start_to_finish(tmp_path, monkeypatch, capsys):
     assert "Logged 5 alert(s) from failed diagnostics." in output
     assert "Same overview either way: True" in output
     assert "Maintenance: 4 call(s)" in output
+    assert "unknown workstation" not in output  # technicians no longer list workstations
+    assert "with an unknown technician" in output  # the log <-> technicians check remains

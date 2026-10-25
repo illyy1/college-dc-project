@@ -18,7 +18,8 @@ import pytest
 
 from hardware_monitor.maintenance import FewestCallsStrategy
 from hardware_monitor.models import Technician
-from hardware_monitor.reports import find_unknown_workstation_references
+
+from conftest import TECHNICIANS_PATH
 
 
 @pytest.fixture
@@ -93,21 +94,23 @@ def test_technicians_have_no_specialty(technicians):
     assert all(not hasattr(t, "specialty") for t in technicians.values())
 
 
-def test_technician_coverage_matches_sample_data(technicians, workstations):
-    # the workstation lists stay in the data (checked against sample_data.jsonl)
-    # even though they no longer limit who takes a call
-    assert technicians["T1"].workstation_ids == ("WS-101", "WS-102", "WS-103", "WS-104")
-    assert find_unknown_workstation_references(technicians, workstations) == []
+def test_technicians_have_no_workstation_lists(technicians):
+    # anyone takes any call on any workstation, so technicians aren't tied to workstations
+    for tech in technicians.values():
+        assert not hasattr(tech, "workstation_ids") and not hasattr(tech, "covers")
 
 
-def test_dangling_workstation_reference_is_reported(technicians, workstations):
-    technicians["T9"] = Technician("T9", "Ghost", workstation_ids=["WS-101", "WS-999"])
-    assert find_unknown_workstation_references(technicians, workstations) == [("T9", "WS-999")]
+def test_the_technician_file_has_only_ids_and_names():
+    with open(TECHNICIANS_PATH, encoding="utf-8") as data_file:
+        records = [json.loads(line) for line in data_file if line.strip()]
+    assert all(set(record) == {"tech_id", "name"} for record in records)
 
 
-def test_technician_rejects_malformed_workstation_ids():
-    with pytest.raises(ValueError, match="Technician 'T9': workstation_ids must be a list"):
-        Technician.from_dict({"tech_id": "T9", "name": "Ghost", "workstation_ids": "WS-101"})
+@pytest.mark.parametrize("old_list", [["WS-101", "WS-102"], "WS-101", [1, 2]],
+                         ids=["a-list", "not-a-list", "not-ids"])
+def test_an_old_files_workstation_list_is_ignored(old_list):
+    tech = Technician.from_dict({"tech_id": "T9", "name": "Ghost", "workstation_ids": old_list})
+    assert (tech.tech_id, tech.name) == ("T9", "Ghost") and not hasattr(tech, "workstation_ids")
 
 
 # --- who gets a call ---
@@ -182,13 +185,6 @@ def test_the_default_desk_picks_with_pythons_random(desk, alerts):
     (offered,), _ = choice.call_args
     assert [t.tech_id for t in offered] == ["T1", "T2", "T3", "T4"]
     assert request.assigned_tech_id == "T4"
-
-
-def test_coverage_no_longer_limits_who_takes_a_call(make_desk, alerts):
-    # X covers WS-104, Y covers nothing; both get WS-104 calls
-    team = {"X": Technician("X", "Covers it", workstation_ids=["WS-104"]), "Y": Technician("Y", "Doesn't")}
-    desk = make_desk(team)
-    assert sorted(take_calls(desk, alerts, 2)) == ["X", "Y"]
 
 
 def test_the_dashboards_own_machine_spreads_calls_to_everyone(desk, alerts):
