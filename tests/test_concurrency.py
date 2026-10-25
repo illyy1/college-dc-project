@@ -197,7 +197,12 @@ def test_a_failing_source_leaves_no_unhandled_task_errors(no_latency, tmp_path):
 def waits_for_lock(lock, action):
     """True if action blocks while lock is held, then completes once it is released."""
     finished = threading.Event()
-    thread = threading.Thread(target=lambda: (action(), finished.set()), daemon=True)
+
+    def run():
+        action()
+        finished.set()
+
+    thread = threading.Thread(target=run, daemon=True)
     with lock:
         thread.start()
         blocked = not finished.wait(0.2)
@@ -228,7 +233,12 @@ def test_a_free_lock_does_not_block():
     # control for the helper above: with nothing holding the lock, the action finishes at once
     alert_log = LockedAlertLog()
     finished = threading.Event()
-    threading.Thread(target=lambda: (alert_log.snapshot(), finished.set())).start()
+
+    def take_snapshot():
+        alert_log.snapshot()
+        finished.set()
+
+    threading.Thread(target=take_snapshot).start()
     assert finished.wait(0.2)
 
 

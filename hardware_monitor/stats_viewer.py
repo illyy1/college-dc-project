@@ -22,13 +22,14 @@ PIE_DIAMETER, PIE_MARGIN = 180, 12
 LEGEND_ROW_HEIGHT = 22
 NO_CALLS = "No calls yet"
 TEXT_FONT = "TkFixedFont"  # monospaced, so the columns line up
-MAIN_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")
+_PROJECT_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MAIN_SCRIPT = os.path.join(_PROJECT_ROOT, "main.py")
 STOP_TIMEOUT_SECONDS = 5
 
 
 # --- the text of each section ---
 
-def _calls(count, column=False):
+def _calls(count: int, column=False):
     """'1 call' / '3 calls'. As a column ('  1 call ' / '  3 calls') the
     numbers and the word line up from row to row."""
     word = "call" if count == 1 else "calls"

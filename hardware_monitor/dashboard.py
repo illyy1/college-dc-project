@@ -65,7 +65,7 @@ class HardwareMonitorApp:
         self._shown_at = {}                  # alert_key -> when its popup appeared
         self._closed_at = {}                 # alert_key -> when its popup was last closed
         self._popup_slots = {}               # alert_key -> screen slot (0 = top), so popups don't overlap
-        self._last_issue_at = {}             # alert_key -> when a GitHub issue was last posted for it
+        self._last_issue_at: dict[str, float] = {}  # alert_key -> when a GitHub issue was last posted for it
         self._last_popup_at = time.time()    # for the quiet-period watchdog
 
         self.mic_source = SyntheticMicrophoneSource()
@@ -192,8 +192,8 @@ class HardwareMonitorApp:
         posted for this fault type in the last GITHUB_ISSUE_COOLDOWN_SECONDS.
         The popup and maintenance call still happen either way."""
         with self._popup_lock:
-            last = self._last_issue_at.get(alert_key)
-            if last is not None and time.time() - last < GITHUB_ISSUE_COOLDOWN_SECONDS:
+            last = self._last_issue_at.get(alert_key, float("-inf"))  # never posted: as if long ago
+            if time.time() - last < GITHUB_ISSUE_COOLDOWN_SECONDS:
                 minutes_left = (GITHUB_ISSUE_COOLDOWN_SECONDS - (time.time() - last)) / 60
                 print(f"GitHub issue for {alert_key} skipped: one was posted recently "
                       f"(next allowed in {minutes_left:.0f} min). The maintenance call was still opened.")

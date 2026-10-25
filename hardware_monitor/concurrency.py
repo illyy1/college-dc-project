@@ -37,9 +37,10 @@ async def fetch_statuses_sequential(workstations: list[Workstation]) -> list[dic
 
 async def fetch_statuses_concurrent(workstations: list[Workstation]) -> list[dict]:
     """Fetch independent workstations concurrently while preserving input order."""
-    return await asyncio.gather(
+    # gather() returns a list; list() also tells type checkers so, as its stubs say tuple
+    return list(await asyncio.gather(
         *(_fetch_workstation_status(workstation) for workstation in workstations)
-    )
+    ))
 
 
 async def _gather_fleet_status(workstations_path: str) -> dict:

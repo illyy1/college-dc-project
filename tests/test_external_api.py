@@ -19,7 +19,7 @@ from hardware_monitor.github_client import (
     create_issue,
 )
 
-def send(token="secret-token", **kwargs):
+def send(token: str | None = "secret-token", **kwargs):
     return create_issue(token, "owner/repo", "Camera down", "details", labels=["hardware-alert", "camera"], **kwargs)
 
 

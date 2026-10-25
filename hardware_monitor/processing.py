@@ -60,7 +60,7 @@ class Alert:
 def workstation_then_priority(alert):
     """Sort key (a plain named function): groups alerts by workstation, most
     urgent first inside each workstation."""
-    return (alert.workstation_id, alert.priority)
+    return alert.workstation_id, alert.priority
 
 
 class AlertManager:

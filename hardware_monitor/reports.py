@@ -94,7 +94,7 @@ def generate_maintenance_history_report(log_path):
     return history
 
 
-def export_maintenance_history_csv(log_path, csv_path, verbose=True):
+def export_maintenance_history_csv(log_path: str, csv_path: str, verbose=True):
     """Writes the maintenance history to a CSV file (opens in Excel). A file
     held for a moment by another program is tried again; one that stays held
     (open in Excel) raises PermissionError after the last attempt."""
