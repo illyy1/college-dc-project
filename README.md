@@ -156,7 +156,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, network error, incomplete reply) comes back as a result instead of an exception. Temporary failures (timeouts, network errors, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …) and incomplete replies are not retried.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
-- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 4 synthetic technicians (an id and a name each); any of them can take any call.
+- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 10 synthetic technicians (an id and a name each); any of them can take any call.
 - `tests/` — the pytest regression suite (see Testing). `.github/workflows/tests.yml` — runs it on GitHub.
 - `AI_USAGE.md` — how AI was used. `pyproject.toml`, `requirements.txt`, `.gitignore` — project settings.
 
