@@ -292,8 +292,8 @@ def run_main(monkeypatch):
     each failing with the error given, and returns main's exit code."""
     def run(*flags, demo_error=None, report_error=None, dashboard_error=None):
         monkeypatch.setattr(sys, "argv", ["main.py", *flags])
-        with mock.patch.object(main, "run_demo", side_effect=demo_error), \
-                mock.patch.object(main, "publish_maintenance_reports", side_effect=report_error), \
+        with mock.patch("main.run_demo", side_effect=demo_error), \
+                mock.patch("main.publish_maintenance_reports", side_effect=report_error), \
                 mock.patch("hardware_monitor.dashboard.HardwareMonitorApp") as app_class:
             app_class.return_value.start.side_effect = dashboard_error
             return main.main()
