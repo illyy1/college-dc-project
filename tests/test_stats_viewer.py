@@ -54,7 +54,7 @@ from hardware_monitor import stats_viewer
 from hardware_monitor.config import MAINTENANCE_LOG_PATH, TECHNICIANS_PATH
 from hardware_monitor.stats import compute_stats
 from conftest import BAD_FIELDS
-from fake_tk import FAKE_TK, FakeCanvas
+from fake_tk import FAKE_TK, FakeCanvas, FakeTk
 from hardware_monitor.stats_viewer import (
     BAR_WIDTH,
     PIE_COLORS,
@@ -165,7 +165,7 @@ def log(write_jsonl, history):
 @pytest.fixture
 def open_viewer(monkeypatch, log, technicians_file):
     """Opens the viewer on a log and the test team's technician file."""
-    monkeypatch.setattr(stats_viewer, "tk", FAKE_TK)
+    monkeypatch.setattr("hardware_monitor.stats_viewer.tk", FAKE_TK)
 
     def build(log_path=log.path, **options):
         return StatsViewer(log_path, technicians_file, **options)
@@ -261,7 +261,8 @@ def test_closing_stops_the_refreshes(open_viewer):
 
 def test_closing_still_works_if_cancelling_the_refresh_fails(open_viewer):
     viewer = open_viewer()
-    with mock.patch.object(viewer.root, "after_cancel", side_effect=FAKE_TK.TclError("already ran")):
+    root: FakeTk = viewer.root  # the fake window, which has after_cancel
+    with mock.patch.object(root, "after_cancel", side_effect=FAKE_TK.TclError("already ran")):
         viewer.close()
     assert viewer.root.destroyed and not viewer.running
 
@@ -388,7 +389,7 @@ def test_the_whole_team_fits_in_the_window(make_team, write_jsonl, make_call, mo
     technicians_path = write_jsonl("big_team.jsonl", *({"tech_id": t, "name": tech.name} for t, tech in team.items()))
     log_path = write_jsonl("big_log.jsonl", *(make_call(n, "CAMERA_FAILURE", f"T{n}", "RESOLVED")
                                                for n in range(1, 13)))
-    monkeypatch.setattr(stats_viewer, "tk", FAKE_TK)
+    monkeypatch.setattr("hardware_monitor.stats_viewer.tk", FAKE_TK)
     viewer = StatsViewer(log_path, technicians_path)
 
     canvas = viewer.technician_pie_canvas
@@ -594,7 +595,7 @@ def test_the_viewer_never_writes_to_the_log(open_viewer, log):
 # --- starting it: `python main.py --stats` ---
 
 def test_run_stats_viewer_opens_the_real_files_by_default(monkeypatch):
-    monkeypatch.setattr(stats_viewer, "tk", FAKE_TK)
+    monkeypatch.setattr("hardware_monitor.stats_viewer.tk", FAKE_TK)
     viewer = stats_viewer.run_stats_viewer()  # only reads the real files
 
     assert (viewer.log_path, viewer.technicians_path) == (MAINTENANCE_LOG_PATH, TECHNICIANS_PATH)
@@ -603,10 +604,10 @@ def test_run_stats_viewer_opens_the_real_files_by_default(monkeypatch):
 
 def test_main_stats_flag_starts_only_the_viewer(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["main.py", "--stats"])
-    monkeypatch.setattr(stats_viewer, "tk", FAKE_TK)  # never a real window, even if the wiring is wrong
+    monkeypatch.setattr("hardware_monitor.stats_viewer.tk", FAKE_TK)  # never a real window, even if the wiring is wrong
     with mock.patch("hardware_monitor.stats_viewer.run_stats_viewer") as viewer, \
-            mock.patch.object(main, "run_demo") as demo, \
-            mock.patch.object(main, "publish_maintenance_reports") as reports:
+            mock.patch("main.run_demo") as demo, \
+            mock.patch("main.publish_maintenance_reports") as reports:
         main.main()
 
     viewer.assert_called_once_with()
@@ -671,14 +672,14 @@ def test_stopping_nothing_does_nothing():
 @pytest.fixture
 def program(monkeypatch, popen):
     """Runs main.main() with the dashboard window and the demo mocked out."""
-    monkeypatch.setattr(stats_viewer, "tk", FAKE_TK)
+    monkeypatch.setattr("hardware_monitor.stats_viewer.tk", FAKE_TK)
     calls = SimpleNamespace(popen=popen)
 
     def run(*flags, dashboard_error=None):
         monkeypatch.setattr(sys, "argv", ["main.py", *flags])
         with mock.patch("hardware_monitor.dashboard.HardwareMonitorApp") as app_class, \
-                mock.patch.object(main, "run_demo") as demo, \
-                mock.patch.object(main, "publish_maintenance_reports") as reports:
+                mock.patch("main.run_demo") as demo, \
+                mock.patch("main.publish_maintenance_reports") as reports:
             app = app_class.return_value
             calls.viewer_open_when_dashboard_started = None
 
@@ -710,15 +711,15 @@ def test_closing_the_dashboard_closes_the_viewer(program):
     calls.reports.assert_called_once_with()  # the history report is still published
 
 
-def test_the_viewer_is_closed_even_if_the_dashboard_crashes(program):
+def test_the_viewer_is_closed_even_if_the_dashboard_crashes(program, popen):
     with pytest.raises(RuntimeError, match="dashboard crashed"):
         program(dashboard_error=RuntimeError("dashboard crashed"))
     # program() raised, so look at the mock directly
-    stats_viewer.subprocess.Popen.return_value.terminate.assert_called_once_with()
+    popen.return_value.terminate.assert_called_once_with()
 
 
-def test_the_dashboard_still_runs_if_the_viewer_cannot_start(program, capsys):
-    stats_viewer.subprocess.Popen.side_effect = OSError("no such file")
+def test_the_dashboard_still_runs_if_the_viewer_cannot_start(program, popen, capsys):
+    popen.side_effect = OSError("no such file")
     calls = program()
     calls.app.start.assert_called_once_with()
     assert "Could not open the statistics window" in capsys.readouterr().out

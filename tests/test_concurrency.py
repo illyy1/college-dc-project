@@ -155,7 +155,7 @@ def test_blocking_file_reads_do_not_freeze_the_event_loop(no_latency, monkeypatc
         time.sleep(0.3)  # blocking, like a slow network drive
         return real_load(path)
 
-    monkeypatch.setattr(concurrency, "load_workstations_from_jsonl", slow_disk)
+    monkeypatch.setattr("hardware_monitor.concurrency.load_workstations_from_jsonl", slow_disk)
 
     async def scenario():
         ticks, done = 0, False
