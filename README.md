@@ -114,7 +114,7 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
 - `tests/test_external_api.py` — the GitHub Issues API, with `requests.post` replaced by a fake so no test goes over the network:
   - **Success:** the issue number and link are returned, and the request has the right URL, payload, token and timeout.
   - **HTTP errors:** 401, 403, 404, 410, 422, 5xx and an unexpected 200, each reported with its status and GitHub's message when there is one.
-  - **Timeouts and network failures:** reported as results, never raised, so a failed alert can't crash a monitoring thread.
+  - **Timeouts and network failures:** `Timeout`, `ConnectionError` and any other `RequestException` are each caught explicitly and reported as results with their own message, never raised, so a failed alert can't crash a monitoring thread. A `ConnectTimeout` counts as a timeout, and an error from outside `requests` (a bug) is not hidden.
   - **Incomplete replies:** missing or wrongly typed `number`/`html_url`, a body that isn't JSON, or JSON that isn't an object.
   - **The dashboard:** it posts the maintenance call and technician, and prints each failure instead of crashing.
   - **Retry mechanism:** recovery after a temporary failure (timeout, network error, 429, 5xx), including on the last allowed attempt. Giving up after the maximum attempts: no extra request, no wait after the final attempt, and the last error reported. Permanent errors and incomplete replies are never retried.
@@ -165,7 +165,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting.
 - `hardware_monitor/stats.py` — `compute_stats()` / `load_stats()`: the numbers behind the statistics window, computed from the maintenance log. Covers totals, alerts by type, the per-technician spread and the recent calls.
 - `hardware_monitor/stats_viewer.py` — the live statistics window (`python main.py --stats`): text sections, two pie charts drawn on Tk canvases, and a refresh every 2 seconds.
-- `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, network error, incomplete reply) comes back as a result instead of an exception. Temporary failures (timeouts, network errors, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …) and incomplete replies are not retried.
+- `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, connection error, other request error, incomplete reply) comes back as a result instead of an exception. Temporary failures (timeouts, network errors, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …) and incomplete replies are not retried.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.
 - `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 10 synthetic technicians (an id and a name each); any of them can take any call.

@@ -69,10 +69,14 @@ def _try_once(token, repo, title, body, labels, timeout):
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"},
             timeout=timeout,
         )
+    # most specific first: ConnectTimeout is both a Timeout and a ConnectionError,
+    # and every requests error is a RequestException
     except requests.exceptions.Timeout:
         return IssueResult(False, error=f"GitHub did not answer within {timeout} s."), True
-    except requests.exceptions.RequestException as e:
-        return IssueResult(False, error=f"Network error: {e}"), True
+    except requests.exceptions.ConnectionError as e:  # DNS failure, refused/reset connection, SSL, proxy
+        return IssueResult(False, error=f"Could not connect to GitHub: {e}"), True
+    except requests.exceptions.RequestException as e:  # any other request problem: redirects, a cut-off reply, ...
+        return IssueResult(False, error=f"GitHub request failed: {e}"), True
 
     if response.status_code != 201:
         error = f"GitHub returned HTTP {response.status_code}{_api_message(response)}."
