@@ -33,6 +33,8 @@ from hardware_monitor.repository import (
     append_jsonl_record,
     delete_log,
     load_maintenance_history,
+    load_technicians_from_jsonl,
+    load_workstations_from_jsonl,
 )
 
 
@@ -222,6 +224,18 @@ def test_a_log_held_for_a_moment_still_gets_the_record(make_call, write_jsonl, r
     assert retry_waits == FILE_WAITS
 
 
+@pytest.mark.parametrize("loader, line", [
+    (load_workstations_from_jsonl, {"component_type": "Camera", "component_id": "CAM-1", "workstation_id": "WS-1"}),
+    (load_technicians_from_jsonl, {"tech_id": "T1", "name": "Dana Levi"}),
+    (load_maintenance_history, {"request_id": "MR-0001", "status": "IN_PROGRESS"}),
+], ids=["fleet", "technicians", "maintenance-log"])
+def test_a_file_held_for_a_moment_is_still_read(write_jsonl, retry_waits, loader, line):
+    path = write_jsonl("held.jsonl", line)
+    with file_locked("repository", path, times=1):
+        assert len(loader(path)) == 1
+    assert retry_waits == FILE_WAITS[:1]
+
+
 def test_a_demo_log_held_for_a_moment_is_still_reset(write_jsonl, retry_waits):
     log = write_jsonl("demo_log.jsonl", {"alert_id": 1})
     real_remove, calls = os.remove, []
@@ -323,8 +337,16 @@ CSV_LOCKED = PermissionError(13, "Permission denied", "logs/maintenance_report.c
 def test_a_report_that_cannot_be_written_is_explained(run_main, capsys, flags):
     assert run_main(*flags, report_error=CSV_LOCKED) == 1
     error = capsys.readouterr().err
-    assert "Could not write the maintenance report" in error and "Is it open in Excel?" in error
+    assert "Could not create the maintenance report" in error and "Is it open in Excel?" in error
     assert "logs/maintenance_report.csv" in error
+
+
+def test_a_log_that_cannot_be_read_is_not_blamed_on_excel(run_main, capsys):
+    log_locked = PermissionError(13, "Permission denied", "logs/maintenance_requests.jsonl")
+    assert run_main("--report", report_error=log_locked) == 1
+    error = capsys.readouterr().err
+    assert "Could not create the maintenance report" in error and "logs/maintenance_requests.jsonl" in error
+    assert "Excel" not in error
 
 
 def test_a_dashboard_crash_is_not_hidden_by_a_failed_report(run_main):

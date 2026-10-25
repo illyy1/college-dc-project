@@ -141,7 +141,7 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **A diagnostic that crashes:** the component is marked `ERROR` and alerted, and the sweep goes on.
   - **A log line half-written when the program was killed:** the next record starts on a fresh line, and the desk keeps numbering correctly.
   - **`--report` end to end:** it prints the history and exports the CSV, creating the folder if needed. Unlike the automatic refresh, it fails loudly if the CSV can't be written.
-  - **A file held for a moment by another program** (antivirus, OneDrive, the search indexer): a log or report write, or resetting a demo log, is retried; a full disk is not.
+  - **A file held for a moment by another program** (antivirus, OneDrive, the search indexer): reading a data file or log, a log or report write, and resetting a demo log are retried; a full disk is not.
   - **A maintenance log that can't be written:** the call is still opened and kept in the run, and the log catches up on the call's next change. Any CSV write error, not only Excel's lock, leaves the call alone.
   - **The live dashboard keeps monitoring:** a fault still gets its call when the alert log can't be written, and a monitoring loop that crashes is reported and restarted.
   - **`main.py` explains instead of a traceback:** a report it can't write, or a data file or log that is missing, broken, unreadable or still locked, gives a one-line message and exit code 1. A bug is still raised, and a dashboard crash is not hidden by a failed report.
@@ -159,7 +159,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `main.py` — entry point only: reads the command-line flags and calls the package. No business classes. Exits with 1 and a one-line message for a file problem: a report it can't write, or a data file or log that is missing, broken, unreadable or still locked.
 - `hardware_monitor/__init__.py` — package definition and public API.
 - `hardware_monitor/models.py` — `HardwareComponent`, `Camera`, `Microphone`, `Workstation`, `Technician`, `MaintenanceRequest` (OOP, validation, `from_dict` factories).
-- `hardware_monitor/repository.py` — loads `data/*.jsonl` line by line into objects and validates them (a bad line raises `DataFileError`), and appends to the logs, retrying a file another program holds for a moment.
+- `hardware_monitor/repository.py` — loads `data/*.jsonl` line by line into objects and validates them (a bad line raises `DataFileError`), and reads and appends to the logs, retrying a file another program holds for a moment.
 - `hardware_monitor/processing.py` — `Alert`, `AlertManager` (list, dict, set, deque, heapq, comprehensions, sorting) and the polymorphic diagnostics sweep.
 - `hardware_monitor/iterators.py` — `AlertHistory`/`ActiveAlertIterator`, a generator and the 3-step lazy pipeline.
 - `hardware_monitor/context_managers.py` — `DiagnosticConnection`.
@@ -170,7 +170,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting. A monitoring loop that crashes is restarted after 3 s.
 - `hardware_monitor/stats.py` — `compute_stats()` / `load_stats()`: the numbers behind the statistics window, computed from the maintenance log. Covers totals, alerts by type, the per-technician spread and the recent calls.
 - `hardware_monitor/stats_viewer.py` — the live statistics window (`python main.py --stats`): text sections, two pie charts drawn on Tk canvases, and a refresh every 2 seconds.
-- `hardware_monitor/retry.py` — `retry()`: the one retry loop the project uses (a doubling wait, no wait after the last attempt, only the errors the caller lists as temporary are retried). Log appends and the CSV report retry a `PermissionError` 3 times, waiting 0.1 s and then 0.2 s.
+- `hardware_monitor/retry.py` — `retry()`: the one retry loop the project uses (a doubling wait, no wait after the last attempt, only the errors the caller lists as temporary are retried). Reading the data files and logs, log appends, the CSV report and resetting the demo logs retry a `PermissionError` 3 times, waiting 0.1 s and then 0.2 s.
 - `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, connection error, other request error, incomplete reply) comes back as a result instead of an exception. Temporary failures (timeouts, connection errors, a reply cut off mid-way, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …, a bad URL or header, a redirect loop) and incomplete replies are not retried. Error messages never include the token.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants and GitHub token decryption.

@@ -9,11 +9,20 @@ from datetime import datetime
 from .models import HardwareComponent, Workstation, Technician
 from .retry import retry
 
-# a log or report another program holds for a moment (antivirus, OneDrive, the
-# search indexer; on Windows that is a PermissionError) is tried again shortly
+# a data file, log or report another program holds for a moment (antivirus,
+# OneDrive, the search indexer; on Windows that is a PermissionError) is tried
+# again shortly, whether it is being read, written or deleted
 FILE_WRITE_ATTEMPTS = 3
 FILE_RETRY_BACKOFF_SECONDS = 0.1  # waits 0.1 s, then 0.2 s
 TEMPORARY_FILE_ERRORS = (PermissionError,)
+
+
+def _open_for_reading(path):
+    """open(path) for reading, trying a file another program holds for a
+    moment again. A missing file (FileNotFoundError) is raised at once."""
+    return retry(lambda: open(path, "r", encoding="utf-8"), retry_on=TEMPORARY_FILE_ERRORS,
+                 max_attempts=FILE_WRITE_ATTEMPTS, backoff_seconds=FILE_RETRY_BACKOFF_SECONDS,
+                 label=f"Reading {path}")
 
 
 class DataFileError(ValueError):
@@ -43,7 +52,7 @@ def load_workstations_from_jsonl(path):
     workstations = {}
     seen_component_ids = set()
 
-    with open(path, "r", encoding="utf-8") as data_file:
+    with _open_for_reading(path) as data_file:
         for line_number, line in enumerate(data_file, start=1):
             line = line.strip()
             if not line:
@@ -80,7 +89,7 @@ def load_technicians_from_jsonl(path):
     that id."""
     technicians = {}
 
-    with open(path, "r", encoding="utf-8") as data_file:
+    with _open_for_reading(path) as data_file:
         for line_number, line in enumerate(data_file, start=1):
             line = line.strip()
             if not line:
@@ -216,7 +225,7 @@ def _numbered_records(path, reported):
     if not os.path.exists(path):
         return
 
-    with open(path, "r", encoding="utf-8") as log_file:
+    with _open_for_reading(path) as log_file:
         for line_number, line in enumerate(log_file, start=1):
             line = line.strip()
             if not line:

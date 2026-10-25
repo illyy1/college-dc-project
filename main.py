@@ -85,14 +85,16 @@ def _run(args):
 
 
 def _publish_reports():
-    """publish_maintenance_reports(), explaining a report that can't be written
-    instead of ending with a traceback. Returns whether it was written."""
+    """publish_maintenance_reports(), explaining a report that can't be created
+    (the log can't be read, or the CSV can't be written) instead of ending
+    with a traceback. Returns whether it was created."""
     try:
         publish_maintenance_reports()
         return True
     except OSError as error:
-        hint = " Is it open in Excel?" if isinstance(error, PermissionError) else ""
-        print(f"Could not write the maintenance report: {error}.{hint} The calls are still in the "
+        csv_locked = isinstance(error, PermissionError) and str(error.filename).endswith(".csv")
+        hint = " Is it open in Excel?" if csv_locked else ""
+        print(f"Could not create the maintenance report: {error}.{hint} The calls are still in the "
               f"maintenance log; run `python main.py --report` to try again.", file=sys.stderr)
         return False
 
