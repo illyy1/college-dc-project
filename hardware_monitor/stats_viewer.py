@@ -1,10 +1,13 @@
-"""Standalone live statistics window (`python main.py --stats`). It re-reads
-the maintenance log every few seconds, so it follows the calls a running
-dashboard opens and resolves, even from another process. It shows a
-summary, two pie charts (each technician's share of the calls and each
-alert type's share), the per-technician spread, and the recent calls with
-who took each one."""
+"""Live statistics window. `python main.py --stats` opens it alone;
+`python main.py` opens it as a separate process next to the dashboard. It
+re-reads the maintenance log every few seconds, so it follows the calls the
+dashboard opens and resolves. It shows a summary, two pie charts (each
+technician's share of the calls and each alert type's share), the
+per-technician spread, and the recent calls with who took each one."""
 
+import os
+import subprocess
+import sys
 import tkinter as tk
 from dataclasses import dataclass
 
@@ -17,6 +20,8 @@ PIE_COLORS = ("#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#76b7b2", "#edc948", 
 PIE_DIAMETER, PIE_MARGIN = 180, 12
 NO_CALLS = "No calls yet"
 TEXT_FONT = "TkFixedFont"  # monospaced, so the columns line up
+MAIN_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")
+STOP_TIMEOUT_SECONDS = 5
 
 
 # --- the text of each section ---
@@ -217,3 +222,29 @@ def run_stats_viewer(log_path=MAINTENANCE_LOG_PATH, technicians_path=TECHNICIANS
     viewer = StatsViewer(log_path, technicians_path)
     viewer.run()
     return viewer
+
+
+# --- running next to the dashboard ---
+# The viewer has its own Tk window and event loop, so it runs as a separate
+# process rather than a second window inside the dashboard's process.
+
+def launch_in_background():
+    """Starts the viewer (`main.py --stats`) with this same Python. Returns
+    the process, or None if it could not start: the dashboard runs anyway."""
+    try:
+        return subprocess.Popen([sys.executable, MAIN_SCRIPT, "--stats"])
+    except OSError as error:
+        print(f"Could not open the statistics window ({error}); the dashboard runs without it.")
+        return None
+
+
+def stop_background_viewer(process):
+    """Closes the viewer if it is still open; kills it if it won't close."""
+    if process is None or process.poll() is not None:
+        return  # never started, or the window was already closed by hand
+    process.terminate()
+    try:
+        process.wait(timeout=STOP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()

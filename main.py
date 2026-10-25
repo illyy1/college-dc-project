@@ -2,10 +2,12 @@
 
 Runs the linear demonstration of the information system (hardware_monitor/
 demo.py), then launches the live hardware-monitoring dashboard for this
-machine. When the dashboard is closed, the maintenance history report is
-printed and exported to CSV.
+machine, with the live alert statistics window next to it. When the
+dashboard is closed, the statistics window closes too and the maintenance
+history report is printed and exported to CSV.
 
-    python main.py                  demo + live dashboard + history report
+    python main.py                  demo + live dashboard and statistics window + history report
+    python main.py --no-stats       the same, without the statistics window
     python main.py --no-dashboard   demo + history report, no window (runs start to finish)
     python main.py --report         only print/export the maintenance history report
     python main.py --stats          only open the live alert statistics window
@@ -34,6 +36,8 @@ def main():
                         help="run the demo and reports without opening the live dashboard window")
     parser.add_argument("--stats", action="store_true",
                         help="only open the live alert statistics window (follows the maintenance log)")
+    parser.add_argument("--no-stats", action="store_true",
+                        help="open the dashboard without the statistics window next to it")
     args = parser.parse_args()
 
     if args.report:
@@ -54,13 +58,16 @@ def main():
 
     # imported here so --report and --no-dashboard work without tkinter installed
     from hardware_monitor.dashboard import HardwareMonitorApp
+    from hardware_monitor.stats_viewer import launch_in_background, stop_background_viewer
 
     print("\nLaunching live hardware monitoring dashboard for this workstation...")
     app = HardwareMonitorApp()  # uses the real maintenance log, not the demo one
+    viewer = None if args.no_stats else launch_in_background()  # follows the same log, in its own window
     try:
         app.start()
     finally:
         # also runs on Ctrl+C; the CSV itself is already refreshed on every call change
+        stop_background_viewer(viewer)
         publish_maintenance_reports()
 
 

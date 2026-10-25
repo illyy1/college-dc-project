@@ -51,10 +51,11 @@ Without `.env`, everything still runs: the dashboard prints a warning and shows 
 ## Running the project
 | Command | What it does |
 |---|---|
-| `python main.py` | Runs the step-by-step demonstration, then opens the live monitoring dashboard. When the dashboard closes, it prints and exports the maintenance history report. |
+| `python main.py` | Runs the step-by-step demonstration, then opens the live monitoring dashboard with the live statistics window next to it (see `--stats`). When the dashboard closes, the statistics window closes too, and the maintenance history report is printed and exported. |
+| `python main.py --no-stats` | The same, without the statistics window. |
 | `python main.py --no-dashboard` | Runs the demonstration and the history report from start to finish without opening a window. |
 | `python main.py --report` | Only prints the maintenance history report and exports it to `logs/maintenance_report.csv`. |
-| `python main.py --stats` | Opens the live alert statistics window. It re-reads the maintenance log every 2 seconds, so it follows a dashboard running at the same time, even in another terminal. It shows:<ul><li>a summary;</li><li>a pie chart of each technician's share of the calls, and one of each alert type's share;</li><li>alerts by type (camera, microphone, other);</li><li>each technician's calls, open and resolved, with their share and a bar;</li><li>the latest calls and who took each.</li></ul> |
+| `python main.py --stats` | Opens only the live alert statistics window. It re-reads the maintenance log every 2 seconds, so it follows a dashboard running at the same time, even in another terminal. It shows:<ul><li>a summary;</li><li>a pie chart of each technician's share of the calls, and one of each alert type's share;</li><li>alerts by type (camera, microphone, other);</li><li>each technician's calls, open and resolved, with their share and a bar;</li><li>the latest calls and who took each.</li></ul> |
 
 The dashboard drives its microphone/camera alerts off synthetic signals (`hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behaviour can be tested on demand.
 
