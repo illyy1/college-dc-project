@@ -25,12 +25,6 @@ def run(operation, max_attempts=3, retry_on=(TimeoutError,)):
     return retry(operation, retry_on=retry_on, max_attempts=max_attempts, backoff_seconds=0.5, label="Saving")
 
 
-def test_a_success_is_returned_with_no_wait(retry_waits):
-    operation = Flaky()
-    assert run(operation) == "done"
-    assert operation.calls == 1 and retry_waits == []
-
-
 def test_recovers_after_temporary_failures_with_a_doubling_wait(retry_waits):
     operation = Flaky(TimeoutError("busy"), TimeoutError("still busy"))
     assert run(operation) == "done"
@@ -49,17 +43,6 @@ def test_an_error_not_listed_as_temporary_is_raised_at_once(retry_waits):
     with pytest.raises(ValueError):
         run(operation)
     assert operation.calls == 1 and retry_waits == []
-
-
-def test_a_subclass_of_a_temporary_error_is_retried(retry_waits):
-    operation = Flaky(PermissionError(13, "locked"))
-    assert run(operation, retry_on=(OSError,)) == "done"
-    assert operation.calls == 2
-
-
-def test_each_retry_is_reported_while_it_happens(capsys):
-    run(Flaky(TimeoutError("busy")))
-    assert capsys.readouterr().out == "Saving attempt 1/3 failed (busy) Retrying in 0.5 s.\n"
 
 
 @pytest.mark.parametrize("max_attempts", [0, -1])

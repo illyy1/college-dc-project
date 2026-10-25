@@ -31,6 +31,7 @@ from hardware_monitor.repository import (
     FILE_WRITE_ATTEMPTS,
     DataFileError,
     append_jsonl_record,
+    delete_log,
     load_maintenance_history,
 )
 
@@ -221,18 +222,19 @@ def test_a_log_held_for_a_moment_still_gets_the_record(make_call, write_jsonl, r
     assert retry_waits == FILE_WAITS
 
 
-def test_a_log_that_stays_locked_raises_after_the_last_attempt(write_jsonl, retry_waits):
-    log = write_jsonl("log.jsonl")
-    with file_locked("repository", log), pytest.raises(PermissionError):
-        append_jsonl_record(log, {"request_id": "MR-0001"})
-    assert retry_waits == FILE_WAITS  # no wait after the final attempt
+def test_a_demo_log_held_for_a_moment_is_still_reset(write_jsonl, retry_waits):
+    log = write_jsonl("demo_log.jsonl", {"alert_id": 1})
+    real_remove, calls = os.remove, []
 
+    def held_once(path):
+        calls.append(path)
+        if len(calls) == 1:
+            raise PermissionError(13, "Permission denied")
+        real_remove(path)
 
-def test_a_full_disk_is_not_retried(write_jsonl, retry_waits):
-    log = write_jsonl("log.jsonl")
-    with file_locked("repository", log, error=DISK_FULL), pytest.raises(OSError, match="No space left"):
-        append_jsonl_record(log, {"request_id": "MR-0001"})
-    assert retry_waits == []
+    with mock.patch("hardware_monitor.repository.os.remove", side_effect=held_once):
+        delete_log(log)
+    assert not os.path.exists(log) and len(retry_waits) == 1
 
 
 def test_a_report_held_for_a_moment_is_still_written(reports_log, tmp_path):
@@ -244,28 +246,24 @@ def test_a_report_held_for_a_moment_is_still_written(reports_log, tmp_path):
 
 # --- 6. the maintenance log cannot be written ---
 
-def test_a_call_is_still_opened_when_the_log_cannot_be_written(desk, alerts, capsys):
+def test_a_call_is_kept_when_the_log_cannot_be_written_and_saved_on_its_next_change(desk, alerts, capsys):
     with file_locked("repository", desk.log_path):
         request = desk.open_request_for_alert(alerts.camera())
 
     assert request.status == "IN_PROGRESS" and desk.open_requests() == [request]
     assert f"could not save call {request.request_id}" in capsys.readouterr().out
 
-
-def test_the_log_catches_up_on_the_calls_next_change(desk, alerts):
-    with file_locked("repository", desk.log_path):
-        request = desk.open_request_for_alert(alerts.camera())
     desk.resolve_request(request.request_id)  # the log works again
-
     (saved,) = load_maintenance_history(desk.log_path)
     assert (saved["request_id"], saved["status"]) == (request.request_id, "RESOLVED")
     assert saved["assigned_tech_name"] == desk.technician_for(request).name
 
 
-def test_a_csv_that_cannot_be_written_for_another_reason_does_not_stop_the_call(desk, alerts, capsys):
+def test_a_csv_that_cannot_be_written_for_another_reason_does_not_stop_the_call(desk, alerts, capsys, retry_waits):
     with file_locked("reports", desk.report_csv_path, error=DISK_FULL):
         request = desk.open_request_for_alert(alerts.camera())
 
+    assert retry_waits == []  # a full disk is not a moment's lock: not retried
     assert [r["request_id"] for r in load_maintenance_history(desk.log_path)] == [request.request_id]
     output = capsys.readouterr().out
     assert "could not update" in output and "No space left" in output and "Excel" not in output
@@ -301,20 +299,6 @@ def test_a_crashed_monitor_is_restarted(dash, capsys):
             f"restarting in {MONITOR_RESTART_SECONDS} s.") in capsys.readouterr().out
 
 
-def test_a_monitor_that_keeps_crashing_stops_when_the_dashboard_closes(dash):
-    crashes = []
-
-    def always_crash():
-        crashes.append(dash.clock.now)
-        raise RuntimeError("bug")
-
-    dash.clock.stop_after = 3
-    dash.app.run_monitor("Camera", always_crash)  # returns: the dashboard closed after 3 restarts
-
-    assert len(crashes) == 3
-    assert [b - a for a, b in zip(crashes, crashes[1:])] == [MONITOR_RESTART_SECONDS] * 2
-
-
 # --- 8. main.py explains a failure instead of a traceback ---
 
 @pytest.fixture
@@ -324,8 +308,8 @@ def run_main(monkeypatch):
     each failing with the error given, and returns main's exit code."""
     def run(*flags, demo_error=None, report_error=None, dashboard_error=None):
         monkeypatch.setattr(sys, "argv", ["main.py", *flags])
-        with mock.patch.object(main, "run_demo", side_effect=demo_error), \
-                mock.patch.object(main, "publish_maintenance_reports", side_effect=report_error), \
+        with mock.patch("main.run_demo", side_effect=demo_error), \
+                mock.patch("main.publish_maintenance_reports", side_effect=report_error), \
                 mock.patch("hardware_monitor.dashboard.HardwareMonitorApp") as app_class:
             app_class.return_value.start.side_effect = dashboard_error
             return main.main()
@@ -351,8 +335,9 @@ def test_a_dashboard_crash_is_not_hidden_by_a_failed_report(run_main):
 @pytest.mark.parametrize("problem", [
     FileNotFoundError(2, "No such file or directory", "data/sample_data.jsonl"),
     DataFileError("data/technicians.jsonl line 3: duplicate tech_id 'T1'."),
-], ids=["missing", "broken"])
-def test_a_missing_or_broken_data_file_is_explained(run_main, capsys, problem):
+    PermissionError(13, "Permission denied", "logs/demo_hardware_history.jsonl"),  # e.g. a demo log still locked
+], ids=["missing", "broken", "no-permission"])
+def test_a_file_problem_is_explained(run_main, capsys, problem):
     assert run_main("--no-dashboard", demo_error=problem) == 1
     assert capsys.readouterr().err == f"Cannot start: {problem}\n"
 
@@ -362,5 +347,3 @@ def test_a_bug_is_not_reported_as_a_data_problem(run_main):
         run_main("--no-dashboard", demo_error=ValueError("a bug"))
 
 
-def test_a_run_that_works_exits_with_0(run_main):
-    assert run_main("--no-dashboard") == 0

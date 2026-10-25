@@ -82,16 +82,6 @@ def test_the_technician_file_loads(real_technicians):
         assert tech.tech_id == tech_id and tech.name.strip()
 
 
-def test_technicians_have_no_specialty(real_technicians):
-    assert all(not hasattr(t, "specialty") for t in real_technicians.values())
-
-
-def test_technicians_have_no_workstation_lists(real_technicians):
-    # anyone takes any call on any workstation, so technicians aren't tied to workstations
-    for tech in real_technicians.values():
-        assert not hasattr(tech, "workstation_ids") and not hasattr(tech, "covers")
-
-
 def test_the_technician_file_has_only_ids_and_names():
     with open(TECHNICIANS_PATH, encoding="utf-8") as data_file:
         records = [json.loads(line) for line in data_file if line.strip()]

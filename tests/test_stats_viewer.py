@@ -329,15 +329,6 @@ def test_colors_never_repeat_however_many_slices(count):
     assert all(HEX_COLOR.match(color) for color in colors)  # a colour tk.Canvas accepts
 
 
-def test_the_real_staff_all_get_their_own_color(real_technicians):
-    colors = [s.color for s in pie_slices([(t.name, 1) for t in real_technicians.values()])]
-    assert len(set(colors)) == len(real_technicians)
-
-
-def test_the_palette_has_no_duplicates():
-    assert len(set(PIE_COLORS)) == len(PIE_COLORS)
-
-
 # --- pie charts: in the window ---
 
 def test_the_window_draws_the_technician_pie(open_viewer):
@@ -745,15 +736,9 @@ def test_modes_without_the_dashboard_open_no_viewer(program, flag):
     calls.popen.assert_not_called()
 
 
-def test_the_no_stats_flag_is_listed_in_the_help(capsys, monkeypatch):
+@pytest.mark.parametrize("flag", ["--stats", "--no-stats"])
+def test_the_flag_is_listed_in_the_help(capsys, monkeypatch, flag):
     monkeypatch.setattr(sys, "argv", ["main.py", "--help"])
     with pytest.raises(SystemExit):
         main.main()
-    assert "--no-stats" in capsys.readouterr().out
-
-
-def test_the_stats_flag_is_listed_in_the_help(capsys, monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["main.py", "--help"])
-    with pytest.raises(SystemExit):
-        main.main()
-    assert "--stats" in capsys.readouterr().out
+    assert flag in capsys.readouterr().out

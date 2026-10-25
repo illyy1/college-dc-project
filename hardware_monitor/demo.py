@@ -5,7 +5,6 @@ maintenance workflow, async information gathering). run_demo() runs them in
 order without any interactive input."""
 
 import asyncio
-import os
 import time
 from itertools import islice
 
@@ -21,7 +20,7 @@ from .reports import (
     find_unknown_technician_references,
     generate_technician_workload_report,
 )
-from .repository import load_workstations_from_jsonl, load_technicians_from_jsonl, load_maintenance_history
+from .repository import delete_log, load_workstations_from_jsonl, load_technicians_from_jsonl, load_maintenance_history
 
 
 def run_demo():
@@ -94,8 +93,7 @@ def demo_composition():
 
 def demo_polymorphic_diagnostics(workstations):
     # the demo fleet is synthetic: its alerts go to a separate log, reset every run
-    if os.path.exists(DEMO_LOG_PATH):
-        os.remove(DEMO_LOG_PATH)
+    delete_log(DEMO_LOG_PATH)
     alert_manager = AlertManager(log_path=DEMO_LOG_PATH)
     run_diagnostics_and_log_alerts(workstations, alert_manager)
     print(f"  Logged {len(alert_manager.alert_history)} alert(s) from failed diagnostics.")
@@ -244,8 +242,7 @@ def demo_maintenance_workflow(alert_manager, workstations):
 
     The demo fleet is synthetic, so its calls go to a separate log that is
     reset every run and never reach the real maintenance history."""
-    if os.path.exists(DEMO_MAINTENANCE_LOG_PATH):
-        os.remove(DEMO_MAINTENANCE_LOG_PATH)
+    delete_log(DEMO_MAINTENANCE_LOG_PATH)
     technicians = load_technicians_from_jsonl(TECHNICIANS_PATH)
 
     print(f"  Loaded {len(technicians)} technician(s); any of them can take any call.")

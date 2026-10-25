@@ -23,8 +23,9 @@ from hardware_monitor.repository import DataFileError
 
 def main():
     """Runs the mode chosen on the command line. Returns the exit code: 0, or
-    1 after explaining a report that couldn't be written or a data file that
-    is missing or broken. Any other error is a bug and is raised as usual."""
+    1 after explaining a file problem: a report that couldn't be written, a data
+    file that is missing, broken or unreadable, or a log still locked after the
+    retries. Any other error is a bug and is raised as usual."""
     # the Hebrew messages crash on Windows when output is redirected to a file
     # (cp1252 cannot encode them), so always print UTF-8. IDLE and Jupyter
     # replace stdout with their own stream, which has no reconfigure() but
@@ -46,7 +47,7 @@ def main():
 
     try:
         return _run(args)
-    except (FileNotFoundError, DataFileError) as error:
+    except (OSError, DataFileError) as error:
         print(f"Cannot start: {error}", file=sys.stderr)
         return 1
 

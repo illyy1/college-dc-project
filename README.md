@@ -101,13 +101,13 @@ A check in `conftest.py` enforces this. It records every project file before the
 
 The suite guarantees that new code doesn't break the Phase 1 logic:
 - `tests/test_models.py`, `tests/test_processing.py`, `tests/test_maintenance.py` — the models and validation, alert queues and data structures, and the maintenance desk.
-- `tests/test_phase1_regression.py` — every other Phase 1 behaviour: the custom iterator, the generator, the lazy pipeline (including stopping at the limit), `DiagnosticConnection`, the abstract `HardwareComponent` and its `from_dict` factory, loader validation, the reports and CSV export, and a run of the whole demo (all 11 steps).
+- `tests/test_phase1_regression.py` — every other Phase 1 behaviour: the custom iterator, the generator, the lazy pipeline (including stopping at the limit), `DiagnosticConnection`, the abstract `HardwareComponent` and its `from_dict` factory, loader validation, the reports, and a run of the whole demo (all 11 steps).
 - `tests/test_business_logic_edge_cases.py` — business logic and edge cases:
   - **Boundaries:** the 8000 Hz sample-rate threshold, the 3-year age cut-off, the smallest valid resolution, a limit of 0.
   - **Empty inputs:** empty files, fleets and alert queues.
   - **Invalid inputs:** wrong types, blank ids, impossible dates, records that aren't JSON objects, foreign or duplicate components.
   - **Maintenance rules:** a workstation in no technician's list still gets a technician, two technicians share open calls evenly, open calls survive a restart.
-  - **Phase 2 concurrency:** threads never overlap log writes or reuse a call number, and the async overview matches the sequential one.
+  - **Phase 2 concurrency:** threads never lose an alert record, batches stay together, and the async overview matches the sequential one.
 - `tests/test_design_patterns.py` — the two design patterns (see Design patterns):
   - **Factory:** picks the right product, gives each product only its own fields and validation, builds the same object as direct construction, and picks up a new subclass with no changes to the factory.
   - **Strategy:** each strategy's rule on its own, the cases where they disagree, the default, swapping on a running desk, and a custom strategy receiving only eligible technicians.
@@ -129,7 +129,7 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **Data files:** a missing data file stops loading. A bad line raises `DataFileError` (a `ValueError`) naming the file and line, with the parser's internal error hidden.
   - **Programming errors:** an unknown package attribute raises `AttributeError`, and the abstract base methods refuse to run.
 
-  Across the suite, 54 `pytest.raises` checks verify both the exception type and its message, except where only the type matters or the message comes from the operating system.
+  Across the suite, 49 `pytest.raises` checks verify both the exception type and its message, except where only the type matters or the message comes from the operating system.
 - `tests/test_stats.py` and `tests/test_stats_viewer.py` — the live statistics viewer, written test-first (TDD): the failing tests were committed before any of the code (the `RED:` commits on the `feature/live-stats` branch), then the code that makes them pass (`GREEN:`). They cover:
   - **The numbers:** totals; alerts by type; each technician's spread, including idle, unassigned and removed technicians; and who took each recent call.
   - **The text sections and the two pie charts:** slices filling exactly 360°, a single slice drawn as a circle, and legends with percentages.
@@ -141,10 +141,10 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **A diagnostic that crashes:** the component is marked `ERROR` and alerted, and the sweep goes on.
   - **A log line half-written when the program was killed:** the next record starts on a fresh line, and the desk keeps numbering correctly.
   - **`--report` end to end:** it prints the history and exports the CSV, creating the folder if needed. Unlike the automatic refresh, it fails loudly if the CSV can't be written.
-  - **A file held for a moment by another program** (antivirus, OneDrive, the search indexer): a log or report write is retried, with no wait after the last attempt; a full disk is not retried.
+  - **A file held for a moment by another program** (antivirus, OneDrive, the search indexer): a log or report write, or resetting a demo log, is retried; a full disk is not.
   - **A maintenance log that can't be written:** the call is still opened and kept in the run, and the log catches up on the call's next change. Any CSV write error, not only Excel's lock, leaves the call alone.
   - **The live dashboard keeps monitoring:** a fault still gets its call when the alert log can't be written, and a monitoring loop that crashes is reported and restarted.
-  - **`main.py` explains instead of a traceback:** a report it can't write, or a missing or broken data file, gives a one-line message and exit code 1. A bug is still raised, and a dashboard crash is not hidden by a failed report.
+  - **`main.py` explains instead of a traceback:** a report it can't write, or a data file or log that is missing, broken, unreadable or still locked, gives a one-line message and exit code 1. A bug is still raised, and a dashboard crash is not hidden by a failed report.
 - `tests/test_retry.py` — the one retry mechanism the GitHub client, the log writes and the report share: recovery with a doubling wait, giving up with the last error, only the listed errors retried, and the attempt limit checked.
 - `tests/test_concurrency.py` — concurrency validations. These tests are deterministic: they hold a lock and check that callers wait for it, or slow down a critical section so that code without the lock would fail every time.
   - **Async accuracy:** results match the data counted independently. Results stay in input order even when the tasks finish in reverse order, and repeated runs give identical results.
@@ -156,7 +156,7 @@ GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every pull requ
 
 ## Project layout
 The course template's `project_name/` package is named `hardware_monitor/` here.
-- `main.py` — entry point only: reads the command-line flags and calls the package. No business classes. Exits with 1 and a one-line message for a report it can't write or a missing or broken data file.
+- `main.py` — entry point only: reads the command-line flags and calls the package. No business classes. Exits with 1 and a one-line message for a file problem: a report it can't write, or a data file or log that is missing, broken, unreadable or still locked.
 - `hardware_monitor/__init__.py` — package definition and public API.
 - `hardware_monitor/models.py` — `HardwareComponent`, `Camera`, `Microphone`, `Workstation`, `Technician`, `MaintenanceRequest` (OOP, validation, `from_dict` factories).
 - `hardware_monitor/repository.py` — loads `data/*.jsonl` line by line into objects and validates them (a bad line raises `DataFileError`), and appends to the logs, retrying a file another program holds for a moment.
