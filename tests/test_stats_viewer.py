@@ -569,10 +569,11 @@ def test_a_new_broken_line_is_still_reported(open_viewer, log, capsys):
 
 
 @pytest.mark.parametrize("bad_field", BAD_FIELDS)
-def test_a_wrongly_typed_call_doesnt_stop_the_refreshes(bad_field, open_viewer, log, make_call, capsys):
+def test_a_wrongly_typed_call_doesnt_stop_the_refreshes(bad_field, open_viewer, log, make_call, make_bad_call,
+                                                        capsys):
     viewer = open_viewer()
     before = viewer.displayed()
-    log.append({**make_call(8, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "10:10"), **bad_field})  # line 8
+    log.append(make_bad_call(8, "T3", bad_field))  # line 8
 
     for _ in range(3):
         viewer.root.run_next()  # must not crash the window
@@ -585,8 +586,8 @@ def test_a_wrongly_typed_call_doesnt_stop_the_refreshes(bad_field, open_viewer, 
     assert capsys.readouterr().out.count("line 8") == 1  # reported once, not on every refresh
 
 
-def test_the_viewer_opens_on_a_log_that_already_has_a_wrongly_typed_call(open_viewer, log, make_call, stats):
-    log.append({**make_call(8, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "10:10"), "opened_at": 5})
+def test_the_viewer_opens_on_a_log_that_already_has_a_wrongly_typed_call(open_viewer, log, make_bad_call, stats):
+    log.append(make_bad_call(8, "T3"))
     assert open_viewer().displayed()["summary"] == format_summary(stats)  # the 7 readable calls
 
 
