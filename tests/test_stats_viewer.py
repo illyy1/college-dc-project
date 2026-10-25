@@ -14,6 +14,15 @@ What the module must provide:
     .run()       -> enter the window's main loop
     .close()     -> stop refreshing and close the window
     .log_path, .technicians_path, .root -> what it was opened on, and its window
+    .pies() -> {"technicians": [Slice], "alert_types": [Slice]}: the two pie
+               charts currently drawn, each on its own tk.Canvas
+               (.technician_pie_canvas and .alert_type_pie_canvas)
+- pie_slices(parts) -> [Slice]: parts are (label, value) pairs, in order.
+    Slice: label, value, percent, start, extent (degrees, as tk.Canvas
+    create_arc takes them), color. Slices start at 90 degrees (12 o'clock)
+    and follow each other counterclockwise, filling exactly 360; parts with
+    no value get no slice; each slice in a pie gets a different color from
+    PIE_COLORS.
 - run_stats_viewer(log_path=MAINTENANCE_LOG_PATH, technicians_path=TECHNICIANS_PATH)
     opens the viewer on the real files, runs it, and returns it once closed.
 - main.py: `--stats` starts only the viewer. Like the dashboard, main.py
@@ -35,11 +44,13 @@ from hardware_monitor import stats_viewer
 from hardware_monitor.config import MAINTENANCE_LOG_PATH, TECHNICIANS_PATH
 from hardware_monitor.stats import compute_stats
 from hardware_monitor.stats_viewer import (
+    PIE_COLORS,
     StatsViewer,
     format_alert_types,
     format_recent,
     format_summary,
     format_technicians,
+    pie_slices,
 )
 
 BAR = "█"
@@ -198,8 +209,42 @@ class FakeTk(FakeWidget):
         callback()
 
 
+class FakeCanvas(FakeWidget):
+    """Records what is drawn on it, like a tk.Canvas the tests can inspect."""
+
+    def __init__(self, *args, **options):
+        super().__init__(*args, **options)
+        self.items = []
+
+    def _add(self, kind, coords, options):
+        self.items.append(SimpleNamespace(kind=kind, coords=coords, **options))
+        return len(self.items)
+
+    def create_arc(self, *coords, **options):
+        return self._add("arc", coords, options)
+
+    def create_oval(self, *coords, **options):
+        return self._add("oval", coords, options)
+
+    def create_rectangle(self, *coords, **options):
+        return self._add("rectangle", coords, options)
+
+    def create_text(self, *coords, **options):
+        return self._add("text", coords, options)
+
+    def delete(self, tag):
+        assert tag == "all"
+        self.items = []
+
+    def of_kind(self, *kinds):
+        return [item for item in self.items if item.kind in kinds]
+
+    def texts(self):
+        return [item.text for item in self.of_kind("text")]
+
+
 FAKE_TK = SimpleNamespace(Tk=FakeTk, Label=FakeWidget, Frame=FakeWidget, LabelFrame=FakeWidget,
-                          Text=FakeWidget, StringVar=None, TclError=RuntimeError)
+                          Text=FakeWidget, Canvas=FakeCanvas, StringVar=None, TclError=RuntimeError)
 
 
 @pytest.fixture
@@ -316,6 +361,150 @@ def test_run_enters_the_window_loop(open_viewer):
     viewer = open_viewer()
     viewer.run()
     assert viewer.root.loop_started
+
+
+# --- pie charts: slicing ---
+
+def test_slices_are_proportional_and_fill_the_circle():
+    slices = pie_slices([("Dana Levi", 3), ("Yossi Cohen", 2), ("Avi Peretz", 1), ("Noa Mizrahi", 1)])
+
+    assert [s.label for s in slices] == ["Dana Levi", "Yossi Cohen", "Avi Peretz", "Noa Mizrahi"]
+    assert [s.value for s in slices] == [3, 2, 1, 1]
+    assert [s.percent for s in slices] == pytest.approx([300 / 7, 200 / 7, 100 / 7, 100 / 7])
+    assert [s.extent for s in slices] == pytest.approx([360 * 3 / 7, 360 * 2 / 7, 360 / 7, 360 / 7])
+    assert sum(s.extent for s in slices) == pytest.approx(360)
+
+
+def test_slices_start_at_twelve_o_clock_and_follow_each_other():
+    slices = pie_slices([("a", 1), ("b", 1), ("c", 2)])
+
+    assert slices[0].start == pytest.approx(90)
+    for previous, current in zip(slices, slices[1:]):
+        assert current.start == pytest.approx(previous.start + previous.extent)
+
+
+@pytest.mark.parametrize("parts, labels", [
+    ([("busy", 4), ("idle", 0)], ["busy"]),
+    ([("idle", 0), ("busy", 4), ("also idle", 0)], ["busy"]),
+    ([("a", 0), ("b", 0)], []),
+    ([], []),
+], ids=["idle-at-the-end", "idle-around", "all-idle", "nothing"])
+def test_parts_without_a_value_get_no_slice(parts, labels):
+    assert [s.label for s in pie_slices(parts)] == labels
+
+
+def test_a_single_part_takes_the_whole_circle():
+    (whole,) = pie_slices([("Camera", 5)])
+    assert (whole.percent, whole.start, whole.extent) == (pytest.approx(100), pytest.approx(90), pytest.approx(360))
+
+
+def test_every_slice_gets_its_own_color():
+    slices = pie_slices([(f"tech {n}", 1) for n in range(len(PIE_COLORS))])
+    assert [s.color for s in slices] == list(PIE_COLORS)
+
+
+def test_colors_repeat_only_after_the_palette_runs_out():
+    slices = pie_slices([(f"tech {n}", 1) for n in range(len(PIE_COLORS) + 2)])
+    assert slices[len(PIE_COLORS)].color == PIE_COLORS[0]
+    assert len(PIE_COLORS) >= 6 and len(set(PIE_COLORS)) == len(PIE_COLORS)
+
+
+# --- pie charts: in the window ---
+
+def test_the_window_draws_the_technician_pie(open_viewer):
+    viewer = open_viewer()
+    pie = viewer.pies()["technicians"]
+
+    assert [(s.label, round(s.percent, 1)) for s in pie] == \
+        [("Dana Levi", 42.9), ("Yossi Cohen", 28.6), ("Avi Peretz", 14.3), ("Noa Mizrahi", 14.3)]
+    arcs = viewer.technician_pie_canvas.of_kind("arc")
+    assert [round(a.extent, 2) for a in arcs] == [round(s.extent, 2) for s in pie]
+    assert [a.start for a in arcs] == pytest.approx([s.start for s in pie])
+    assert [a.fill for a in arcs] == [s.color for s in pie]
+
+
+def test_the_window_draws_the_alert_type_pie(open_viewer):
+    viewer = open_viewer()
+    pie = viewer.pies()["alert_types"]
+
+    assert [(s.label, round(s.percent, 1)) for s in pie] == [("Camera", 57.1), ("Microphone", 28.6), ("Other", 14.3)]
+    assert len(viewer.alert_type_pie_canvas.of_kind("arc")) == 3
+
+
+def test_each_pie_has_a_legend_with_percentages(open_viewer):
+    viewer = open_viewer()
+    technician_legend = viewer.technician_pie_canvas.texts()
+    type_legend = viewer.alert_type_pie_canvas.texts()
+
+    for label, percent in [("Dana Levi", "42.9%"), ("Yossi Cohen", "28.6%"), ("Avi Peretz", "14.3%")]:
+        assert any(label in text and percent in text for text in technician_legend)
+    for label, percent in [("Camera", "57.1%"), ("Microphone", "28.6%"), ("Other", "14.3%")]:
+        assert any(label in text and percent in text for text in type_legend)
+
+
+def test_each_legend_entry_has_a_color_key_matching_its_slice(open_viewer):
+    viewer = open_viewer()
+    keys = [item.fill for item in viewer.technician_pie_canvas.of_kind("rectangle")]
+    assert keys == [s.color for s in viewer.pies()["technicians"]]
+
+
+def test_idle_technicians_are_left_out_of_the_pie(open_viewer, tmp_path, make_call):
+    log = tmp_path / "one_call.jsonl"
+    log.write_text(json.dumps(make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED")) + "\n", encoding="utf-8")
+    viewer = open_viewer(log_path=str(log))
+
+    assert [s.label for s in viewer.pies()["technicians"]] == ["Dana Levi"]
+
+
+def test_a_single_slice_is_drawn_as_a_full_circle(open_viewer, tmp_path, make_call):
+    # tk.Canvas draws nothing for a 360 degree arc, so a whole pie must be a circle
+    log = tmp_path / "one_call.jsonl"
+    log.write_text(json.dumps(make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED")) + "\n", encoding="utf-8")
+    viewer = open_viewer(log_path=str(log))
+
+    canvas = viewer.alert_type_pie_canvas
+    assert canvas.of_kind("arc") == []
+    (circle,) = canvas.of_kind("oval")
+    assert circle.fill == PIE_COLORS[0]
+
+
+def test_pies_with_no_calls_say_so(open_viewer, tmp_path):
+    viewer = open_viewer(log_path=str(tmp_path / "no_log_yet.jsonl"))
+
+    assert viewer.pies() == {"technicians": [], "alert_types": []}
+    for canvas in (viewer.technician_pie_canvas, viewer.alert_type_pie_canvas):
+        assert canvas.of_kind("arc", "oval") == []
+        assert "No calls yet" in canvas.texts()
+
+
+def test_the_pies_follow_live_updates(open_viewer, log, make_call):
+    viewer = open_viewer()
+    log.append(make_call(8, "MICROPHONE_SILENCE", "T2", "IN_PROGRESS", "10:10"))
+    log.append(make_call(9, "MICROPHONE_SILENCE", "T2", "IN_PROGRESS", "10:20"))
+    viewer.root.run_next()
+
+    # Yossi now has 4 calls and overtakes Dana's 3
+    assert [(s.label, s.value) for s in viewer.pies()["technicians"]] == \
+        [("Yossi Cohen", 4), ("Dana Levi", 3), ("Avi Peretz", 1), ("Noa Mizrahi", 1)]
+    assert [(s.label, s.value) for s in viewer.pies()["alert_types"]] == \
+        [("Camera", 4), ("Microphone", 4), ("Other", 1)]  # equal counts: alphabetical
+
+
+def test_redrawing_replaces_the_old_pie(open_viewer):
+    viewer = open_viewer()
+    for _ in range(3):
+        viewer.root.run_next()
+    assert len(viewer.technician_pie_canvas.of_kind("arc")) == 4  # not 4 per refresh
+
+
+def test_an_unreadable_log_leaves_the_pies_as_they_were(open_viewer):
+    viewer = open_viewer()
+    before = viewer.pies()
+    with mock.patch("hardware_monitor.repository.open", create=True,
+                    side_effect=PermissionError(13, "Permission denied")):
+        viewer.root.run_next()
+    assert viewer.pies() == before
+    assert len(viewer.technician_pie_canvas.of_kind("arc")) == 4
 
 
 # --- starting it: `python main.py --stats` ---
