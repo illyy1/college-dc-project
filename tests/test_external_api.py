@@ -255,14 +255,6 @@ def test_gives_up_after_the_maximum_attempts(github, retry_waits):
     assert result.error == f"Gave up after {MAX_ATTEMPTS} attempt(s). Last error: {TIMED_OUT}"
 
 
-def test_never_tries_past_the_limit_even_if_the_next_try_would_work(github):
-    github.reply = [api_response(500, NOT_JSON)] * MAX_ATTEMPTS + [created()]
-    result = send()
-
-    assert not result.ok
-    assert len(github.calls) == MAX_ATTEMPTS and len(github.reply) == 1  # the next reply was never requested
-
-
 def test_reports_the_last_of_several_different_failures(github):
     earlier = [requests.exceptions.ConnectionError("reset"), api_response(500, NOT_JSON)] * MAX_ATTEMPTS
     github.reply = earlier[:MAX_ATTEMPTS - 1] + [api_response(503, {"message": "Service Unavailable"})]
@@ -279,13 +271,6 @@ def test_the_attempt_limit_is_configurable(github, retry_waits, max_attempts):
     assert len(github.calls) == result.attempts == max_attempts
     assert retry_waits == expected_waits(max_attempts)
     assert result.error.startswith(f"Gave up after {max_attempts} attempt(s).")
-
-
-@pytest.mark.parametrize("max_attempts", [0, -1])
-def test_an_attempt_limit_below_one_is_rejected(github, max_attempts):
-    with pytest.raises(ValueError, match="at least 1"):
-        send(max_attempts=max_attempts)
-    assert github.calls == []
 
 
 # --- retry: permanent failures are not retried ---

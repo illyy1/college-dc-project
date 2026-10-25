@@ -4,9 +4,10 @@ timeouts, malformed replies, retries) can be tested without a window or a
 network."""
 
 from dataclasses import dataclass
-from time import sleep
 
 import requests
+
+from .retry import retry
 
 GITHUB_API_URL = "https://api.github.com"
 REQUEST_TIMEOUT_SECONDS = 5
@@ -42,23 +43,36 @@ def create_issue(token, repo, title, body, labels=(), timeout=REQUEST_TIMEOUT_SE
     Never raises for API problems: every failure comes back as
     IssueResult(ok=False, error=...), so a failed alert can't crash the
     monitoring thread that sent it."""
-    if max_attempts < 1:
-        raise ValueError(f"max_attempts must be at least 1, got {max_attempts}.")
     if not token:
         return IssueResult(False, error="GitHub token missing or decryption failed.", attempts=0)
 
-    for attempt in range(1, max_attempts + 1):
-        result, retryable = _try_once(token, repo, title, body, labels, timeout)
-        result.attempts = attempt
-        if result.ok or not retryable:
-            return result
-        if attempt < max_attempts:
-            delay = RETRY_BACKOFF_SECONDS * 2 ** (attempt - 1)
-            print(f"GitHub attempt {attempt}/{max_attempts} failed ({result.error}) Retrying in {delay} s.")
-            sleep(delay)
+    attempts = 0
 
-    result.error = f"Gave up after {max_attempts} attempt(s). Last error: {result.error}"
-    return result
+    def attempt():
+        nonlocal attempts
+        attempts += 1
+        result, retryable = _try_once(token, repo, title, body, labels, timeout)
+        result.attempts = attempts
+        if not result.ok and retryable:
+            raise _TemporaryFailure(result)
+        return result
+
+    try:
+        return retry(attempt, retry_on=_TemporaryFailure, max_attempts=max_attempts,
+                     backoff_seconds=RETRY_BACKOFF_SECONDS, label="GitHub")
+    except _TemporaryFailure as failure:
+        result = failure.result
+        result.error = f"Gave up after {max_attempts} attempt(s). Last error: {result.error}"
+        return result
+
+
+class _TemporaryFailure(Exception):
+    """A failed attempt worth retrying; carries its IssueResult so the last
+    one can be returned once retry() gives up."""
+
+    def __init__(self, result):
+        super().__init__(result.error)
+        self.result = result
 
 
 def _try_once(token, repo, title, body, labels, timeout):

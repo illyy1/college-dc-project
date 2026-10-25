@@ -7,16 +7,29 @@ import os
 from datetime import datetime
 
 from .models import HardwareComponent, Workstation, Technician
+from .retry import retry
+
+# a log or report another program holds for a moment (antivirus, OneDrive, the
+# search indexer; on Windows that is a PermissionError) is tried again shortly
+FILE_WRITE_ATTEMPTS = 3
+FILE_RETRY_BACKOFF_SECONDS = 0.1  # waits 0.1 s, then 0.2 s
+TEMPORARY_FILE_ERRORS = (PermissionError,)
+
+
+class DataFileError(ValueError):
+    """A line of a data file that can't be loaded. The message names the file
+    and line; main.py reports it instead of a traceback. A ValueError, so code
+    that catches those still catches it."""
 
 
 def _parse_record(path, line_number, line):
-    """json.loads one line into a dict, or raises ValueError naming the line."""
+    """json.loads one line into a dict, or raises DataFileError naming the line."""
     try:
         record = json.loads(line)
     except json.JSONDecodeError as error:
-        raise ValueError(f"{path} line {line_number}: invalid JSON ({error.msg}).") from None
+        raise DataFileError(f"{path} line {line_number}: invalid JSON ({error.msg}).") from None
     if not isinstance(record, dict):
-        raise ValueError(f"{path} line {line_number}: expected a JSON object.")
+        raise DataFileError(f"{path} line {line_number}: expected a JSON object.")
     return record
 
 
@@ -24,7 +37,7 @@ def load_workstations_from_jsonl(path):
     """Reads the JSONL file strictly line-by-line (no .read()/.readlines()),
     parses each record with json.loads, validates it and instantiates the
     objects through the Workstation.from_dict / HardwareComponent.from_dict
-    factories. Raises ValueError (with the line number) for a malformed
+    factories. Raises DataFileError (with the line number) for a malformed
     record, a record whose workstation details contradict an earlier line,
     or a reused component_id."""
     workstations = {}
@@ -41,16 +54,16 @@ def load_workstations_from_jsonl(path):
                 workstation = Workstation.from_dict(record)
                 component = HardwareComponent.from_dict(record)
             except ValueError as error:
-                raise ValueError(f"{path} line {line_number}: {error}") from None
+                raise DataFileError(f"{path} line {line_number}: {error}") from None
 
             existing = workstations.setdefault(workstation.workstation_id, workstation)
             if (existing.name, existing.location) != (workstation.name, workstation.location):
-                raise ValueError(
+                raise DataFileError(
                     f"{path} line {line_number}: workstation '{workstation.workstation_id}' "
                     f"has a different name/location than on an earlier line."
                 )
             if component.component_id in seen_component_ids:
-                raise ValueError(
+                raise DataFileError(
                     f"{path} line {line_number}: duplicate component_id '{component.component_id}'."
                 )
             seen_component_ids.add(component.component_id)
@@ -61,7 +74,7 @@ def load_workstations_from_jsonl(path):
 
 def load_technicians_from_jsonl(path):
     """Reads technician records line-by-line and returns a dict of
-    tech_id -> Technician built by Technician.from_dict. Raises ValueError
+    tech_id -> Technician built by Technician.from_dict. Raises DataFileError
     (with the line number) for a record missing a required field or reusing
     an existing tech_id, since maintenance calls reference technicians by
     that id."""
@@ -77,9 +90,9 @@ def load_technicians_from_jsonl(path):
             try:
                 technician = Technician.from_dict(record)
             except ValueError as error:
-                raise ValueError(f"{path} line {line_number}: {error}") from None
+                raise DataFileError(f"{path} line {line_number}: {error}") from None
             if technician.tech_id in technicians:
-                raise ValueError(f"{path} line {line_number}: duplicate tech_id '{technician.tech_id}'.")
+                raise DataFileError(f"{path} line {line_number}: duplicate tech_id '{technician.tech_id}'.")
 
             technicians[technician.tech_id] = technician
 
@@ -149,8 +162,19 @@ def request_number(request_id):
 def append_jsonl_record(path, record):
     """Appends one JSON record as its own line. A run killed mid-write can
     leave a last line without "\\n"; this starts on a fresh line so the new
-    record isn't glued onto (and lost with) that fragment."""
+    record isn't glued onto (and lost with) that fragment.
+
+    A file held for a moment by another program is tried again; if it is
+    still held after the last attempt, or the write fails for another reason
+    (a full disk), the OSError is raised."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    retry(lambda: _append_line(path, record), retry_on=TEMPORARY_FILE_ERRORS, max_attempts=FILE_WRITE_ATTEMPTS,
+          backoff_seconds=FILE_RETRY_BACKOFF_SECONDS, label=f"Writing {path}")
+
+
+def _append_line(path, record):
+    """One attempt of append_jsonl_record. Checks the last byte each time, so a
+    retry after a partly written attempt still starts on a fresh line."""
     needs_newline = False
     if os.path.exists(path) and os.path.getsize(path) > 0:
         with open(path, "rb") as existing:

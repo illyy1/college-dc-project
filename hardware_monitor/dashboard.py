@@ -31,6 +31,8 @@ ALERT_DETAILS = {
     "mic_silence": ("MIC-LOCAL", "MICROPHONE_SILENCE", 4),
 }
 
+MONITOR_RESTART_SECONDS = 3  # pause before a crashed monitoring loop is started again
+
 
 class HardwareMonitorApp:
     def __init__(self, maintenance_desk=None):
@@ -112,13 +114,18 @@ class HardwareMonitorApp:
                 return request, False
 
             component_id, error_type, priority = ALERT_DETAILS[alert_key]
-            alert = self.alert_manager.log_alert(Alert(
+            alert = Alert(
                 component_id=component_id,
                 workstation_id=COMPUTER_NAME,
                 error_type=error_type,
                 message=message,
                 priority=priority,
-            ))
+            )
+            try:
+                self.alert_manager.log_alert(alert)
+            except OSError as e:
+                # the alert is still in this run's history; the fault still gets its call
+                print(f"Could not save the {alert_key} alert to the alert log: {e}")
             try:
                 request = self.maintenance_desk.open_request_for_alert(alert)
             except ValueError as e:
@@ -357,13 +364,22 @@ class HardwareMonitorApp:
                 random.choice(eligible).force_fault()
                 self._last_popup_at = time.time()  # give the monitor a moment to notice before forcing again
 
+    def run_monitor(self, name, loop):
+        """Runs one monitoring loop for as long as the dashboard is open. A loop
+        that crashes (a device gone mid-read, a bug) is reported and started
+        again, so one error can't end that monitoring for the rest of the session."""
+        while self.running:
+            try:
+                loop()
+            except Exception as error:
+                print(f"{name} monitoring stopped by an error ({type(error).__name__}: {error}); "
+                      f"restarting in {MONITOR_RESTART_SECONDS} s.")
+                time.sleep(MONITOR_RESTART_SECONDS)
+
     def start(self):
-        mic_thread = threading.Thread(target=self.monitor_mic, daemon=True)
-        cam_thread = threading.Thread(target=self.monitor_camera, daemon=True)
-        busy_thread = threading.Thread(target=self.keep_room_busy, daemon=True)
-        mic_thread.start()
-        cam_thread.start()
-        busy_thread.start()
+        for name, loop in (("Microphone", self.monitor_mic), ("Camera", self.monitor_camera),
+                           ("Quiet-period watchdog", self.keep_room_busy)):
+            threading.Thread(target=lambda name=name, loop=loop: self.run_monitor(name, loop), daemon=True).start()
         self.root.mainloop()
 
     def stop(self):

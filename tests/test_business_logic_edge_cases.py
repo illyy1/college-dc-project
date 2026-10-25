@@ -24,7 +24,12 @@ from hardware_monitor.iterators import AlertHistory, iter_disconnected_component
 from hardware_monitor.maintenance import MaintenanceDesk
 from hardware_monitor.models import Camera, HardwareComponent, MaintenanceRequest, Microphone, Technician, Workstation
 from hardware_monitor.processing import AlertManager
-from hardware_monitor.repository import load_technicians_from_jsonl, load_workstations_from_jsonl, request_number
+from hardware_monitor.repository import (
+    DataFileError,
+    load_technicians_from_jsonl,
+    load_workstations_from_jsonl,
+    request_number,
+)
 
 from conftest import TEST_FLEET_PATH, run_together
 
@@ -159,7 +164,7 @@ def test_non_object_records_are_rejected(record):
 
 
 def test_loader_rejects_a_json_line_that_is_not_an_object(write_jsonl):
-    with pytest.raises(ValueError, match="line 1: expected a JSON object"):
+    with pytest.raises(DataFileError, match="line 1: expected a JSON object"):
         load_workstations_from_jsonl(write_jsonl("data.jsonl", "[1, 2]"))
 
 

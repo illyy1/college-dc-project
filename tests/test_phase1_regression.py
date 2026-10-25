@@ -25,6 +25,7 @@ from hardware_monitor.reports import (
     validate_and_assign_request,
 )
 from hardware_monitor.repository import (
+    DataFileError,
     load_maintenance_history,
     load_technicians_from_jsonl,
     load_workstations_from_jsonl,
@@ -220,15 +221,19 @@ GOOD_LINE = {"component_type": "Camera", "component_id": "CAM-1", "workstation_i
         "contradicting-location"])
 def test_workstation_loader_rejects_bad_records_with_line_number(write_jsonl, bad_line, message):
     path = write_jsonl("data.jsonl", GOOD_LINE, bad_line)
-    with pytest.raises(ValueError, match="line 2") as error:
+    with pytest.raises(DataFileError, match="line 2") as error:
         load_workstations_from_jsonl(path)
     assert message in str(error.value)
 
 
-def test_technician_loader_rejects_a_duplicate_id(write_jsonl):
+@pytest.mark.parametrize("bad_line, message", [
+    ({"tech_id": "T1", "name": "Dana"}, "line 2: duplicate tech_id 'T1'"),
+    ({"tech_id": "T2"}, "line 2: Technician record is missing name"),
+], ids=["duplicate-id", "missing-name"])
+def test_technician_loader_rejects_bad_records_with_line_number(write_jsonl, bad_line, message):
     tech = {"tech_id": "T1", "name": "Dana"}
-    with pytest.raises(ValueError, match="line 2: duplicate tech_id 'T1'"):
-        load_technicians_from_jsonl(write_jsonl("dup.jsonl", tech, tech))
+    with pytest.raises(DataFileError, match=message):
+        load_technicians_from_jsonl(write_jsonl("techs.jsonl", tech, bad_line))
 
 
 def test_an_old_technician_file_still_loads(write_jsonl):

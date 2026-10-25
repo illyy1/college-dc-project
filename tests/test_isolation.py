@@ -13,7 +13,7 @@ import pytest
 import requests
 
 from conftest import NetworkAccessBlocked
-from hardware_monitor import config, github_client
+from hardware_monitor import config, github_client, retry
 from hardware_monitor.github_client import create_issue
 
 
@@ -48,8 +48,8 @@ def test_no_token_is_available_from_the_environment_or_the_real_env_file():
 # --- no real waiting between retries ---
 
 def test_the_retry_wait_is_a_mock_not_the_real_sleep():
-    assert isinstance(github_client.sleep, mock.Mock)
-    assert github_client.sleep is not time.sleep
+    assert isinstance(retry.sleep, mock.Mock)
+    assert retry.sleep is not time.sleep
 
 
 @pytest.fixture

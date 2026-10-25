@@ -304,10 +304,11 @@ def no_real_secrets(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def retry_waits():
-    """Replaces the sleep between GitHub retries with a mock, so retries cost
-    no time. Yields the list of waits that would have happened."""
+    """Replaces the sleep between retries (GitHub, log and report writes) with
+    a mock, so retries cost no time. Yields the list of waits that would have
+    happened."""
     waits = []
-    with mock.patch("hardware_monitor.github_client.sleep", side_effect=waits.append):
+    with mock.patch("hardware_monitor.retry.sleep", side_effect=waits.append):
         yield waits
 
 
