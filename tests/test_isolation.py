@@ -50,10 +50,10 @@ def test_the_retry_wait_is_a_mock_not_the_real_sleep():
 
 
 @pytest.fixture
-def server_down():
-    with mock.patch("hardware_monitor.github_client.requests.post", autospec=True,
-                    side_effect=requests.exceptions.ConnectionError("down")) as post:
-        yield post
+def server_down(github):
+    """GitHub unreachable: the shared `github` mock fails every attempt."""
+    github.reply = requests.exceptions.ConnectionError("down")
+    return github.post
 
 
 def test_exhausting_every_retry_takes_no_real_time(server_down, retry_waits):

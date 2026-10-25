@@ -4,14 +4,13 @@ access) across the models, loaders, maintenance desk and concurrency code."""
 
 import asyncio
 import json
-import threading
 import time
 from datetime import date, timedelta
 from itertools import islice
 
 import pytest
 
-from hardware_monitor import concurrency, maintenance, processing
+from hardware_monitor import concurrency, processing
 from hardware_monitor.concurrency import (
     LockedAlertLog,
     fetch_statuses_concurrent,
@@ -27,7 +26,7 @@ from hardware_monitor.models import Camera, HardwareComponent, MaintenanceReques
 from hardware_monitor.processing import AlertManager
 from hardware_monitor.repository import load_technicians_from_jsonl, load_workstations_from_jsonl, request_number
 
-from conftest import TEST_FLEET_PATH
+from conftest import TEST_FLEET_PATH, run_together
 
 
 # --- boundary conditions on thresholds ---
@@ -117,16 +116,13 @@ def test_limit_zero_inspects_nothing(workstations):
     assert inspected == []
 
 
-def test_empty_and_blank_line_files(tmp_path):
-    empty = tmp_path / "empty.jsonl"
-    empty.write_text("", encoding="utf-8")
-    assert load_workstations_from_jsonl(str(empty)) == []
-    assert load_technicians_from_jsonl(str(empty)) == {}
+def test_empty_and_blank_line_files(write_jsonl):
+    empty = write_jsonl("empty.jsonl")
+    assert load_workstations_from_jsonl(empty) == []
+    assert load_technicians_from_jsonl(empty) == {}
 
-    spaced = tmp_path / "spaced.jsonl"
-    record = {"tech_id": "T1", "name": "Dana"}
-    spaced.write_text("\n\n" + json.dumps(record) + "\n   \n", encoding="utf-8")
-    assert list(load_technicians_from_jsonl(str(spaced))) == ["T1"]
+    spaced = write_jsonl("spaced.jsonl", "", "", {"tech_id": "T1", "name": "Dana"}, "   ")
+    assert list(load_technicians_from_jsonl(spaced)) == ["T1"]
 
 
 # --- invalid inputs ---
@@ -162,11 +158,9 @@ def test_non_object_records_are_rejected(record):
         Workstation.from_dict(record)
 
 
-def test_loader_rejects_a_json_line_that_is_not_an_object(tmp_path):
-    path = tmp_path / "data.jsonl"
-    path.write_text("[1, 2]\n", encoding="utf-8")
+def test_loader_rejects_a_json_line_that_is_not_an_object(write_jsonl):
     with pytest.raises(ValueError, match="line 1: expected a JSON object"):
-        load_workstations_from_jsonl(str(path))
+        load_workstations_from_jsonl(write_jsonl("data.jsonl", "[1, 2]"))
 
 
 @pytest.mark.parametrize("record, message", [
@@ -225,11 +219,9 @@ def test_open_calls_survive_a_restart_and_resolved_ones_do_not(desk, alerts, tec
     assert restarted.resolve_request(still_open.request_id).status == "RESOLVED"
 
 
-def test_log_naming_an_unknown_technician_is_reported_not_fatal(technicians, tmp_path, capsys, alerts):
-    log_path = tmp_path / "log.jsonl"
-    log_path.write_text(json.dumps({"request_id": "MR-0005", "status": "IN_PROGRESS", "assigned_tech_id": "T42",
-                                    "opened_at": "2026-10-01T10:00:00"}) + "\n", encoding="utf-8")
-    desk = MaintenanceDesk(technicians, log_path=str(log_path), report_csv_path=None)
+def test_log_naming_an_unknown_technician_is_reported_not_fatal(technicians, make_call, write_jsonl, capsys, alerts):
+    log_path = write_jsonl("log.jsonl", make_call(5, "CAMERA_FAILURE", "T42", "IN_PROGRESS", "10:00"))
+    desk = MaintenanceDesk(technicians, log_path=log_path, report_csv_path=None)
 
     assert "unknown technician 'T42'" in capsys.readouterr().out
     assert [r.request_id for r in desk.open_requests()] == ["MR-0005"]
@@ -237,14 +229,6 @@ def test_log_naming_an_unknown_technician_is_reported_not_fatal(technicians, tmp
 
 
 # --- concurrency (Phase 2) ---
-
-def run_in_threads(worker, count=4):
-    threads = [threading.Thread(target=worker) for _ in range(count)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
 
 def test_alert_log_writes_never_overlap(monkeypatch, tmp_path, alert_manager, alerts):
     writing, overlaps = [], []
@@ -260,7 +244,7 @@ def test_alert_log_writes_never_overlap(monkeypatch, tmp_path, alert_manager, al
 
     monkeypatch.setattr(processing, "append_jsonl_record", slow_append)
     manager = alert_manager
-    run_in_threads(lambda: [manager.log_alert(alerts.camera()) for _ in range(10)])
+    run_together(lambda: [manager.log_alert(alerts.camera()) for _ in range(10)], count=4)
 
     assert overlaps == []
     assert len(manager.alert_history) == 40
@@ -274,7 +258,7 @@ def test_concurrent_alert_logging_keeps_every_record(tmp_path, alerts):
         for _ in range(25):
             manager.log_alert(alerts.camera())
 
-    run_in_threads(worker)
+    run_together(worker, count=4)
 
     with open(log_path, encoding="utf-8") as log_file:
         ids = [json.loads(line)["alert_id"] for line in log_file]
@@ -282,20 +266,15 @@ def test_concurrent_alert_logging_keeps_every_record(tmp_path, alerts):
     assert len(manager.alert_history) == len(manager.intake_queue) == 100
 
 
-def test_concurrent_maintenance_calls_get_unique_numbers(technicians, tmp_path, monkeypatch, alerts, make_desk):
-    class SlowRequest(MaintenanceRequest):
-        def __init__(self, *args, **kwargs):
-            time.sleep(0.002)  # between reading and advancing the call number
-            super().__init__(*args, **kwargs)
-
-    monkeypatch.setattr(maintenance, "MaintenanceRequest", SlowRequest)
+def test_concurrent_maintenance_calls_get_unique_numbers(technicians, slow_requests, alerts, make_desk):
+    slow_requests(0.002)  # between reading and advancing the call number
     desk = make_desk()
 
     def worker():
         for _ in range(10):
             desk.open_request_for_alert(alerts.camera())
 
-    run_in_threads(worker)
+    run_together(worker, count=4)
 
     assert sorted(desk.requests) == [f"MR-{n:04d}" for n in range(1, 41)]
     assert sum(len(t.assigned_requests) for t in technicians.values()) == 40

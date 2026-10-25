@@ -5,7 +5,6 @@ demo. They guard the Phase 1 logic against later changes (concurrency, locks,
 async gathering)."""
 
 import csv
-import json
 from contextlib import ExitStack
 from datetime import date, timedelta
 from itertools import islice
@@ -209,12 +208,6 @@ GOOD_LINE = {"component_type": "Camera", "component_id": "CAM-1", "workstation_i
              "workstation_name": "Desk", "location": "Room 1"}
 
 
-def write_jsonl(path, *lines):
-    path.write_text("\n".join(line if isinstance(line, str) else json.dumps(line) for line in lines) + "\n",
-                    encoding="utf-8")
-    return str(path)
-
-
 @pytest.mark.parametrize("bad_line, message", [
     ("{not json", "invalid JSON"),
     ({**GOOD_LINE, "component_id": "CAM-2", "workstation_id": None}, "missing workstation_id"),
@@ -225,38 +218,35 @@ def write_jsonl(path, *lines):
     ({**GOOD_LINE, "component_id": "CAM-2", "location": "Room 2"}, "different name/location"),
 ], ids=["invalid-json", "null-workstation", "unknown-type", "illegal-status", "bad-date", "duplicate-id",
         "contradicting-location"])
-def test_workstation_loader_rejects_bad_records_with_line_number(tmp_path, bad_line, message):
-    path = write_jsonl(tmp_path / "data.jsonl", GOOD_LINE, bad_line)
+def test_workstation_loader_rejects_bad_records_with_line_number(write_jsonl, bad_line, message):
+    path = write_jsonl("data.jsonl", GOOD_LINE, bad_line)
     with pytest.raises(ValueError, match="line 2") as error:
         load_workstations_from_jsonl(path)
     assert message in str(error.value)
 
 
-def test_technician_loader_rejects_a_duplicate_id(tmp_path):
+def test_technician_loader_rejects_a_duplicate_id(write_jsonl):
     tech = {"tech_id": "T1", "name": "Dana"}
     with pytest.raises(ValueError, match="line 2: duplicate tech_id 'T1'"):
-        load_technicians_from_jsonl(write_jsonl(tmp_path / "dup.jsonl", tech, tech))
+        load_technicians_from_jsonl(write_jsonl("dup.jsonl", tech, tech))
 
 
-def test_an_old_technician_file_still_loads(tmp_path):
+def test_an_old_technician_file_still_loads(write_jsonl):
     # technicians used to have a specialty and a workstation list; a file that
     # still has them loads, and both are ignored
     old = {"tech_id": "T1", "name": "Dana", "specialty": "Camera", "workstation_ids": ["WS-101"]}
-    loaded = load_technicians_from_jsonl(write_jsonl(tmp_path / "old.jsonl", old))
+    loaded = load_technicians_from_jsonl(write_jsonl("old.jsonl", old))
     assert loaded["T1"].name == "Dana"
     assert not hasattr(loaded["T1"], "specialty") and not hasattr(loaded["T1"], "workstation_ids")
 
 
-def test_maintenance_history_keeps_latest_state_and_skips_corrupt_lines(tmp_path):
-    path = tmp_path / "log.jsonl"
-    path.write_text(
-        json.dumps({"request_id": "MR-0010", "status": "IN_PROGRESS"}) + "\n"
-        + json.dumps({"request_id": "MR-0002", "status": "IN_PROGRESS"}) + "\n"
-        + json.dumps({"request_id": "MR-0010", "status": "RESOLVED"}) + "\n"
-        + '{"request_id": "MR-0011", "sta',  # half-written last line
-        encoding="utf-8",
-    )
-    history = load_maintenance_history(str(path))
+def test_maintenance_history_keeps_latest_state_and_skips_corrupt_lines(make_call, write_jsonl, tmp_path):
+    path = write_jsonl("log.jsonl",
+                       make_call(10, "CAMERA_FAILURE", "T1", "IN_PROGRESS"),
+                       make_call(2, "CAMERA_FAILURE", "T2", "IN_PROGRESS"),
+                       make_call(10, "CAMERA_FAILURE", "T1", "RESOLVED"),
+                       fragment='{"request_id": "MR-0011", "sta')  # half-written last line
+    history = load_maintenance_history(path)
 
     assert [(r["request_id"], r["status"]) for r in history] == [("MR-0002", "IN_PROGRESS"), ("MR-0010", "RESOLVED")]
     assert load_maintenance_history(str(tmp_path / "missing.jsonl")) == []
@@ -264,27 +254,13 @@ def test_maintenance_history_keeps_latest_state_and_skips_corrupt_lines(tmp_path
 
 # --- reports ---
 
-@pytest.fixture
-def maintenance_log(tmp_path):
-    records = [
-        {"request_id": "MR-0001", "status": "RESOLVED", "priority": 1, "error_type": "CAMERA_FAILURE",
-         "workstation_id": "WS-104", "component_id": "CAM-104", "assigned_tech_id": "T1",
-         "assigned_tech_name": "Dana Levi", "opened_at": "2026-10-01T10:00:00",
-         "resolved_at": "2026-10-01T11:00:00", "alert_id": 1},
-        {"request_id": "MR-0002", "status": "IN_PROGRESS", "priority": 3, "error_type": "MICROPHONE_FAILURE",
-         "workstation_id": "WS-107", "component_id": "MIC-107", "assigned_tech_id": "T42",
-         "assigned_tech_name": None, "opened_at": "2026-10-02T10:00:00", "resolved_at": None, "alert_id": 2},
-    ]
-    return write_jsonl(tmp_path / "maintenance.jsonl", *records)
-
-
-def test_unknown_technician_references_are_reported(maintenance_log, technicians):
-    unknown = find_unknown_technician_references(load_maintenance_history(maintenance_log), technicians)
+def test_unknown_technician_references_are_reported(reports_log, technicians):
+    unknown = find_unknown_technician_references(load_maintenance_history(reports_log), technicians)
     assert [r["request_id"] for r in unknown] == ["MR-0002"]
 
 
-def test_history_csv_export(maintenance_log, tmp_path):
-    csv_path = export_maintenance_history_csv(maintenance_log, str(tmp_path / "reports" / "out.csv"), verbose=False)
+def test_history_csv_export(reports_log, tmp_path):
+    csv_path = export_maintenance_history_csv(reports_log, str(tmp_path / "reports" / "out.csv"), verbose=False)
 
     with open(csv_path, encoding="utf-8-sig", newline="") as csv_file:
         rows = list(csv.DictReader(csv_file))
@@ -294,8 +270,8 @@ def test_history_csv_export(maintenance_log, tmp_path):
     ]
 
 
-def test_history_report_lists_every_call(maintenance_log, tmp_path, capsys):
-    history = generate_maintenance_history_report(maintenance_log)
+def test_history_report_lists_every_call(reports_log, tmp_path, capsys):
+    history = generate_maintenance_history_report(reports_log)
     output = capsys.readouterr().out
 
     assert len(history) == 2

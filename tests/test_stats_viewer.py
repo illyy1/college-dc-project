@@ -153,16 +153,12 @@ def test_recent_calls_section_with_no_calls(technicians):
 
 
 @pytest.fixture
-def log(tmp_path, history):
-    """A temporary maintenance log; .append(record) adds a line like the dashboard does."""
-    path = tmp_path / "maintenance_requests.jsonl"
-    path.write_text("".join(json.dumps(r) + "\n" for r in history), encoding="utf-8")
-
-    def append(record):
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record) + "\n")
-
-    return SimpleNamespace(path=str(path), append=append)
+def log(write_jsonl, history):
+    """A temporary maintenance log holding `history`; .append(record) adds a
+    line like the dashboard does."""
+    name = "maintenance_requests.jsonl"
+    path = write_jsonl(name, *history)
+    return SimpleNamespace(path=path, append=lambda record: write_jsonl(name, record, append=True))
 
 
 @pytest.fixture
@@ -366,19 +362,15 @@ def test_each_legend_entry_has_a_color_key_matching_its_slice(open_viewer):
     assert keys == [s.color for s in viewer.pies()["technicians"]]
 
 
-def test_idle_technicians_are_left_out_of_the_pie(open_viewer, tmp_path, make_call):
-    log = tmp_path / "one_call.jsonl"
-    log.write_text(json.dumps(make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED")) + "\n", encoding="utf-8")
-    viewer = open_viewer(log_path=str(log))
+def test_idle_technicians_are_left_out_of_the_pie(open_viewer, write_jsonl, make_call):
+    viewer = open_viewer(log_path=write_jsonl("one_call.jsonl", make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED")))
 
     assert [s.label for s in viewer.pies()["technicians"]] == ["Dana Levi"]
 
 
-def test_a_single_slice_is_drawn_as_a_full_circle(open_viewer, tmp_path, make_call):
+def test_a_single_slice_is_drawn_as_a_full_circle(open_viewer, write_jsonl, make_call):
     # tk.Canvas draws nothing for a 360 degree arc, so a whole pie must be a circle
-    log = tmp_path / "one_call.jsonl"
-    log.write_text(json.dumps(make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED")) + "\n", encoding="utf-8")
-    viewer = open_viewer(log_path=str(log))
+    viewer = open_viewer(log_path=write_jsonl("one_call.jsonl", make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED")))
 
     canvas = viewer.alert_type_pie_canvas
     assert canvas.of_kind("arc") == []

@@ -19,7 +19,6 @@ MICROPHONE_* -> "Microphone", anything else -> "Other". "Open" means any
 status other than RESOLVED.
 """
 
-import json
 
 import pytest
 
@@ -31,13 +30,9 @@ from hardware_monitor.repository import load_maintenance_history
 # --- test data (make_call and history are in conftest.py) ---
 
 @pytest.fixture
-def write_log(tmp_path):
-    """Writes records to a temporary maintenance log and returns its path."""
-    def write(records, name="maintenance_requests.jsonl"):
-        path = tmp_path / name
-        path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
-        return str(path)
-    return write
+def write_log(write_jsonl):
+    """write_log(records): a temporary maintenance log holding these records."""
+    return lambda records: write_jsonl("maintenance_requests.jsonl", *records)
 
 
 # --- totals ---
@@ -203,11 +198,9 @@ def test_load_stats_with_no_log_yet(tmp_path, technicians_file, technicians):
     assert stats.total_calls == 0 and len(stats.technicians) == len(technicians)
 
 
-def test_load_stats_skips_a_half_written_line(history, tmp_path, capsys, technicians_file):
-    log = tmp_path / "maintenance_requests.jsonl"
-    log.write_text("".join(json.dumps(r) + "\n" for r in history) + '{"request_id": "MR-0008", "sta',
-                   encoding="utf-8")
-    assert load_stats(str(log), technicians_file).total_calls == 7
+def test_load_stats_skips_a_half_written_line(history, write_jsonl, capsys, technicians_file):
+    log = write_jsonl("maintenance_requests.jsonl", *history, fragment='{"request_id": "MR-0008", "sta')
+    assert load_stats(log, technicians_file).total_calls == 7
 
 
 def test_load_stats_matches_what_the_desk_wrote(desk, alerts, technicians_file):

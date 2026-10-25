@@ -6,16 +6,9 @@ create_issue and get_github_token, runs for real. Covers the monitoring
 loops, the timing rules at their exact boundaries, the quiet-period
 watchdog, Pause/Resume, shutdown and adopting leftover calls."""
 
-import json
-import threading
-from types import SimpleNamespace
-from unittest import mock
 
 import pytest
-import requests
-from cryptography.fernet import Fernet
 
-from hardware_monitor import dashboard
 from hardware_monitor.config import (
     MAX_VISIBLE_ALERTS,
     ALERT_COOLDOWN_SECONDS,
@@ -26,125 +19,19 @@ from hardware_monitor.config import (
     SILENCE_DURATION,
     SILENCE_THRESHOLD,
 )
-from hardware_monitor.dashboard import HardwareMonitorApp
-from hardware_monitor.maintenance import MaintenanceDesk
 
-from fake_tk import FAKE_TK, FakeTclError, FakeToplevel
+from fake_tk import FakeTclError, FakeToplevel
 
 
-# --- fakes (Tk itself is faked in fake_tk.py) ---
+# The dashboard under test is the shared `dash` fixture (conftest.py).
 
 
-class FakeClock:
-    """Stands in for the time module. sleep() moves time forward, lets the
-    fake main loop run, and stops a monitoring loop after stop_after sleeps."""
-
-    def __init__(self):
-        self.now, self.app, self.sleeps, self.stop_after = 1000.0, None, 0, None
-
-    def time(self):
-        return self.now
-
-    def sleep(self, seconds):
-        self.now += seconds
-        self.app.root.flush()
-        self.sleeps += 1
-        if self.stop_after is not None and self.sleeps >= self.stop_after:
-            self.app.running = False
-
-    def advance(self, seconds):
-        self.now += seconds
-
-
-class RunNow:
-    """Stands in for threading.Thread: the GitHub post runs inline."""
-
-    def __init__(self, target, daemon=None):
-        self.target = target
-
-    def start(self):
-        self.target()
-
-
-class ScriptedMic:
-    """Returns the scripted values in order, then keeps repeating the last one."""
-
-    def __init__(self):
-        self.connected, self.volumes, self.calls, self.forced = [True], [0.2], 0, 0
-
-    @staticmethod
-    def _next(script):
-        return script.pop(0) if len(script) > 1 else script[0]
-
-    def is_connected(self):
-        self.calls += 1
-        return self._next(self.connected)
-
-    def read_volume(self):
-        return self._next(self.volumes)
-
-    def force_fault(self):
-        self.forced += 1
-
-
-class ScriptedCamera(ScriptedMic):
-    def __init__(self):
-        super().__init__()
-        self.frames_ok = [True]
-
-    def read_frame_ok(self):
-        return self._next(self.frames_ok)
-
-
-@pytest.fixture
-def github_api():
-    """Mocks requests.post: every issue is created. Records what was posted."""
-    posted = []
-
-    def created(url, json, **kwargs):
-        posted.append(SimpleNamespace(key=json["labels"][1], title=json["title"], body=json["body"],
-                                      token=kwargs["headers"]["Authorization"]))
-        response = mock.Mock(spec=requests.Response)
-        response.status_code = 201
-        response.json.return_value = {"number": len(posted), "html_url": f"https://example.invalid/{len(posted)}"}
-        return response
-
-    with mock.patch("hardware_monitor.github_client.requests.post", autospec=True, side_effect=created):
-        yield posted
-
-
-@pytest.fixture
-def env(monkeypatch, technicians, tmp_path, github_api):
-    FakeToplevel.created = []
-    clock = FakeClock()
-
-    # a token encrypted with a throwaway key, read by the real get_github_token
-    key = Fernet.generate_key()
-    monkeypatch.setenv("ENCRYPTION_KEY", key.decode())
-    monkeypatch.setenv("GITHUB_TOKEN", Fernet(key).encrypt(b"test-token").decode())
-
-    monkeypatch.setattr(dashboard, "tk", FAKE_TK)
-    monkeypatch.setattr(dashboard, "time", clock)
-    monkeypatch.setattr(dashboard, "threading", SimpleNamespace(Lock=threading.Lock, Thread=RunNow))
-
-    def build(technicians=technicians, log_path=tmp_path / "maintenance.jsonl"):
-        desk = MaintenanceDesk(technicians, log_path=str(log_path), report_csv_path=None)
-        app = HardwareMonitorApp(maintenance_desk=desk)
-        app.mic_source, app.camera_source = ScriptedMic(), ScriptedCamera()
-        clock.app = app
-        return app
-
-    built = SimpleNamespace(clock=clock, posted=github_api, build=build)
-    built.app = build()
-    return built
-
-
-def run_loop(env, loop, iterations):
+def run_loop(dash, loop, iterations):
     """Runs a monitoring loop for exactly `iterations` passes."""
-    env.app.running = True
-    env.clock.sleeps, env.clock.stop_after = 0, iterations
+    dash.app.running = True
+    dash.clock.sleeps, dash.clock.stop_after = 0, iterations
     loop()
-    env.clock.stop_after = None
+    dash.clock.stop_after = None
 
 
 def open_calls(app):
@@ -164,54 +51,54 @@ def test_the_dashboard_defaults():
 
 # --- microphone loop ---
 
-def test_mic_disconnect_opens_a_call_and_reconnect_resolves_it(env):
-    app = env.app
+def test_mic_disconnect_opens_a_call_and_reconnect_resolves_it(dash):
+    app = dash.app
     app.mic_source.connected = [False, True]
-    run_loop(env, app.monitor_mic, 1)
+    run_loop(dash, app.monitor_mic, 1)
 
     assert open_calls(app) == [("MIC-LOCAL", "MICROPHONE_DISCONNECTED")]
     assert popup(app, "mic_conn").window_title == "Microphone Disconnected"
-    assert [p.key for p in env.posted] == ["mic_conn"]
+    assert [p.key for p in dash.github.posted] == ["mic_conn"]
 
-    run_loop(env, app.monitor_mic, ALERT_MIN_DISPLAY_SECONDS)  # connected again, popup old enough
+    run_loop(dash, app.monitor_mic, ALERT_MIN_DISPLAY_SECONDS)  # connected again, popup old enough
     assert open_calls(app) == [] and popup(app, "mic_conn") is None
 
 
-def test_silence_alert_fires_only_after_more_than_the_silence_duration(env):
-    app = env.app
+def test_silence_alert_fires_only_after_more_than_the_silence_duration(dash):
+    app = dash.app
     app.mic_source.volumes = [SILENCE_THRESHOLD / 2]
     # readings at 0, 1, ..., SILENCE_DURATION seconds: silent for exactly SILENCE_DURATION, not more
-    run_loop(env, app.monitor_mic, SILENCE_DURATION + 1)
+    run_loop(dash, app.monitor_mic, SILENCE_DURATION + 1)
     assert open_calls(app) == []
 
-    run_loop(env, app.monitor_mic, 1)  # one second longer
+    run_loop(dash, app.monitor_mic, 1)  # one second longer
     assert open_calls(app) == [("MIC-LOCAL", "MICROPHONE_SILENCE")]
     assert popup(app, "mic_silence") is not None
 
 
-def test_a_volume_exactly_at_the_threshold_is_not_silence(env):
-    app = env.app
+def test_a_volume_exactly_at_the_threshold_is_not_silence(dash):
+    app = dash.app
     app.mic_source.volumes = [SILENCE_THRESHOLD]
-    run_loop(env, app.monitor_mic, SILENCE_DURATION + 5)
+    run_loop(dash, app.monitor_mic, SILENCE_DURATION + 5)
     assert open_calls(app) == [] and app.is_silent is False
 
 
-def test_sound_returning_restarts_the_silence_timer(env):
-    app = env.app
+def test_sound_returning_restarts_the_silence_timer(dash):
+    app = dash.app
     quiet = SILENCE_THRESHOLD / 2
     app.mic_source.volumes = [quiet] * 5 + [0.2] + [quiet] * (SILENCE_DURATION + 1) + [quiet]
-    run_loop(env, app.monitor_mic, 5 + 1 + SILENCE_DURATION + 1)
+    run_loop(dash, app.monitor_mic, 5 + 1 + SILENCE_DURATION + 1)
     assert open_calls(app) == []  # 14 s in total, but never more than 8 s in a row
 
-    run_loop(env, app.monitor_mic, 1)
+    run_loop(dash, app.monitor_mic, 1)
     assert open_calls(app) == [("MIC-LOCAL", "MICROPHONE_SILENCE")]
 
 
-def test_a_disconnect_ends_a_silence_episode(env):
-    app = env.app
+def test_a_disconnect_ends_a_silence_episode(dash):
+    app = dash.app
     app.mic_source.volumes = [SILENCE_THRESHOLD / 2]
     app.mic_source.connected = [True] * (SILENCE_DURATION + 2) + [False]
-    run_loop(env, app.monitor_mic, SILENCE_DURATION + 3)
+    run_loop(dash, app.monitor_mic, SILENCE_DURATION + 3)
 
     assert app.is_silent is False
     assert ("MIC-LOCAL", "MICROPHONE_DISCONNECTED") in open_calls(app)
@@ -223,31 +110,31 @@ def test_a_disconnect_ends_a_silence_episode(env):
     (False, True, "Camera Disconnected"),
     (True, False, "Camera Error"),
 ])
-def test_camera_faults(env, connected, frame_ok, title):
-    app = env.app
+def test_camera_faults(dash, connected, frame_ok, title):
+    app = dash.app
     app.camera_source.connected, app.camera_source.frames_ok = [connected], [frame_ok]
-    run_loop(env, app.monitor_camera, 1)
+    run_loop(dash, app.monitor_camera, 1)
 
     assert open_calls(app) == [("CAM-LOCAL", "CAMERA_FAILURE")]
     assert popup(app, "camera").window_title == title
-    assert env.posted[0].title.endswith(title)
+    assert dash.github.posted[0].title.endswith(title)
 
 
-def test_camera_is_checked_every_three_seconds_and_recovers(env):
-    app = env.app
+def test_camera_is_checked_every_three_seconds_and_recovers(dash):
+    app = dash.app
     app.camera_source.connected = [False, True]
-    run_loop(env, app.monitor_camera, 1)
-    assert env.clock.now == 1003.0
+    run_loop(dash, app.monitor_camera, 1)
+    assert dash.clock.now == 1003.0
 
-    run_loop(env, app.monitor_camera, 2)  # 6 s later: healthy, popup old enough to close
+    run_loop(dash, app.monitor_camera, 2)  # 6 s later: healthy, popup old enough to close
     assert open_calls(app) == [] and popup(app, "camera") is None
 
 
 @pytest.mark.parametrize("loop", ["monitor_mic", "monitor_camera"])
-def test_paused_loops_do_not_check_the_hardware(env, loop):
-    app = env.app
+def test_paused_loops_do_not_check_the_hardware(dash, loop):
+    app = dash.app
     app.is_paused = True
-    run_loop(env, getattr(app, loop), 5)
+    run_loop(dash, getattr(app, loop), 5)
     assert app.mic_source.calls == app.camera_source.calls == 0
 
 
@@ -258,133 +145,161 @@ def show_camera(app):
     app.root.flush()
 
 
-def test_a_popup_stays_up_for_the_minimum_display_time(env):
-    app = env.app
+def test_a_popup_stays_up_for_the_minimum_display_time(dash):
+    app = dash.app
     show_camera(app)
 
-    env.clock.advance(ALERT_MIN_DISPLAY_SECONDS - 0.5)
+    dash.clock.advance(ALERT_MIN_DISPLAY_SECONDS - 0.5)
     app.hide_alert("camera")
     app.root.flush()
     assert popup(app, "camera") is not None and open_calls(app) != []  # too soon: popup and call stay
 
-    env.clock.advance(0.5)  # exactly the minimum
+    dash.clock.advance(0.5)  # exactly the minimum
     app.hide_alert("camera")
     app.root.flush()
     assert popup(app, "camera") is None and open_calls(app) == []
 
 
-def test_the_same_fault_cannot_pop_up_again_during_the_cooldown(env):
-    app = env.app
+def test_the_same_fault_cannot_pop_up_again_during_the_cooldown(dash):
+    app = dash.app
     show_camera(app)
-    env.clock.advance(ALERT_MIN_DISPLAY_SECONDS)
+    dash.clock.advance(ALERT_MIN_DISPLAY_SECONDS)
     app.hide_alert("camera")
     app.root.flush()
 
-    env.clock.advance(ALERT_COOLDOWN_SECONDS - 0.5)
+    dash.clock.advance(ALERT_COOLDOWN_SECONDS - 0.5)
     show_camera(app)
     assert popup(app, "camera") is None
     assert open_calls(app) == [("CAM-LOCAL", "CAMERA_FAILURE")]  # the call is still opened, no fault goes unrecorded
 
-    env.clock.advance(0.5)  # cooldown over
+    dash.clock.advance(0.5)  # cooldown over
     show_camera(app)
     assert popup(app, "camera") is not None
 
 
-def test_at_most_one_github_issue_per_fault_within_the_cooldown(env, capsys):
-    app = env.app
+def test_at_most_one_github_issue_per_fault_within_the_cooldown(dash, capsys):
+    app = dash.app
 
     def new_camera_fault():
         app.show_alert("camera", "Camera Disconnected", "test")
         app.resolve_maintenance_call("camera")  # cleared, so the next fault is a new call
 
     new_camera_fault()
-    env.clock.advance(GITHUB_ISSUE_COOLDOWN_SECONDS - 1)
+    dash.clock.advance(GITHUB_ISSUE_COOLDOWN_SECONDS - 1)
     new_camera_fault()
-    assert len(env.posted) == 1
+    assert len(dash.github.posted) == 1
     assert "GitHub issue for camera skipped" in capsys.readouterr().out
 
-    env.clock.advance(1)  # exactly the cooldown
+    dash.clock.advance(1)  # exactly the cooldown
     new_camera_fault()
-    assert len(env.posted) == 2
+    assert len(dash.github.posted) == 2
 
 
-def test_an_ongoing_fault_reuses_its_call_and_issue(env):
-    app = env.app
+def test_an_ongoing_fault_reuses_its_call_and_issue(dash):
+    app = dash.app
     for _ in range(3):
         show_camera(app)
-    assert len(app.maintenance_desk.requests) == 1 and len(env.posted) == 1
+    assert len(app.maintenance_desk.requests) == 1 and len(dash.github.posted) == 1
 
 
-def test_github_issue_names_the_call_and_technician(env):
-    app = env.app
+def test_github_issue_names_the_call_and_technician(dash):
+    app = dash.app
     show_camera(app)
     request = app.open_requests["camera"]
     technician = app.maintenance_desk.technician_for(request)
-    assert f"`{request.request_id}`" in env.posted[0].body and technician.name in env.posted[0].body
+    assert f"`{request.request_id}`" in dash.github.posted[0].body and technician.name in dash.github.posted[0].body
 
 
-def test_the_decrypted_token_is_sent_to_github(env):
-    show_camera(env.app)
-    assert env.app.github_token == "test-token"
-    assert env.posted[0].token == "Bearer test-token"
+def test_the_decrypted_token_is_sent_to_github(dash):
+    show_camera(dash.app)
+    assert dash.app.github_token == "test-token"
+    assert dash.github.posted[0].token == "Bearer test-token"
 
 
-def test_a_successful_post_is_reported_with_the_issue_link(env, capsys):
-    show_camera(env.app)
+def test_a_successful_post_is_reported_with_the_issue_link(dash, capsys):
+    show_camera(dash.app)
     assert "Alert posted to GitHub for camera: issue #1 (https://example.invalid/1)" in capsys.readouterr().out
 
 
-def test_alerts_still_show_when_no_technician_can_take_the_call(env, capsys):
-    app = env.build(technicians={})
+def test_alerts_still_show_when_no_technician_can_take_the_call(dash, capsys):
+    app = dash.build(technicians={})
     app.show_alert("camera", "Camera Disconnected", "test")
     app.root.flush()
 
     assert "Could not open a maintenance call for camera" in capsys.readouterr().out
-    assert popup(app, "camera") is not None and len(env.posted) == 1
+    assert popup(app, "camera") is not None and len(dash.github.posted) == 1
 
 
 # --- quiet-period watchdog ---
 
-def test_watchdog_forces_a_fault_after_the_quiet_period(env):
-    app = env.app
-    run_loop(env, app.keep_room_busy, MAX_QUIET_SECONDS - 1)
+def test_watchdog_forces_a_fault_after_the_quiet_period(dash):
+    app = dash.app
+    run_loop(dash, app.keep_room_busy, MAX_QUIET_SECONDS - 1)
     assert app.mic_source.forced + app.camera_source.forced == 0
 
-    run_loop(env, app.keep_room_busy, 1)  # exactly MAX_QUIET_SECONDS without a popup
+    run_loop(dash, app.keep_room_busy, 1)  # exactly MAX_QUIET_SECONDS without a popup
     assert app.mic_source.forced + app.camera_source.forced == 1
 
 
-def test_watchdog_only_forces_a_device_free_to_show_a_popup(env):
-    app = env.app
-    app.active_alerts["mic_conn"] = "pending"  # the mic already has a popup
-    run_loop(env, app.keep_room_busy, MAX_QUIET_SECONDS)
+def show(app, key):
+    app.show_alert(key, f"{key} fault", "test")
+    app.root.flush()
+
+
+needs_two_slots = pytest.mark.skipif(MAX_VISIBLE_ALERTS < 2, reason="needs room for two popups at once")
+
+
+@needs_two_slots
+def test_watchdog_only_forces_a_device_free_to_show_a_popup(dash):
+    app = dash.app
+    show(app, "mic_conn")  # the mic already has a popup
+    run_loop(dash, app.keep_room_busy, MAX_QUIET_SECONDS)
     assert (app.mic_source.forced, app.camera_source.forced) == (0, 1)
 
 
-@pytest.mark.parametrize("blocker", ["slots_full", "cooling_down"])
-def test_watchdog_waits_when_no_popup_could_appear(env, blocker):
-    app = env.app
-    if blocker == "slots_full":
-        app._popup_slots = {"other_a": 0, "other_b": 1}
-    else:
-        app._closed_at = {"mic_conn": env.clock.now + MAX_QUIET_SECONDS, "camera": env.clock.now + MAX_QUIET_SECONDS}
-    run_loop(env, app.keep_room_busy, MAX_QUIET_SECONDS + 5)
+def test_watchdog_waits_while_every_popup_slot_is_taken(dash):
+    # every slot is taken by other faults; the mic is free but no popup could appear
+    others = ["camera", "mic_silence"]
+    if MAX_VISIBLE_ALERTS > len(others):
+        pytest.skip("needs more fault types than popup slots to fill every slot")
+    app = dash.app
+    for key in others[:MAX_VISIBLE_ALERTS]:
+        show(app, key)
+    run_loop(dash, app.keep_room_busy, MAX_QUIET_SECONDS + 5)
     assert app.mic_source.forced + app.camera_source.forced == 0
 
 
-def test_a_break_does_not_count_as_quiet_time(env):
-    app = env.app
+@needs_two_slots
+def test_watchdog_waits_for_the_cooldown_after_popups_close(dash):
+    # both popups stayed up for the whole quiet period, then closed: the watchdog
+    # must wait out the cooldown before forcing a new fault
+    app = dash.app
+    show(app, "camera")
+    show(app, "mic_conn")
+    dash.clock.advance(MAX_QUIET_SECONDS)
+    app.hide_alert("camera")
+    app.hide_alert("mic_conn")
+    app.root.flush()
+
+    run_loop(dash, app.keep_room_busy, ALERT_COOLDOWN_SECONDS - 1)
+    assert app.mic_source.forced + app.camera_source.forced == 0
+    run_loop(dash, app.keep_room_busy, 1)  # the cooldown is over
+    assert app.mic_source.forced + app.camera_source.forced == 1
+
+
+def test_a_break_does_not_count_as_quiet_time(dash):
+    app = dash.app
     app.is_paused = True
-    run_loop(env, app.keep_room_busy, MAX_QUIET_SECONDS * 2)
+    run_loop(dash, app.keep_room_busy, MAX_QUIET_SECONDS * 2)
     app.is_paused = False
-    run_loop(env, app.keep_room_busy, MAX_QUIET_SECONDS - 1)
+    run_loop(dash, app.keep_room_busy, MAX_QUIET_SECONDS - 1)
     assert app.mic_source.forced + app.camera_source.forced == 0
 
 
 # --- pause / resume ---
 
-def test_pause_hides_popups_but_keeps_calls_open(env):
-    app = env.app
+def test_pause_hides_popups_but_keeps_calls_open(dash):
+    app = dash.app
     show_camera(app)
     app.toggle_pause()
     app.root.flush()
@@ -395,54 +310,59 @@ def test_pause_hides_popups_but_keeps_calls_open(env):
     assert app.pause_btn.options["text"] == "Resume Monitoring"
 
 
-def test_no_new_alerts_while_paused(env):
-    app = env.app
+def test_no_new_alerts_while_paused(dash):
+    app = dash.app
     app.toggle_pause()
     show_camera(app)
-    assert open_calls(app) == [] and env.posted == []
+    assert open_calls(app) == [] and dash.github.posted == []
 
 
-def test_pause_before_a_popup_is_drawn_cancels_it(env):
-    app = env.app
+def test_pause_before_a_popup_is_drawn_cancels_it(dash):
+    app = dash.app
     app.show_alert("camera", "Camera Disconnected", "test")  # popup reserved, not yet drawn
     app.toggle_pause()
     app.root.flush()
 
     assert FakeToplevel.created == []
-    assert app.active_alerts["camera"] is None and app._popup_slots == {}
+    assert app.active_alerts["camera"] is None
+
+    app.toggle_pause()  # its slot was freed: the next popup goes to the top slot
+    show_camera(app)
+    (drawn,) = FakeToplevel.created
+    assert drawn.spec.endswith("+40")
 
 
-def test_resume_restarts_the_silence_timer(env):
-    app = env.app
+def test_resume_restarts_the_silence_timer(dash):
+    app = dash.app
     app.toggle_pause()
-    env.clock.advance(100)
+    dash.clock.advance(100)
     app.toggle_pause()
 
-    assert app.silence_start == env.clock.now
+    assert app.silence_start == dash.clock.now
     assert app.status_lbl.options["text"] == "Monitoring Active"
 
 
 # --- shutdown ---
 
-def test_after_closing_alerts_are_ignored(env):
-    app = env.app
+def test_after_closing_alerts_are_ignored(dash):
+    app = dash.app
     app.stop()
     assert app.running is False and app.root.destroyed
 
     app.show_alert("camera", "Camera Disconnected", "test")
     app.hide_alert("camera")
-    assert open_calls(app) == [] and env.posted == []
+    assert open_calls(app) == [] and dash.github.posted == []
 
 
-def test_a_ui_error_while_running_is_not_hidden(env):
-    app = env.app
+def test_a_ui_error_while_running_is_not_hidden(dash):
+    app = dash.app
     app.root.destroyed = True  # the window broke while monitoring is still on
     with pytest.raises(FakeTclError):
-        app._run_on_ui_thread(lambda: None)
+        app.show_alert("camera", "Camera Disconnected", "test")
 
 
-def test_a_ui_error_during_shutdown_is_ignored(env):
-    app = env.app
+def test_a_ui_error_during_shutdown_is_ignored(dash):
+    app = dash.app
     app.root.destroyed = True
     app.running = True
 
@@ -451,24 +371,21 @@ def test_a_ui_error_during_shutdown_is_ignored(env):
         raise FakeTclError("application has been destroyed")
 
     app.root.after = lambda delay, callback: closing_after_check()
-    app._run_on_ui_thread(lambda: None)  # must not raise
+    app.show_alert("camera", "Camera Disconnected", "test")  # must not raise
 
 
 # --- calls left open by a previous run ---
 
-def test_leftover_calls_are_adopted_and_duplicates_closed(env, tmp_path, capsys):
-    log_path = tmp_path / "leftover.jsonl"
-    record = {"status": "IN_PROGRESS", "workstation_id": COMPUTER_NAME, "component_id": "CAM-LOCAL",
-              "error_type": "CAMERA_FAILURE", "assigned_tech_id": "T1", "priority": 1}
-    log_path.write_text("\n".join(json.dumps(r) for r in [
-        {**record, "request_id": "MR-0001", "opened_at": "2026-10-01T09:00:00"},
-        {**record, "request_id": "MR-0002", "opened_at": "2026-10-01T10:00:00"},
-    ]) + "\n", encoding="utf-8")
+def test_leftover_calls_are_adopted_and_duplicates_closed(dash, make_call, write_jsonl, capsys):
+    this_machine = {"workstation_id": COMPUTER_NAME, "component_id": "CAM-LOCAL"}
+    log_path = write_jsonl("leftover.jsonl",
+                           make_call(1, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "09:00", **this_machine),
+                           make_call(2, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "10:00", **this_machine))
 
-    app = env.build(log_path=log_path)
+    app = dash.build(log_path=log_path)
     assert app.open_requests["camera"].request_id == "MR-0001"  # the oldest is kept
     assert "Closed duplicate maintenance call MR-0002" in capsys.readouterr().out
     assert [r.request_id for r in app.maintenance_desk.open_requests()] == ["MR-0001"]
 
-    run_loop(env, app.monitor_camera, 1)  # camera healthy: the adopted call is resolved
+    run_loop(dash, app.monitor_camera, 1)  # camera healthy: the adopted call is resolved
     assert app.maintenance_desk.open_requests() == []

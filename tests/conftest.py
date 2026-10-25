@@ -81,12 +81,9 @@ def technicians(make_team):
 
 
 @pytest.fixture
-def technicians_file(technicians, tmp_path):
+def technicians_file(technicians, write_jsonl):
     """The `technicians` test team written to a temporary technicians.jsonl."""
-    path = tmp_path / "technicians.jsonl"
-    path.write_text("".join(json.dumps({"tech_id": t.tech_id, "name": t.name}) + "\n" for t in technicians.values()),
-                    encoding="utf-8")
-    return str(path)
+    return write_jsonl("technicians.jsonl", *({"tech_id": t.tech_id, "name": t.name} for t in technicians.values()))
 
 
 # --- reusable mock objects ---
@@ -157,19 +154,33 @@ def desk(make_desk):
 @pytest.fixture
 def make_call():
     """Builds one maintenance-log record, shaped like the ones MaintenanceDesk writes:
-    make_call(number, error_type, tech_id, status, opened_at="09:00", workstation_id="WS-104")."""
+    make_call(number, error_type, tech_id, status, opened_at="09:00", workstation_id="WS-104",
+    **other_fields)."""
     names = {"T1": "Dana Levi", "T2": "Yossi Cohen", "T3": "Noa Mizrahi", "T4": "Avi Peretz"}
 
-    def build(number, error_type, tech_id, status, opened_at="09:00", workstation_id="WS-104"):
-        return {
+    def build(number, error_type, tech_id, status, opened_at="09:00", workstation_id="WS-104", **fields):
+        return {**{
             "request_id": f"MR-{number:04d}", "alert_id": number, "priority": 1,
             "error_type": error_type, "workstation_id": workstation_id, "component_id": "CAM-104",
             "status": status, "assigned_tech_id": tech_id, "assigned_tech_name": names.get(tech_id),
             "opened_at": f"2026-10-20T{opened_at}:00",
             "resolved_at": f"2026-10-20T{opened_at}:30" if status == "RESOLVED" else None,
-        }
+        }, **fields}
 
     return build
+
+
+@pytest.fixture
+def reports_log(make_call, write_jsonl):
+    """A saved maintenance log for the report tests: Dana's call MR-0001, opened
+    then resolved, and MR-0002, still open, by T42, who is no longer on the team."""
+    return write_jsonl(
+        "reports/maintenance_requests.jsonl",
+        make_call(1, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "09:00"),
+        make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED", "09:00"),
+        make_call(2, "MICROPHONE_FAILURE", "T42", "IN_PROGRESS", "10:00", workstation_id="WS-107",
+                  component_id="MIC-107"),
+    )
 
 
 @pytest.fixture
@@ -275,3 +286,119 @@ def retry_waits():
     waits = []
     with mock.patch("hardware_monitor.github_client.sleep", side_effect=waits.append):
         yield waits
+
+
+# --- shared stand-ins: one object per purpose ---
+
+@pytest.fixture
+def write_jsonl(tmp_path):
+    """write_jsonl(name, *lines, fragment="", append=False) writes a JSONL
+    file under tmp_path and returns its path. Lines are dicts (written as
+    JSON) or strings (written as they are, e.g. a broken line); `fragment`
+    is a last line cut off mid-write, with no newline."""
+    def write(name, *lines, fragment="", append=False):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = "".join((line if isinstance(line, str) else json.dumps(line)) + "\n" for line in lines) + fragment
+        with open(path, "a" if append else "w", encoding="utf-8") as f:
+            f.write(text)
+        return str(path)
+    return write
+
+
+def encrypt_token(secret):
+    """(encrypted token, key): a GitHub token encrypted the way .env holds
+    it, with a throwaway key."""
+    from cryptography.fernet import Fernet
+    key = Fernet.generate_key()
+    return Fernet(key).encrypt(secret.encode()).decode(), key.decode()
+
+
+def run_together(worker, count=8):
+    """Starts `count` threads running worker() at the same moment, waits for
+    all of them, and fails if any raised or got stuck."""
+    import threading
+    barrier = threading.Barrier(count)
+    errors = []
+
+    def start():
+        barrier.wait()
+        try:
+            worker()
+        except Exception as e:  # surfaced by the assertion below
+            errors.append(e)
+
+    threads = [threading.Thread(target=start) for _ in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert not any(t.is_alive() for t in threads), "threads did not finish (deadlock?)"
+    assert errors == []
+
+
+@pytest.fixture
+def slow_requests(monkeypatch):
+    """slow_requests(seconds): every new MaintenanceRequest first pauses, which
+    widens the window between reading and advancing the call number, so an
+    unlocked race would show up every time. The real request is still built."""
+    import time
+    from hardware_monitor import maintenance
+
+    def slow_down(seconds):
+        real_request = maintenance.MaintenanceRequest
+
+        class SlowRequest(real_request):
+            def __init__(self, *args, **kwargs):
+                time.sleep(seconds)
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(maintenance, "MaintenanceRequest", SlowRequest)
+
+    return slow_down
+
+
+@pytest.fixture
+def github():
+    """requests.post, mocked: see fake_github.MockedGitHub."""
+    from fake_github import MockedGitHub
+    with mock.patch("hardware_monitor.github_client.requests.post", autospec=True) as post:
+        yield MockedGitHub(post)
+
+
+@pytest.fixture
+def dash(monkeypatch, technicians, tmp_path, github):
+    """A real dashboard, built by its own constructor, with only its external
+    dependencies replaced: Tk (fake_tk), the clock, its background threads
+    and the mic/camera (fake_dashboard), GitHub (`github`), and a token
+    encrypted with a throwaway key for the real get_github_token.
+
+    .app is the dashboard, .clock its clock, .github the mocked GitHub
+    (.github.posted: the issues sent); .build(technicians=..., log_path=...)
+    builds another one."""
+    import threading
+    from types import SimpleNamespace
+    from fake_dashboard import FakeClock, RunNow, ScriptedCamera, ScriptedMic
+    from fake_tk import FAKE_TK, FakeToplevel
+    from hardware_monitor import dashboard
+    from hardware_monitor.dashboard import HardwareMonitorApp
+
+    FakeToplevel.created = []
+    clock = FakeClock()
+    token, key = encrypt_token("test-token")
+    monkeypatch.setenv("GITHUB_TOKEN", token)
+    monkeypatch.setenv("ENCRYPTION_KEY", key)
+    monkeypatch.setattr(dashboard, "tk", FAKE_TK)
+    monkeypatch.setattr(dashboard, "time", clock)
+    monkeypatch.setattr(dashboard, "threading", SimpleNamespace(Lock=threading.Lock, Thread=RunNow))
+
+    def build(technicians=technicians, log_path=tmp_path / "maintenance.jsonl"):
+        desk = MaintenanceDesk(technicians, log_path=str(log_path), report_csv_path=None)
+        app = HardwareMonitorApp(maintenance_desk=desk)
+        app.mic_source, app.camera_source = ScriptedMic(), ScriptedCamera()
+        clock.app = app
+        return app
+
+    built = SimpleNamespace(clock=clock, github=github, build=build)
+    built.app = build()
+    return built

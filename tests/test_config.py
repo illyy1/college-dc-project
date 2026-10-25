@@ -1,20 +1,17 @@
-"""Decrypting the GitHub token from .env, with a throwaway key: the real
-.env is never read, because load_dotenv is replaced and the variables are
-set (or removed) for each test."""
+"""Decrypting the GitHub token from .env, with a throwaway key. The real
+.env is never read: conftest's no_real_secrets turns load_dotenv into a no-op
+and clears both variables for every test; these tests set their own."""
 
 import dotenv
 import pytest
 from cryptography.fernet import Fernet
 
+from conftest import encrypt_token
 from hardware_monitor.config import get_github_token
 
 
 @pytest.fixture
 def env_vars(monkeypatch):
-    monkeypatch.setattr(dotenv, "load_dotenv", lambda *args, **kwargs: None)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
-
     def set_vars(token=None, key=None):
         if token is not None:
             monkeypatch.setenv("GITHUB_TOKEN", token)
@@ -24,20 +21,15 @@ def env_vars(monkeypatch):
     return set_vars
 
 
-def encrypt(secret):
-    key = Fernet.generate_key()
-    return Fernet(key).encrypt(secret.encode()).decode(), key.decode()
-
-
 def test_a_valid_token_is_decrypted(env_vars):
-    token, key = encrypt("ghp_example_token")
+    token, key = encrypt_token("ghp_example_token")
     env_vars(token=token, key=key)
     assert get_github_token() == "ghp_example_token"
 
 
 @pytest.mark.parametrize("present", ["token_only", "key_only", "neither"])
 def test_a_missing_value_gives_no_token(env_vars, capsys, present):
-    token, key = encrypt("ghp_example_token")
+    token, key = encrypt_token("ghp_example_token")
     env_vars(token=token if present == "token_only" else None, key=key if present == "key_only" else None)
 
     assert get_github_token() is None
@@ -51,7 +43,7 @@ def test_an_empty_value_counts_as_missing(env_vars):
 
 @pytest.mark.parametrize("problem", ["wrong_key", "malformed_key", "tampered_token"])
 def test_a_token_that_cannot_be_decrypted_gives_no_token(env_vars, capsys, problem):
-    token, key = encrypt("ghp_example_token")
+    token, key = encrypt_token("ghp_example_token")
     if problem == "wrong_key":
         key = Fernet.generate_key().decode()
     elif problem == "malformed_key":
@@ -65,7 +57,7 @@ def test_a_token_that_cannot_be_decrypted_gives_no_token(env_vars, capsys, probl
 
 
 def test_load_dotenv_is_what_reads_the_file(env_vars, monkeypatch):
-    token, key = encrypt("from-the-env-file")
+    token, key = encrypt_token("from-the-env-file")
 
     def fake_load_dotenv(*args, **kwargs):
         monkeypatch.setenv("GITHUB_TOKEN", token)

@@ -69,12 +69,22 @@ Run `pip install -r requirements.txt pytest`, then `pytest` from the project roo
 
 A check in `conftest.py` enforces this. It records every project file before the run and fails the run if any test created, changed or deleted one, naming the file.
 
-**Shared fixtures** (`tests/conftest.py`). Every test can request reusable mock data instead of building its own. Each fixture is rebuilt for every test, so one test's changes never leak into another.
-- `alerts`: a factory for fresh alerts. `alerts.camera()` (a lost camera on WS-104), `alerts.microphone()` (a silent mic on WS-105), or `alerts.make(...)` with any field overridden.
-- `bench_workstation`: a fake workstation with a healthy camera, a camera with an unusable resolution and a healthy microphone.
-- `workstations` and `technicians`: the synthetic fleet and technicians from `data/`.
-- `alert_manager`: an `AlertManager` whose log is a temporary file.
-- `make_desk` and `desk`: a `MaintenanceDesk` on a temporary log. `make_desk(team, csv_report=True, assignment_strategy=...)` builds a variant.
+**Shared fixtures and stand-ins** (`tests/conftest.py`, `tests/fake_*.py`). Every test uses the same object for the same purpose instead of building its own. Fixtures are rebuilt for every test, so one test's changes never leak into another.
+- **Test data the tests own:** the data files change as staff are hired and the fleet changes, so tests needing exact numbers never read `data/`.
+  - `technicians`: a fixed four-person test team. `make_team(n)` builds a team of any size, and `technicians_file` writes the team to a temporary file.
+  - `workstations`: the frozen test fleet in `tests/data/sample_fleet.jsonl`.
+  - `make_call(...)`: one maintenance-log record. `history` is a seven-call log, and `reports_log` is a saved log for the report tests.
+- **The real files:** `real_technicians` and `real_workstations` load `data/`, and their tests check only what any valid file must hold.
+- **Mock objects:**
+  - `alerts.camera()`, `alerts.microphone()` and `alerts.make(...)` build fresh alerts.
+  - `bench_workstation` is a fake workstation. `alert_manager`, `make_desk` and `desk` work on temporary logs.
+  - `write_jsonl(...)` writes any JSONL file, including a broken or half-written line.
+- **External dependencies:**
+  - `github` (`fake_github.py`) is the mocked `requests.post`.
+  - `dash` is a real dashboard built by its own constructor, with Tk (`fake_tk.py`), the clock, threads and signals (`fake_dashboard.py`) faked.
+  - `fake_random.FirstPick` stands in for `random`.
+- **Helpers:** `encrypt_token()` makes a throwaway encrypted token, `run_together()` starts threads at the same moment, and `slow_requests()` widens a race window.
+- **Settings:** tests read every setting from the config. One test per module pins the documented defaults, so changing a setting breaks only that test.
 
 **Isolation (mocking).** The tests run without an internet connection, without an API key, and without real waiting between retries. The rule: only external dependencies are mocked, never the function under test.
 - **Applied to every test** (`tests/conftest.py`): connecting to any non-local address fails as if the machine were offline. `load_dotenv` and the token variables are cleared, so the real `.env` is never read. The `sleep` between GitHub retries is a `unittest.mock` that records the waits instead of sleeping.

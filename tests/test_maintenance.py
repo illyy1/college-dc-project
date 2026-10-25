@@ -60,17 +60,12 @@ def take_calls(desk, alerts, count, resolve=True, make=None):
 
 
 @pytest.fixture
-def saved_log(tmp_path):
-    """Writes maintenance-log records for calls a previous run saved."""
+def saved_log(make_call, write_jsonl):
+    """saved_log(*tech_ids, status=...): calls a previous run saved in the
+    desk's log (the log make_desk uses), one per technician listed."""
     def write(*tech_ids, status="RESOLVED"):
-        path = tmp_path / "logs" / "maintenance_requests.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
-            for number, tech_id in enumerate(tech_ids, start=1):
-                f.write(json.dumps({"request_id": f"MR-{number:04d}", "status": status, "assigned_tech_id": tech_id,
-                                    "error_type": "CAMERA_FAILURE", "workstation_id": "WS-104",
-                                    "opened_at": f"2026-10-20T09:{number:02d}:00"}) + "\n")
-        return str(path)
+        calls = [make_call(n, "CAMERA_FAILURE", tech_id, status, f"09:{n:02d}") for n, tech_id in enumerate(tech_ids, 1)]
+        return write_jsonl("logs/maintenance_requests.jsonl", *calls)
     return write
 
 
