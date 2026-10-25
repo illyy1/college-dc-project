@@ -148,9 +148,9 @@ def test_a_busy_technician_with_fewer_calls_has_priority(picked_desk, picker, al
     assert take_calls(picked_desk, alerts, 1) == ["A"]                 # A: 1, resolved
     assert take_calls(picked_desk, alerts, 1, resolve=False) == ["B"]  # B: 1, still open
     assert take_calls(picked_desk, alerts, 2) == ["C", "A"]            # C: 1; then A: 2
-    # B is busy, but B and C have had fewer calls than A
-    assert picker.offered[-1] == ["B", "C"]
+    # B is busy, but B and C have had fewer calls than A, so the draw is between them
     assert take_calls(picked_desk, alerts, 1) == ["B"]
+    assert picker.offered[-1] == ["B", "C"]
 
 
 def test_the_pick_among_equals_is_random(team):

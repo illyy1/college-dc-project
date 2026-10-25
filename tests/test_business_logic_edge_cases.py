@@ -349,7 +349,7 @@ def test_async_overview_matches_sequential(no_latency, tmp_path):
     assert overview == asyncio.run(gather_overview_sequential(*sources))
     assert overview["fleet"] == {"workstations": 8,
                                  "components_by_status": {"ACTIVE": 11, "ERROR": 2, "DISCONNECTED": 3}}
-    assert overview["technicians"]["Camera"] == ["Dana Levi", "Noa Mizrahi"]
+    assert overview["technicians"] == ["Dana Levi", "Yossi Cohen", "Noa Mizrahi", "Avi Peretz"]
     assert overview["maintenance"] == {"total_calls": 0, "open_calls": []}  # missing log = no calls
 
 

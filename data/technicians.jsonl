@@ -1,4 +1,4 @@
-{"tech_id": "T1", "name": "Dana Levi", "specialty": "Camera", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104"]}
-{"tech_id": "T2", "name": "Yossi Cohen", "specialty": "Microphone", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104", "WS-105", "WS-106", "WS-107", "WS-108"]}
-{"tech_id": "T3", "name": "Noa Mizrahi", "specialty": "Camera", "workstation_ids": ["WS-105", "WS-106", "WS-107", "WS-108"]}
-{"tech_id": "T4", "name": "Avi Peretz", "specialty": "General", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104", "WS-105", "WS-106", "WS-107", "WS-108"]}
+{"tech_id": "T1", "name": "Dana Levi", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104"]}
+{"tech_id": "T2", "name": "Yossi Cohen", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104", "WS-105", "WS-106", "WS-107", "WS-108"]}
+{"tech_id": "T3", "name": "Noa Mizrahi", "workstation_ids": ["WS-105", "WS-106", "WS-107", "WS-108"]}
+{"tech_id": "T4", "name": "Avi Peretz", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104", "WS-105", "WS-106", "WS-107", "WS-108"]}

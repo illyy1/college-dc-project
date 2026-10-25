@@ -1,18 +1,20 @@
 """Maintenance desk: turns alerts into MaintenanceRequest calls, assigns each
-call to a technician with the matching specialty among those who cover the
-alert's workstation (overflowing to a General technician when every
-specialist already has an open call), and appends
-every state change to logs/maintenance_requests.jsonl so the history of who
-handled what survives past this process. The CSV report is refreshed on every
-change, so it is current even if the program is killed rather than closed.
+call to a technician, and appends every state change to
+logs/maintenance_requests.jsonl so the history of who handled what survives
+past this process. The CSV report is refreshed on every change, so it is
+current even if the program is killed rather than closed.
 
-Which of the eligible technicians gets the call is a Strategy: the desk
-delegates the choice to an AssignmentStrategy object, so the rule can be
-swapped without touching the desk. LeastBusyStrategy is the default;
-RoundRobinStrategy is an alternative."""
+There are no specialists: every technician can take any call, of any kind,
+on any workstation. Which one gets it is a Strategy: the desk hands every
+technician to an AssignmentStrategy object, so the rule can be swapped
+without touching the desk. The default, FewestCallsStrategy, gives the
+call to a random one of the technicians with the fewest calls saved in the
+log; LeastBusyStrategy and RoundRobinStrategy are alternatives."""
 
+import random
 import threading
 from abc import ABC, abstractmethod
+from collections import Counter
 from datetime import datetime
 
 from .config import MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH
@@ -20,31 +22,19 @@ from .models import MaintenanceRequest
 from .reports import validate_and_assign_request, export_maintenance_history_csv
 from .repository import append_jsonl_record, load_maintenance_history, request_number
 
-GENERAL_SPECIALTY = "General"
-
-# error_type prefix -> technician specialty
-ERROR_PREFIX_TO_SPECIALTY = {
-    "CAMERA": "Camera",
-    "MICROPHONE": "Microphone",
-}
-
-
-def specialty_for_error_type(error_type):
-    prefix = error_type.split("_", 1)[0].upper()
-    return ERROR_PREFIX_TO_SPECIALTY.get(prefix, GENERAL_SPECIALTY)
-
 
 def open_call_count(technician):
     return sum(1 for r in technician.assigned_requests if r.status != "RESOLVED")
 
 
 class AssignmentStrategy(ABC):
-    """Strategy interface: picks one technician from the eligible candidates
-    (the desk has already applied the coverage, specialty and overflow rules).
-    last_assigned_at maps tech_id -> when they were last given a call."""
+    """Strategy interface: picks one technician from the candidates (every
+    technician). last_assigned_at maps tech_id -> when they were last given a
+    call; calls_taken maps tech_id -> how many calls they have been given in
+    total, as saved in the log (technicians with none may be missing)."""
 
     @abstractmethod
-    def choose(self, candidates, last_assigned_at):
+    def choose(self, candidates, last_assigned_at, calls_taken):
         """Returns one technician from candidates."""
 
 
@@ -52,11 +42,26 @@ def _last_assigned(technician, last_assigned_at):
     return last_assigned_at.get(technician.tech_id, datetime.min)
 
 
+class FewestCallsStrategy(AssignmentStrategy):
+    """Default: the technicians with the fewest calls saved in the log have
+    priority, and the call goes to one of them picked at random. Every call
+    counts, resolved ones and earlier runs included, so the work evens out.
+    rng: anything with a choice() method; Python's random by default."""
+
+    def __init__(self, rng=random):
+        self.rng = rng
+
+    def choose(self, candidates, last_assigned_at, calls_taken):
+        fewest = min(calls_taken.get(t.tech_id, 0) for t in candidates)
+        tied = [t for t in candidates if calls_taken.get(t.tech_id, 0) == fewest]
+        return self.rng.choice(tied)
+
+
 class LeastBusyStrategy(AssignmentStrategy):
-    """Default: fewest open calls; ties go to whoever was assigned least
+    """Alternative: fewest open calls; ties go to whoever was assigned least
     recently, so equally busy technicians take turns."""
 
-    def choose(self, candidates, last_assigned_at):
+    def choose(self, candidates, last_assigned_at, calls_taken):
         return min(candidates, key=lambda t: (open_call_count(t), _last_assigned(t, last_assigned_at)))
 
 
@@ -64,7 +69,7 @@ class RoundRobinStrategy(AssignmentStrategy):
     """Alternative: strict turns. Whoever was assigned least recently gets
     the call, however many open calls they have."""
 
-    def choose(self, candidates, last_assigned_at):
+    def choose(self, candidates, last_assigned_at, calls_taken):
         return min(candidates, key=lambda t: _last_assigned(t, last_assigned_at))
 
 
@@ -72,7 +77,7 @@ class MaintenanceDesk:
     def __init__(self, technicians, log_path=MAINTENANCE_LOG_PATH,
                  report_csv_path=MAINTENANCE_REPORT_CSV_PATH, assignment_strategy=None):
         self.technicians = technicians
-        self.assignment_strategy = assignment_strategy or LeastBusyStrategy()
+        self.assignment_strategy = assignment_strategy or FewestCallsStrategy()
         self.log_path = log_path
         self.report_csv_path = report_csv_path
         self.requests = {}
@@ -81,10 +86,14 @@ class MaintenanceDesk:
         history = load_maintenance_history(self.log_path)
         # continue numbering after the highest id already in the log, so ids stay unique across runs
         self._next_number = max((request_number(r["request_id"]) for r in history), default=0) + 1
-        # tech_id -> when they were last given a call; the assignment strategies take turns by this
+        # tech_id -> when they were last given a call; the alternative strategies take turns by this
         self._last_assigned_at = {}
+        # tech_id -> calls given to them, ever: what FewestCallsStrategy evens out
+        self._calls_taken = Counter()
         for record in history:
             tech_id, opened_at = record.get("assigned_tech_id"), record.get("opened_at")
+            if tech_id:
+                self._calls_taken[tech_id] += 1
             if tech_id and opened_at:
                 when = datetime.fromisoformat(opened_at)
                 self._last_assigned_at[tech_id] = max(when, self._last_assigned_at.get(tech_id, when))
@@ -129,32 +138,13 @@ class MaintenanceDesk:
             key=lambda r: r.opened_at,
         )
 
-    def pick_technician(self, specialty, workstation_id=None):
-        """Technician with the given specialty, chosen among the technicians
-        who cover workstation_id (their workstation_ids from
-        technicians.jsonl). If nobody covers it (e.g. the live dashboard's own
-        machine, which is not in sample_data.jsonl), every technician is
-        considered. If every such specialist already has an open call, General
-        technicians join the candidates (overflow); if there is no specialist
-        at all, everyone is a candidate. The assignment strategy then picks
-        one of the candidates."""
+    def pick_technician(self):
+        """Every technician can take any call, so all of them are candidates;
+        the assignment strategy picks one."""
         if not self.technicians:
             raise ValueError("No technicians are registered in the system.")
-
-        everyone = list(self.technicians.values())
-        covering = [t for t in everyone if t.covers(workstation_id)]
-        if covering:
-            everyone = covering
-        specialists = [t for t in everyone if t.specialty == specialty]
-        generalists = [t for t in everyone if t.specialty == GENERAL_SPECIALTY and t not in specialists]
-        if not specialists:
-            candidates = everyone
-        elif generalists and all(open_call_count(t) > 0 for t in specialists):
-            candidates = specialists + generalists
-        else:
-            candidates = specialists
-
-        return self.assignment_strategy.choose(candidates, self._last_assigned_at)
+        return self.assignment_strategy.choose(list(self.technicians.values()), self._last_assigned_at,
+                                               self._calls_taken)
 
     def open_request_for_alert(self, alert):
         """Opens a call for the alert, assigns it to a technician and logs it."""
@@ -169,9 +159,10 @@ class MaintenanceDesk:
             )
             self._next_number += 1
 
-            technician = self.pick_technician(specialty_for_error_type(alert.error_type), alert.workstation_id)
+            technician = self.pick_technician()
             validate_and_assign_request(request, technician.tech_id, self.technicians)
             self._last_assigned_at[technician.tech_id] = request.opened_at
+            self._calls_taken[technician.tech_id] += 1
             self.requests[request.request_id] = request
             self._persist(request)
             return request

@@ -240,7 +240,7 @@ def demo_lazy_pipeline(workstations, limit, min_age_years):
 
 def demo_maintenance_workflow(alert_manager, workstations):
     """Loads the technicians, opens a maintenance call for every unresolved
-    alert (auto-assigned by specialty and workload, and saved to the
+    alert (auto-assigned to a technician with the fewest calls, and saved to the
     demo maintenance log), resolves one, and prints the workload report.
 
     The demo fleet is synthetic, so its calls go to a separate log that is
@@ -254,7 +254,7 @@ def demo_maintenance_workflow(alert_manager, workstations):
     print(f"  Cross-file check: {len(technicians)} technician(s) cover "
           f"{len({ws for t in technicians.values() for ws in t.workstation_ids})} workstation(s), "
           f"{len(unknown_coverage)} unknown workstation id(s)")
-    tampered_tech = Technician("T-TAMPERED", "Test Tech", "General", workstation_ids=["WS-101", "WS-999"])
+    tampered_tech = Technician("T-TAMPERED", "Test Tech", workstation_ids=["WS-101", "WS-999"])
     for tech_id, ws_id in find_unknown_workstation_references({tampered_tech.tech_id: tampered_tech}, workstations):
         print(f"  Cross-file check flagged {tech_id}: workstation '{ws_id}' is not in sample_data.jsonl")
 
@@ -311,6 +311,5 @@ def demo_async_overview():
 
     fleet, maintenance = overview["fleet"], overview["maintenance"]
     print(f"  Fleet: {fleet['workstations']} workstation(s), components by status {fleet['components_by_status']}")
-    for specialty, names in overview["technicians"].items():
-        print(f"  Technicians ({specialty}): {', '.join(names)}")
+    print(f"  Technicians: {', '.join(overview['technicians'])}")
     print(f"  Maintenance: {maintenance['total_calls']} call(s), still open: {maintenance['open_calls'] or 'none'}")

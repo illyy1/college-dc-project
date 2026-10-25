@@ -6,12 +6,11 @@ from earlier runs and from dashboards running in another process."""
 
 from dataclasses import dataclass
 
-from .maintenance import specialty_for_error_type
 from .repository import load_maintenance_history, load_technicians_from_jsonl, request_number
 
 UNASSIGNED = "Unassigned"
-# alert types follow the technician specialties; General work shows as "Other"
-ALERT_TYPE_FOR_SPECIALTY = {"Camera": "Camera", "Microphone": "Microphone", "General": "Other"}
+# error_type prefix -> alert type; anything else is "Other"
+ALERT_TYPE_FOR_PREFIX = {"CAMERA": "Camera", "MICROPHONE": "Microphone"}
 
 
 @dataclass
@@ -54,7 +53,9 @@ class Stats:
 
 
 def alert_type_for(error_type):
-    return ALERT_TYPE_FOR_SPECIALTY[specialty_for_error_type(error_type or "")]
+    """CAMERA_FAILURE -> "Camera", MICROPHONE_SILENCE -> "Microphone", else "Other"."""
+    prefix = (error_type or "").split("_", 1)[0].upper()
+    return ALERT_TYPE_FOR_PREFIX.get(prefix, "Other")
 
 
 def is_open(record):

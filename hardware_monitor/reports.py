@@ -62,7 +62,7 @@ def generate_technician_workload_report(technicians_dict: dict[str, Technician])
 
     for tech_id, tech in technicians_dict.items():
         open_tasks = [r for r in tech.assigned_requests if r.status != "RESOLVED"]
-        print(f"• {tech.name} ({tech_id}) - התמחות: {tech.specialty}")
+        print(f"• {tech.name} ({tech_id})")
         print(f"  משימות פעילות לטיפול: {len(open_tasks)}")
         for task in open_tasks:
             print(f"    - {task}")

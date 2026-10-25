@@ -5,9 +5,9 @@
 *   **Business need:** Meeting rooms often discover a dead camera or microphone only when a meeting starts. Faults are reported late, by phone, and nobody knows which room is affected or who is handling it.
 *   **Users and roles:**
     *   *IT help-desk administrator:* manages the hardware inventory and acknowledges every incoming alert.
-    *   *Technician:* receives maintenance calls that match their specialty (Camera, Microphone or General) and marks them resolved.
+    *   *Technician:* receives maintenance calls and marks them resolved. There are no specialists: every technician can take any call.
     *   *Automated monitor (system actor):* runs diagnostics on each component and creates alerts.
-*   **Main business process:** A diagnostic check or the live monitor detects a failed component. An alert is created, the help desk acknowledges it in arrival order, and a maintenance call is opened and assigned to the least-busy technician with the right specialty, most urgent fault first. The process ends when the technician resolves the call and the component is back to `ACTIVE`.
+*   **Main business process:** A diagnostic check or the live monitor detects a failed component. An alert is created, the help desk acknowledges it in arrival order, and a maintenance call is opened and assigned to one of the technicians with the fewest calls so far (picked at random among them), most urgent fault first. The process ends when the technician resolves the call and the component is back to `ACTIVE`.
 *   **Information flow:** In: the inventory of workstations and components (`data/sample_data.jsonl`), the technician list (`data/technicians.jsonl`) and live diagnostic results. The monitor creates alerts; the maintenance desk creates and updates maintenance calls. Out: an alert history log, a maintenance call history, a technician workload report and a CSV report for management.
 *   **Business value:** Faults are found before the meeting, urgent ones are fixed first, and work is spread evenly across technicians. This cuts room downtime and makes it clear who owns each fault.
 *   **Entities and relationships:**
@@ -95,7 +95,7 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **Boundaries:** the 8000 Hz sample-rate threshold, the 3-year age cut-off, the smallest valid resolution, a limit of 0.
   - **Empty inputs:** empty files, fleets and alert queues.
   - **Invalid inputs:** wrong types, blank ids, impossible dates, records that aren't JSON objects, foreign or duplicate components.
-  - **Maintenance rules:** workstations nobody covers, overflow only when every specialist is busy, open calls surviving a restart.
+  - **Maintenance rules:** a workstation in no technician's list still gets a technician, two technicians share open calls evenly, open calls survive a restart.
   - **Phase 2 concurrency:** threads never overlap log writes or reuse a call number, and the async overview matches the sequential one.
 - `tests/test_design_patterns.py` — the two design patterns (see Design patterns):
   - **Factory:** picks the right product, gives each product only its own fields and validation, builds the same object as direct construction, and picks up a new subclass with no changes to the factory.
@@ -164,14 +164,14 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 *   **Composition (הרכבה):** `Workstation` contains a list of `HardwareComponent` objects and offers `add_component`, `remove_component`, `find_component` and `run_all_diagnostics`.
 *   **Inheritance (הורשה):** `HardwareComponent` is the base class. `Camera` and `Microphone` are kinds of component and add their own fields (resolution, sample rate).
 *   **Polymorphism (פולימורפיזם):** `run_diagnostics()` and `alert_priority()` are defined in the base class and overridden in each subclass. The diagnostics sweep calls them through the common type, with no `if/elif` on the object's class. A camera fault outranks a microphone fault, and a lost device outranks a misconfigured one.
-*   **Validation:** `connection_status`, `Technician.specialty` and `MaintenanceRequest.status` are properties that raise `ValueError` with an explanation for an illegal value. `Workstation.add_component` refuses a component of another workstation or a reused id. The `from_dict` factories reject missing fields and wrong types.
+*   **Validation:** `connection_status` and `MaintenanceRequest.status` are properties that raise `ValueError` with an explanation for an illegal value. `Workstation.add_component` refuses a component of another workstation or a reused id. The `from_dict` factories reject missing fields and wrong types.
 *   **Other tools:** `@classmethod` factories (`from_dict`), a `@staticmethod` (`Camera.parse_resolution`), a computed property (`age_years`) and `__len__` on `AlertHistory`.
 
 ## Design patterns
 | Pattern | Where | What it gives us |
 |---|---|---|
 | **Factory** | `HardwareComponent.from_dict` (also `Workstation.from_dict`, `Technician.from_dict`) | The loader passes in a JSONL record and gets back the right subclass (`Camera`, `Microphone`, …) without any `if/elif` on the type. The factory finds the subclasses through `__subclasses__()`, so adding a new kind of component needs no change to the factory. Each subclass validates its own fields. |
-| **Strategy** | `AssignmentStrategy` in `maintenance.py` | The `MaintenanceDesk` decides which technicians are eligible (coverage, specialty, overflow), then hands the final choice to a strategy object. `LeastBusyStrategy` (default: fewest open calls, then whoever waited longest) and `RoundRobinStrategy` (strict turns, whatever the load) are interchangeable: `MaintenanceDesk(..., assignment_strategy=RoundRobinStrategy())`, or swap `desk.assignment_strategy` on a running desk. |
+| **Strategy** | `AssignmentStrategy` in `maintenance.py` | Every technician can take any call, so the `MaintenanceDesk` hands all of them to a strategy object, with how many calls each has saved in the log. `FewestCallsStrategy` (default: one of the technicians with the fewest calls, picked at random), `LeastBusyStrategy` (fewest open calls, then whoever waited longest) and `RoundRobinStrategy` (strict turns, whatever the load) are interchangeable: `MaintenanceDesk(..., assignment_strategy=RoundRobinStrategy())`, or swap `desk.assignment_strategy` on a running desk. |
 
 ## מבני נתונים (Data Structures)
 | Need | Structure chosen | Why it fits |
@@ -205,7 +205,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
     `{"workstation_id": "WS-101", "workstation_name": "Front Desk PC", "location": "Main Lobby", "component_type": "camera", "component_id": "CAM-101", "name": "Lobby Cam", "connection_status": "ACTIVE", "camera_index": 0, "resolution": "1920x1080", "installed_on": "2021-02-15"}`
     Microphones have `sample_rate` and `sensitivity_db` instead of `camera_index` and `resolution`.
 *   **Loading:** `repository.py` opens the file with `with open(..., encoding="utf-8")` and reads it one line at a time with `for line in file` (never `.read()` or `.readlines()`). Each line becomes a `dict` through `json.loads`, then an object through `Workstation.from_dict` and `HardwareComponent.from_dict` (which builds a `Camera` or `Microphone` from `component_type`). Technicians are loaded the same way through `Technician.from_dict`.
-*   **Validation:** invalid JSON, missing fields, ids that are not text, an unknown component type, an illegal status, specialty or date, wrong field types, a duplicate `component_id`, contradicting workstation details and a duplicate `tech_id` all raise `ValueError` with the file name and line number. Deliberately faulty values such as a `0x0` resolution or a 4000 Hz sample rate are accepted, because they are test cases for `run_diagnostics()` to catch.
+*   **Validation:** invalid JSON, missing fields, ids that are not text, an unknown component type, an illegal status or date, wrong field types, a duplicate `component_id`, contradicting workstation details and a duplicate `tech_id` all raise `ValueError` with the file name and line number. Deliberately faulty values such as a `0x0` resolution or a 4000 Hz sample rate are accepted, because they are test cases for `run_diagnostics()` to catch.
 *   **Output files** (all in `logs/`, not committed):
 
     | File | Written by | Contents |
@@ -231,8 +231,8 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 ## Maintenance Subsystem (team of four extension)
 *   **Business need:** an alert alone doesn't fix anything. Someone has to own each fault, and work must be spread fairly so urgent rooms are not stuck behind one overloaded technician.
 *   **Entities:** `Technician` and `MaintenanceRequest` (`models.py`). Technicians are loaded from `data/technicians.jsonl`; maintenance calls are saved to `logs/maintenance_requests.jsonl`.
-*   **Link between the data files:** each technician record lists the `workstation_ids` it covers, which are the `workstation_id` values in `data/sample_data.jsonl`. For example: `{"tech_id": "T1", "name": "Dana Levi", "specialty": "Camera", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104"]}`.
-*   **Process:** every alert opens a maintenance call (`OPEN`), which is assigned automatically (`IN_PROGRESS`) among the technicians who cover the alert's workstation (everyone, if nobody covers it): camera errors go to a Camera technician, microphone errors to a Microphone technician, overflow to a General technician, and ties to whoever was assigned least recently. When the fault clears, the call is `RESOLVED`. Pausing the dashboard for a break does not resolve it.
+*   **Link between the data files:** each technician record lists `workstation_ids`, which are `workstation_id` values in `data/sample_data.jsonl`. For example: `{"tech_id": "T1", "name": "Dana Levi", "workstation_ids": ["WS-101", "WS-102", "WS-103", "WS-104"]}`. The demo checks that every listed workstation exists. The lists do not limit who takes a call.
+*   **Process:** every alert opens a maintenance call (`OPEN`), which is assigned automatically (`IN_PROGRESS`). Every technician can take any call, on any workstation; the technicians with the fewest calls saved in the log (resolved ones and earlier runs included) have priority, and the call goes to one of them picked at random. When the fault clears, the call is `RESOLVED`. Pausing the dashboard for a break does not resolve it.
 *   **Link to the main system:** each call stores the `alert_id`, `workstation_id` and `component_id` of the alert that opened it.
 *   **Data checks:** `find_unknown_workstation_references` flags a technician who covers a workstation that does not exist in `sample_data.jsonl`. `find_unknown_technician_references` flags calls assigned to a technician who does not exist in `technicians.jsonl`. The demo runs both on the real data and on a deliberately broken record.
 *   **Reports (`reports.py`):** a workload report of open calls per technician, and a history report of every call with the technician who handled it, also exported to `logs/maintenance_report.csv` (opens in Excel).
