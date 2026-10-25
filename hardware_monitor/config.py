@@ -44,7 +44,8 @@ def get_github_token():
 
     try:
         cipher_suite = Fernet(crypt_key.encode("utf-8"))
-        return cipher_suite.decrypt(encrypted_token.encode("utf-8")).decode("utf-8")
+        # a token saved with a trailing newline would be rejected by requests as a header value
+        return cipher_suite.decrypt(encrypted_token.encode("utf-8")).decode("utf-8").strip()
     except Exception as e:
         print(f"Decryption failed. Check your .env file and key. Error: {e}")
         return None
