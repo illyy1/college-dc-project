@@ -91,7 +91,7 @@ class HardwareComponent(ABC):
 
     @property
     def age_years(self):
-        """Years since installation, or None if the install date is unknown."""
+        """Years since installation, or None if the installation date is unknown."""
         if self.installed_on is None:
             return None
         return (date.today() - self.installed_on).days / 365.25
