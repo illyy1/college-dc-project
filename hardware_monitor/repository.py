@@ -4,6 +4,7 @@ from logs/maintenance_requests.jsonl."""
 
 import json
 import os
+from datetime import datetime
 
 from .models import HardwareComponent, Workstation, Technician
 
@@ -89,16 +90,52 @@ def load_maintenance_history(path, reported=None):
     """Reads the append-only maintenance log line-by-line. Every state change
     of a request is its own line, so the last line seen per request_id is its
     current state. Returns those latest records ordered by request_id.
-    reported: see iter_jsonl_records."""
+
+    A line with a wrongly typed field (e.g. from a hand-edited log) is
+    skipped with a warning, so the call keeps its last readable state, or
+    is left out if it has none. reported: see iter_jsonl_records."""
     if not os.path.exists(path):
         return []
 
     latest = {}
-    for record in iter_jsonl_records(path, reported):
-        if "request_id" in record:
-            latest[record["request_id"]] = record
+    for line_number, record in _numbered_records(path, reported):
+        if "request_id" not in record:
+            continue
+        field = _wrongly_typed_field(record)
+        if field is not None:
+            _warn_once(reported, path, line_number,
+                       f"Warning: skipping unreadable call on line {line_number} in {path} "
+                       f"({field} is {record[field]!r}).")
+            continue
+        latest[record["request_id"]] = record
 
     return sorted(latest.values(), key=lambda r: request_number(r["request_id"]))
+
+
+def highest_request_number(path, reported=None):
+    """The highest request number anywhere in the log, unreadable calls
+    included, so a new call never reuses a number that is already taken.
+    0 for an empty or missing log. reported: see iter_jsonl_records."""
+    return max((request_number(record["request_id"]) for record in iter_jsonl_records(path, reported)
+                if "request_id" in record), default=0)
+
+
+# fields the program reads as text, and must be text (or missing) in the log
+_TEXT_FIELDS = ("request_id", "assigned_tech_id", "error_type", "opened_at")
+
+
+def _wrongly_typed_field(record):
+    """The first field of a log record with the wrong type, or None."""
+    for field in _TEXT_FIELDS:
+        value = record.get(field)
+        if value is not None and not isinstance(value, str):
+            return field
+    if record.get("opened_at"):
+        try:
+            datetime.fromisoformat(record["opened_at"])
+        except ValueError:
+            return "opened_at"
+    return None
 
 
 def request_number(request_id):
@@ -133,6 +170,12 @@ def iter_jsonl_records(path, reported=None):
     reported: for a caller that re-reads the same log again and again (the
     statistics viewer), a set that remembers which broken lines were already
     reported, so each is reported once instead of on every read."""
+    for _, record in _numbered_records(path, reported):
+        yield record
+
+
+def _numbered_records(path, reported):
+    """iter_jsonl_records, with each record's line number."""
     if not os.path.exists(path):
         return
 
@@ -144,10 +187,15 @@ def iter_jsonl_records(path, reported=None):
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
-                if reported is None or (path, line_number) not in reported:
-                    print(f"Warning: skipping corrupt line {line_number} in {path}.")
-                    if reported is not None:
-                        reported.add((path, line_number))
+                _warn_once(reported, path, line_number, f"Warning: skipping corrupt line {line_number} in {path}.")
                 continue
             if isinstance(record, dict):
-                yield record
+                yield line_number, record
+
+
+def _warn_once(reported, path, line_number, message):
+    """Prints the warning for this line, unless `reported` says it already was."""
+    if reported is None or (path, line_number) not in reported:
+        print(message)
+        if reported is not None:
+            reported.add((path, line_number))
