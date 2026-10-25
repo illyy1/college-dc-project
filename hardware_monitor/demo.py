@@ -53,7 +53,7 @@ def run_demo():
     demo_lazy_pipeline(workstations, limit=2, min_age_years=3)
 
     _header(10, "Maintenance calls opened and assigned to technicians")
-    demo_maintenance_workflow(alert_manager, workstations)
+    demo_maintenance_workflow(alert_manager)
 
     _header(11, "Async information gathering: three independent sources with create_task + gather")
     demo_async_overview()
@@ -163,16 +163,17 @@ def demo_queues(alert_manager):
     print("  Still to acknowledge (set difference):", sorted(alert_manager.unacknowledged_alert_ids()))
 
     print("  Technicians dispatched by urgency (heapq.heappop, lower number = more urgent):")
-    first_dispatched = None
+    dispatched = []
     while (alert := alert_manager.dispatch_next()) is not None:
-        first_dispatched = first_dispatched or alert
+        dispatched.append(alert)
         print(f"    dispatch #{alert.alert_id} priority {alert.priority} ({alert.component_id})")
     print(f"  Dispatch queue empty: dispatch_next() returned {alert_manager.dispatch_next()}")
     while alert_manager.acknowledge_next() is not None:
         pass
     print(f"  Intake queue empty: acknowledge_next() returned {alert_manager.acknowledge_next()}")
 
-    if first_dispatched is not None:
+    if dispatched:
+        first_dispatched = dispatched[0]
         first_dispatched.resolved = True
         print(f"  Alert #{first_dispatched.alert_id} fixed on site and marked resolved.")
 
@@ -235,7 +236,7 @@ def demo_lazy_pipeline(workstations, limit, min_age_years):
           f"(last: {inspected[-1]}); the rest were never touched.")
 
 
-def demo_maintenance_workflow(alert_manager, workstations):
+def demo_maintenance_workflow(alert_manager):
     """Loads the technicians, opens a maintenance call for every unresolved
     alert (auto-assigned to a technician with the fewest calls, and saved to the
     demo maintenance log), resolves one, and prints the workload report.

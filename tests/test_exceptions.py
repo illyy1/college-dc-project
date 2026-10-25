@@ -23,7 +23,8 @@ from hardware_monitor.repository import (
 
 def test_a_diagnostic_session_that_fails_to_start_releases_its_port():
     camera = Camera("C1", "Cam", "WS-1")
-    with mock.patch.object(camera, "begin_test", side_effect=RuntimeError("probe is locked")):
+    # patched where it is defined: Camera inherits begin_test from HardwareComponent
+    with mock.patch.object(HardwareComponent, "begin_test", side_effect=RuntimeError("probe is locked")):
         with pytest.raises(RuntimeError, match="probe is locked"):
             with DiagnosticConnection(camera, verbose=False):
                 pytest.fail("the with block must not run when the session could not start")

@@ -109,8 +109,9 @@ def traced_sources(monkeypatch):
         return source
 
     for name in ("fleet_status", "technician_roster", "maintenance_summary"):
-        real_source = getattr(concurrency, f"_gather_{name}")
-        monkeypatch.setattr(concurrency, f"_gather_{name}", traced(name, real_source))
+        attribute = f"_gather_{name}"  # a name built at runtime: PyCharm would read the f-string literally
+        real_source = getattr(concurrency, attribute)
+        monkeypatch.setattr(concurrency, attribute, traced(name, real_source))
     return events
 
 
@@ -155,7 +156,7 @@ def test_blocking_file_reads_do_not_freeze_the_event_loop(no_latency, monkeypatc
         time.sleep(0.3)  # blocking, like a slow network drive
         return real_load(path)
 
-    monkeypatch.setattr(concurrency, "load_workstations_from_jsonl", slow_disk)
+    monkeypatch.setattr("hardware_monitor.concurrency.load_workstations_from_jsonl", slow_disk)
 
     async def scenario():
         ticks, done = 0, False
@@ -196,7 +197,12 @@ def test_a_failing_source_leaves_no_unhandled_task_errors(no_latency, tmp_path):
 def waits_for_lock(lock, action):
     """True if action blocks while lock is held, then completes once it is released."""
     finished = threading.Event()
-    thread = threading.Thread(target=lambda: (action(), finished.set()), daemon=True)
+
+    def run():
+        action()
+        finished.set()
+
+    thread = threading.Thread(target=run, daemon=True)
     with lock:
         thread.start()
         blocked = not finished.wait(0.2)
@@ -227,7 +233,12 @@ def test_a_free_lock_does_not_block():
     # control for the helper above: with nothing holding the lock, the action finishes at once
     alert_log = LockedAlertLog()
     finished = threading.Event()
-    threading.Thread(target=lambda: (alert_log.snapshot(), finished.set())).start()
+
+    def take_snapshot():
+        alert_log.snapshot()
+        finished.set()
+
+    threading.Thread(target=take_snapshot).start()
     assert finished.wait(0.2)
 
 

@@ -2,7 +2,6 @@
 .env is never read: conftest's no_real_secrets turns load_dotenv into a no-op
 and clears both variables for every test; these tests set their own."""
 
-import dotenv
 import pytest
 from cryptography.fernet import Fernet
 
@@ -78,5 +77,5 @@ def test_load_dotenv_is_what_reads_the_file(env_vars, monkeypatch):
         monkeypatch.setenv("GITHUB_TOKEN", token)
         monkeypatch.setenv("ENCRYPTION_KEY", key)
 
-    monkeypatch.setattr(dotenv, "load_dotenv", fake_load_dotenv)
+    monkeypatch.setattr("dotenv.load_dotenv", fake_load_dotenv)
     assert get_github_token() == "from-the-env-file"

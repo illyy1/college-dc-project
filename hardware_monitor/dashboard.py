@@ -9,6 +9,7 @@ import time
 import threading
 import tkinter as tk
 from datetime import datetime
+from functools import partial
 
 from .config import (
     SILENCE_THRESHOLD, SILENCE_DURATION,
@@ -55,7 +56,8 @@ class HardwareMonitorApp:
         self.silence_start = time.time()
         self.is_silent = False
 
-        self.active_alerts = {
+        # alert_key -> its popup window, "pending" while one is being drawn, or None
+        self.active_alerts: dict[str, tk.Toplevel | str | None] = {
             "camera": None,
             "mic_conn": None,
             "mic_silence": None,
@@ -64,7 +66,7 @@ class HardwareMonitorApp:
         self._shown_at = {}                  # alert_key -> when its popup appeared
         self._closed_at = {}                 # alert_key -> when its popup was last closed
         self._popup_slots = {}               # alert_key -> screen slot (0 = top), so popups don't overlap
-        self._last_issue_at = {}             # alert_key -> when a GitHub issue was last posted for it
+        self._last_issue_at: dict[str, float] = {}  # alert_key -> when a GitHub issue was last posted for it
         self._last_popup_at = time.time()    # for the quiet-period watchdog
 
         self.mic_source = SyntheticMicrophoneSource()
@@ -191,8 +193,8 @@ class HardwareMonitorApp:
         posted for this fault type in the last GITHUB_ISSUE_COOLDOWN_SECONDS.
         The popup and maintenance call still happen either way."""
         with self._popup_lock:
-            last = self._last_issue_at.get(alert_key)
-            if last is not None and time.time() - last < GITHUB_ISSUE_COOLDOWN_SECONDS:
+            last = self._last_issue_at.get(alert_key, float("-inf"))  # never posted: as if long ago
+            if time.time() - last < GITHUB_ISSUE_COOLDOWN_SECONDS:
                 minutes_left = (GITHUB_ISSUE_COOLDOWN_SECONDS - (time.time() - last)) / 60
                 print(f"GitHub issue for {alert_key} skipped: one was posted recently "
                       f"(next allowed in {minutes_left:.0f} min). The maintenance call was still opened.")
@@ -379,7 +381,7 @@ class HardwareMonitorApp:
     def start(self):
         for name, loop in (("Microphone", self.monitor_mic), ("Camera", self.monitor_camera),
                            ("Quiet-period watchdog", self.keep_room_busy)):
-            threading.Thread(target=lambda name=name, loop=loop: self.run_monitor(name, loop), daemon=True).start()
+            threading.Thread(target=partial(self.run_monitor, name, loop), daemon=True).start()
         self.root.mainloop()
 
     def stop(self):

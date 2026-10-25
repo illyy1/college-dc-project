@@ -168,7 +168,7 @@ def request_number(request_id):
         return 0
 
 
-def append_jsonl_record(path, record):
+def append_jsonl_record(path: str, record):
     """Appends one JSON record as its own line. A run killed mid-write can
     leave a last line without "\\n"; this starts on a fresh line so the new
     record isn't glued onto (and lost with) that fragment.

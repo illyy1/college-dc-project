@@ -173,9 +173,10 @@ class MaintenanceDesk:
 
     def resolve_request(self, request_id):
         with self._lock:
-            request = self.requests.get(request_id)
-            if request is None:
-                raise ValueError(f"Maintenance request '{request_id}' does not exist.")
+            try:
+                request = self.requests[request_id]
+            except KeyError:
+                raise ValueError(f"Maintenance request '{request_id}' does not exist.") from None
             if request.status == "RESOLVED":
                 return request
             request.resolve()

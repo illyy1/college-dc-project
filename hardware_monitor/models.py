@@ -56,7 +56,8 @@ class HardwareComponent(ABC):
         Raises ValueError on a missing field, unknown type or bad value."""
         _require_fields(record, cls.REQUIRED_FIELDS, "Component")
 
-        component_type = str(record["component_type"]).strip().lower()
+        component_type = str(record["component_type"])
+        component_type = component_type.strip().lower()
         if cls is HardwareComponent:
             subclasses = {sub.__name__.lower(): sub for sub in cls.__subclasses__()}
             if component_type not in subclasses:
@@ -74,6 +75,9 @@ class HardwareComponent(ABC):
                              f"string like '2021-05-30', got {installed_on!r}.")
         cls._validate_record(record)
         try:
+            # cls is always a subclass here (the base class returned above), whose __init__
+            # takes its RECORD_FIELDS; PyCharm checks the call against HardwareComponent.__init__
+            # noinspection PyArgumentList
             return cls(
                 component_id=record["component_id"],
                 name=record.get("name") or record["component_id"],

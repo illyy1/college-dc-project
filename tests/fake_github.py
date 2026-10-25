@@ -12,7 +12,7 @@ NOT_JSON = object()
 CREATED = {"number": 42, "html_url": "https://github.com/owner/repo/issues/42", "title": "Camera down"}
 
 
-def api_response(status_code, payload=NOT_JSON, text=""):
+def api_response(status_code, payload: object = NOT_JSON, text=""):
     """A mock with only the attributes a real requests.Response has."""
     response = mock.Mock(spec=requests.Response)
     response.status_code = status_code

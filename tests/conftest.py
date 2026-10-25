@@ -8,7 +8,7 @@ from unittest import mock
 
 import pytest
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 # The package __init__ imports the Tkinter dashboard. Some environments (CI
@@ -283,6 +283,8 @@ def no_internet():
             raise NetworkAccessBlocked(f"test tried to connect to {address!r}")
         return _real_connect(sock, address)
 
+    # socket.socket.connect is defined in C (_socket), so PyCharm's stubs can't see it; it exists
+    # noinspection PyUnresolvedReferences
     with mock.patch.object(socket, "getaddrinfo", getaddrinfo), \
             mock.patch.object(socket.socket, "connect", connect):
         yield
@@ -293,11 +295,9 @@ def no_real_secrets(monkeypatch):
     """No test can read the real .env or a token from the environment;
     tests that need a token set their own (encrypted with a throwaway key)."""
     try:
-        import dotenv
+        monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: False)
     except ImportError:  # the demo-only install has no python-dotenv
         pass
-    else:
-        monkeypatch.setattr(dotenv, "load_dotenv", lambda *args, **kwargs: False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
 
@@ -377,7 +377,7 @@ def slow_requests(monkeypatch):
                 time.sleep(seconds)
                 super().__init__(*args, **kwargs)
 
-        monkeypatch.setattr(maintenance, "MaintenanceRequest", SlowRequest)
+        monkeypatch.setattr("hardware_monitor.maintenance.MaintenanceRequest", SlowRequest)
 
     return slow_down
 
@@ -404,7 +404,6 @@ def dash(monkeypatch, technicians, tmp_path, github):
     from types import SimpleNamespace
     from fake_dashboard import FakeClock, RunNow, ScriptedCamera, ScriptedMic
     from fake_tk import FAKE_TK, FakeToplevel
-    from hardware_monitor import dashboard
     from hardware_monitor.dashboard import HardwareMonitorApp
 
     FakeToplevel.created = []
@@ -412,9 +411,9 @@ def dash(monkeypatch, technicians, tmp_path, github):
     token, key = encrypt_token("test-token")
     monkeypatch.setenv("GITHUB_TOKEN", token)
     monkeypatch.setenv("ENCRYPTION_KEY", key)
-    monkeypatch.setattr(dashboard, "tk", FAKE_TK)
-    monkeypatch.setattr(dashboard, "time", clock)
-    monkeypatch.setattr(dashboard, "threading", SimpleNamespace(Lock=threading.Lock, Thread=RunNow))
+    monkeypatch.setattr("hardware_monitor.dashboard.tk", FAKE_TK)
+    monkeypatch.setattr("hardware_monitor.dashboard.time", clock)
+    monkeypatch.setattr("hardware_monitor.dashboard.threading", SimpleNamespace(Lock=threading.Lock, Thread=RunNow))
 
     def build(technicians=technicians, log_path=tmp_path / "maintenance.jsonl"):
         desk = MaintenanceDesk(technicians, log_path=str(log_path), report_csv_path=None)

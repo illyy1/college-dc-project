@@ -118,7 +118,7 @@ def test_one_crash_does_not_stop_the_sweep(tmp_path, alert_manager):
         workstation.add_component(Camera(f"CAM-{n}", "Cam", f"WS-{n}", resolution="0x0"))  # all faulty
         workstations.append(workstation)
     manager = alert_manager
-    crashing = workstations[0].components[0]
+    crashing: Camera = workstations[0].components[0]
 
     with mock.patch.object(crashing, "run_diagnostics", side_effect=RuntimeError("driver crashed")):
         run_diagnostics_and_log_alerts(workstations, manager)
