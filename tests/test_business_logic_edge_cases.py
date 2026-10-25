@@ -203,18 +203,6 @@ def test_request_number_handles_unknown_formats(request_id, number):
 
 # (who takes a call is specified in test_maintenance.py)
 
-def test_an_unknown_workstation_can_still_get_a_technician(desk, alerts):
-    request = desk.open_request_for_alert(alerts.camera(workstation_id="DASHBOARD-PC"))
-    assert request.assigned_tech_id in {"T1", "T2", "T3", "T4"}
-
-
-def test_two_technicians_share_open_calls_evenly(alerts, make_desk):
-    team = {tid: Technician(tid, tid) for tid in ("C1", "C2")}
-    desk = make_desk(team)
-    assigned = [desk.open_request_for_alert(alerts.camera()).assigned_tech_id for _ in range(4)]
-    assert sorted(assigned) == ["C1", "C1", "C2", "C2"]
-
-
 def test_open_calls_survive_a_restart_and_resolved_ones_do_not(desk, alerts):
     still_open = desk.open_request_for_alert(alerts.camera())
     done = desk.open_request_for_alert(alerts.microphone())

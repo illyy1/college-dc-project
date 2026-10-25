@@ -20,6 +20,7 @@ from hardware_monitor.maintenance import FewestCallsStrategy
 from hardware_monitor.models import Technician
 
 from conftest import TECHNICIANS_PATH
+from fake_random import FirstPick
 
 
 @pytest.fixture
@@ -30,25 +31,14 @@ def desk(make_desk):
 
 @pytest.fixture
 def team():
-    """Three technicians, A, B and C, none covering any particular workstation."""
+    """Three technicians, A, B and C."""
     return {tid: Technician(tid, f"Tech {tid}") for tid in ("A", "B", "C")}
-
-
-class Picker:
-    """A predictable stand-in for random: records the technicians each draw
-    was between, and takes the first of them."""
-
-    def __init__(self):
-        self.offered = []
-
-    def choice(self, options):
-        self.offered.append([t.tech_id for t in options])
-        return options[0]
 
 
 @pytest.fixture
 def picker():
-    return Picker()
+    """Stands in for random: records each draw and takes the first option."""
+    return FirstPick()
 
 
 @pytest.fixture

@@ -14,6 +14,8 @@ from hardware_monitor.maintenance import (
 )
 from hardware_monitor.models import Camera, HardwareComponent, MaintenanceRequest, Microphone, Technician, Workstation
 
+from fake_random import FirstPick
+
 
 # --- Factory: HardwareComponent.from_dict builds the right product ---
 
@@ -120,13 +122,6 @@ def technician(tech_id, open_calls=0):
     tech = Technician(tech_id, tech_id)
     tech.assigned_requests = [MaintenanceRequest(f"MR-{tech_id}-{n}", n, 1) for n in range(open_calls)]
     return tech
-
-
-class FirstPick:
-    """A predictable stand-in for random: always takes the first option."""
-
-    def choice(self, options):
-        return options[0]
 
 
 @pytest.fixture

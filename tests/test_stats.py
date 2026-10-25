@@ -14,7 +14,7 @@ What the module must provide:
 - TechnicianLoad: tech_id, name, total, open, resolved, share (percent of all calls)
 - CallRow: request_id, alert_type, error_type, workstation_id, technician, status, opened_at
 
-Alert types are grouped like technician specialties: CAMERA_* -> "Camera",
+Alert types are grouped by the error type's prefix: CAMERA_* -> "Camera",
 MICROPHONE_* -> "Microphone", anything else -> "Other". "Open" means any
 status other than RESOLVED.
 """
