@@ -21,7 +21,7 @@ import pytest
 from hardware_monitor.maintenance import FewestCallsStrategy
 from hardware_monitor.models import Technician
 
-from conftest import TECHNICIANS_PATH
+from conftest import BAD_FIELDS, OPEN_TIME_A_NUMBER, TECHNICIANS_PATH
 from fake_random import LikeliestPick
 
 
@@ -263,6 +263,36 @@ def test_a_technician_who_left_doesnt_affect_the_rest(make_desk, team, picker, a
     saved_log("T42", "T42", "T42")                    # in the log, no longer in technicians.jsonl
     desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))
     assert sorted(take_calls(desk, alerts, 3)) == ["A", "B", "C"]
+
+
+@pytest.fixture
+def saved_bad_call(make_call, make_bad_call, write_jsonl):
+    """saved_bad_call(bad_field=OPEN_TIME_A_NUMBER): the desk's log holds A's
+    resolved call MR-0001, then B's MR-0002 (line 2) with that wrongly typed field."""
+    def write(bad_field=OPEN_TIME_A_NUMBER):
+        return write_jsonl("logs/maintenance_requests.jsonl",
+                           make_call(1, "CAMERA_FAILURE", "A", "RESOLVED"), make_bad_call(2, "B", bad_field))
+    return write
+
+
+@pytest.mark.parametrize("bad_field", BAD_FIELDS)
+def test_the_desk_starts_on_a_log_with_a_wrongly_typed_call(bad_field, make_desk, team, picker, saved_bad_call,
+                                                            alerts, capsys):
+    saved_bad_call(bad_field)
+
+    desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))  # must not crash
+
+    output = capsys.readouterr().out
+    assert "skipping" in output and "line 2" in output
+    assert desk.open_requests() == []        # the unreadable call isn't restored
+    take_calls(desk, alerts, 1)
+    assert picker.favoured == [["B", "C"]]   # only A's readable call counts
+
+
+def test_the_number_of_a_skipped_call_is_never_reused(make_desk, team, saved_bad_call, alerts):
+    saved_bad_call()
+    # MR-0002 is already in the log, readable or not: a second MR-0002 would mix up the two calls
+    assert make_desk(team).open_request_for_alert(alerts.camera()).request_id == "MR-0003"
 
 
 def test_a_single_technician_takes_everything(make_desk, alerts):

@@ -19,7 +19,7 @@ from datetime import datetime
 from .config import MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH
 from .models import MaintenanceRequest
 from .reports import validate_and_assign_request, export_maintenance_history_csv
-from .repository import append_jsonl_record, load_maintenance_history, request_number
+from .repository import append_jsonl_record, highest_request_number, load_maintenance_history
 
 
 def open_call_count(technician):
@@ -85,9 +85,11 @@ class MaintenanceDesk:
         self.requests = {}
         self._lock = threading.Lock()  # the dashboard opens/resolves calls from several threads
 
-        history = load_maintenance_history(self.log_path)
-        # continue numbering after the highest id already in the log, so ids stay unique across runs
-        self._next_number = max((request_number(r["request_id"]) for r in history), default=0) + 1
+        reported = set()  # the log is read twice here; each broken line is reported once
+        history = load_maintenance_history(self.log_path, reported)
+        # continue numbering after the highest id already in the log (skipped calls included),
+        # so ids stay unique across runs
+        self._next_number = highest_request_number(self.log_path, reported) + 1
         # tech_id -> when they were last given a call; the alternative strategies take turns by this
         self._last_assigned_at = {}
         # tech_id -> calls given to them, ever: what FewestCallsStrategy evens out
