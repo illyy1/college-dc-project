@@ -27,15 +27,26 @@ from hardware_monitor.repository import (  # noqa: E402
     load_technicians_from_jsonl,
 )
 
+# the real data files: their contents change as the project evolves
 SAMPLE_DATA_PATH = os.path.join(PROJECT_ROOT, "data", "sample_data.jsonl")
 TECHNICIANS_PATH = os.path.join(PROJECT_ROOT, "data", "technicians.jsonl")
+# a frozen copy of the fleet the tests own, for tests that need exact faults
+TEST_FLEET_PATH = os.path.join(PROJECT_ROOT, "tests", "data", "sample_fleet.jsonl")
 
 
 # --- reusable data: the synthetic fleet and technicians from data/ ---
 
 @pytest.fixture
 def workstations():
-    """The 8 workstations (16 components) from data/sample_data.jsonl, freshly loaded."""
+    """The test fleet (tests/data/sample_fleet.jsonl): 8 workstations, 16
+    components, with known faults. A frozen copy, so editing the real
+    data/sample_data.jsonl can't break tests that need exact numbers."""
+    return load_workstations_from_jsonl(TEST_FLEET_PATH)
+
+
+@pytest.fixture
+def real_workstations():
+    """The fleet in data/sample_data.jsonl, whatever it holds right now."""
     return load_workstations_from_jsonl(SAMPLE_DATA_PATH)
 
 

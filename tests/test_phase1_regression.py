@@ -12,6 +12,8 @@ from itertools import islice
 
 import pytest
 
+from conftest import TEST_FLEET_PATH
+
 from hardware_monitor import concurrency, demo
 from hardware_monitor.context_managers import DiagnosticConnection
 from hardware_monitor.iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
@@ -335,6 +337,7 @@ def test_technician_str_counts_only_open_calls():
 # --- the whole demo, end to end ---
 
 def test_full_demo_runs_from_start_to_finish(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(demo, "SAMPLE_DATA_PATH", TEST_FLEET_PATH)  # the exact faults asserted below
     monkeypatch.setattr(demo, "DEMO_LOG_PATH", str(tmp_path / "demo_history.jsonl"))
     monkeypatch.setattr(demo, "DEMO_MAINTENANCE_LOG_PATH", str(tmp_path / "demo_maintenance.jsonl"))
     monkeypatch.setattr(concurrency, "SOURCE_LATENCY_SECONDS", 0)

@@ -27,7 +27,7 @@ from hardware_monitor.models import Camera, HardwareComponent, MaintenanceReques
 from hardware_monitor.processing import AlertManager
 from hardware_monitor.repository import load_technicians_from_jsonl, load_workstations_from_jsonl, request_number
 
-from conftest import SAMPLE_DATA_PATH
+from conftest import TEST_FLEET_PATH
 
 
 # --- boundary conditions on thresholds ---
@@ -330,7 +330,7 @@ def no_latency(monkeypatch):
 
 
 def test_async_overview_matches_sequential(no_latency, tmp_path, technicians_file):
-    sources = (SAMPLE_DATA_PATH, technicians_file, str(tmp_path / "no_calls_yet.jsonl"))
+    sources = (TEST_FLEET_PATH, technicians_file, str(tmp_path / "no_calls_yet.jsonl"))
     overview = asyncio.run(gather_overview_concurrent(*sources))
 
     assert overview == asyncio.run(gather_overview_sequential(*sources))

@@ -27,7 +27,7 @@ from hardware_monitor.dashboard import HardwareMonitorApp
 from hardware_monitor.models import MaintenanceRequest
 from hardware_monitor.repository import load_maintenance_history
 
-from conftest import SAMPLE_DATA_PATH
+from conftest import TEST_FLEET_PATH
 
 
 def run_together(worker, count=8):
@@ -97,7 +97,7 @@ def test_overview_matches_the_data_counted_independently(no_latency, workstation
         {"request_id": "MR-0003", "status": "IN_PROGRESS"},
     ]) + "\n", encoding="utf-8")
 
-    overview = asyncio.run(gather_overview_concurrent(SAMPLE_DATA_PATH, technicians_file, str(log_path)))
+    overview = asyncio.run(gather_overview_concurrent(TEST_FLEET_PATH, technicians_file, str(log_path)))
 
     statuses = Counter(c.connection_status for w in workstations for c in w.components)
     assert overview["fleet"] == {"workstations": len(workstations), "components_by_status": dict(statuses)}
@@ -107,7 +107,7 @@ def test_overview_matches_the_data_counted_independently(no_latency, workstation
 
 
 def test_repeated_concurrent_runs_give_identical_results(no_latency, technicians_file):
-    sources = (SAMPLE_DATA_PATH, technicians_file, "missing.jsonl")
+    sources = (TEST_FLEET_PATH, technicians_file, "missing.jsonl")
     first = asyncio.run(gather_overview_concurrent(*sources))
     assert all(asyncio.run(gather_overview_concurrent(*sources)) == first for _ in range(10))
 
@@ -136,7 +136,7 @@ def traced_sources(monkeypatch):
 
 
 def test_all_three_sources_run_at_the_same_time(traced_sources, tmp_path, technicians_file):
-    sources = (SAMPLE_DATA_PATH, technicians_file, str(tmp_path / "log.jsonl"))
+    sources = (TEST_FLEET_PATH, technicians_file, str(tmp_path / "log.jsonl"))
     overview = asyncio.run(gather_overview_concurrent(*sources))
 
     assert [kind for kind, _ in traced_sources[:3]] == ["start"] * 3  # all started before any finished
@@ -144,7 +144,7 @@ def test_all_three_sources_run_at_the_same_time(traced_sources, tmp_path, techni
 
 
 def test_the_sequential_version_runs_one_source_at_a_time(traced_sources, tmp_path, technicians_file):
-    asyncio.run(gather_overview_sequential(SAMPLE_DATA_PATH, technicians_file, str(tmp_path / "log.jsonl")))
+    asyncio.run(gather_overview_sequential(TEST_FLEET_PATH, technicians_file, str(tmp_path / "log.jsonl")))
     assert [kind for kind, _ in traced_sources] == ["start", "end"] * 3
 
 
@@ -188,7 +188,7 @@ def test_blocking_file_reads_do_not_freeze_the_event_loop(no_latency, monkeypatc
                 await asyncio.sleep(0.01)
 
         beat = asyncio.create_task(heartbeat())
-        await gather_overview_concurrent(SAMPLE_DATA_PATH, technicians_file, str(tmp_path / "log.jsonl"))
+        await gather_overview_concurrent(TEST_FLEET_PATH, technicians_file, str(tmp_path / "log.jsonl"))
         done = True
         await beat
         return ticks
