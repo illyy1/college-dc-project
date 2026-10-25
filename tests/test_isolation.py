@@ -30,9 +30,12 @@ def test_a_real_http_request_fails_as_if_offline():
 
 
 def test_the_github_client_cannot_reach_github_unmocked():
-    # create_issue reports network problems as a result, so the block shows up there
-    result = create_issue("token", "owner/repo", "title", "body", max_attempts=1)
-    assert not result.ok and "test tried to look up 'api.github.com'" in result.error
+    # create_issue reports network problems as a result, naming only the exception,
+    # so the lookup is watched to show it was the block that stopped it
+    with mock.patch("socket.getaddrinfo", wraps=socket.getaddrinfo) as lookup:
+        result = create_issue("token", "owner/repo", "title", "body", max_attempts=1)
+    assert not result.ok and result.error.endswith("Could not connect to GitHub (ConnectionError).")
+    assert lookup.call_args.args[0] == "api.github.com"
 
 
 # --- no real API key ---

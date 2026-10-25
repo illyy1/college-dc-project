@@ -27,7 +27,22 @@ def test_a_valid_token_is_decrypted(env_vars):
     assert get_github_token() == "ghp_example_token"
 
 
-@pytest.mark.parametrize("present", ["token_only", "key_only", "neither"])
+@pytest.mark.parametrize("saved", ["ghp_example_token\n", " ghp_example_token\r\n"],
+                         ids=["trailing-newline", "spaces-and-crlf"])
+def test_whitespace_saved_around_the_token_is_dropped(env_vars, saved):
+    # requests rejects a header with a newline in it, so the alert could never be sent
+    token, key = encrypt_token(saved)
+    env_vars(token=token, key=key)
+    assert get_github_token() == "ghp_example_token"
+
+
+def test_a_token_of_only_whitespace_gives_no_token(env_vars):
+    token, key = encrypt_token(" \n")
+    env_vars(token=token, key=key)
+    assert not get_github_token()
+
+
+@pytest.mark.parametrize("present",["token_only", "key_only", "neither"])
 def test_a_missing_value_gives_no_token(env_vars, capsys, present):
     token, key = encrypt_token("ghp_example_token")
     env_vars(token=token if present == "token_only" else None, key=key if present == "key_only" else None)
