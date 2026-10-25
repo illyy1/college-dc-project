@@ -129,6 +129,7 @@ class StatsViewer:
         self._summary = ""                     # the summary without any read warning
         self._text = {key: "" for key, _ in self.TEXT_SECTIONS}
         self._pies = {"technicians": [], "alert_types": []}
+        self._reported_lines = set()           # broken log lines already reported, so each is reported once
 
         self.root = tk.Tk()
         self.root.title("Live Alert Statistics")
@@ -174,7 +175,7 @@ class StatsViewer:
         if not self.running:
             return  # a refresh queued just before the window closed
         try:
-            stats = load_stats(self.log_path, self.technicians_path)
+            stats = load_stats(self.log_path, self.technicians_path, reported=self._reported_lines)
         except (OSError, ValueError) as error:
             # e.g. the log is briefly locked: keep the last numbers and say so
             self._set_text("summary", f"{self._summary}\nCould not read the maintenance log ({error}); "

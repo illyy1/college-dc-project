@@ -116,8 +116,9 @@ def compute_stats(history, technicians, recent_limit=10):
     )
 
 
-def load_stats(log_path, technicians_path, recent_limit=10):
+def load_stats(log_path, technicians_path, recent_limit=10, reported=None):
     """Reads the maintenance log and the technician file and computes the
-    statistics. A log that doesn't exist yet means no calls."""
-    return compute_stats(load_maintenance_history(log_path), load_technicians_from_jsonl(technicians_path),
-                         recent_limit)
+    statistics. A log that doesn't exist yet means no calls. reported: see
+    repository.iter_jsonl_records."""
+    return compute_stats(load_maintenance_history(log_path, reported),
+                         load_technicians_from_jsonl(technicians_path), recent_limit)
