@@ -29,7 +29,7 @@ import pytest
 import requests
 
 from fake_gemini import SUGGESTION, answer, api_error
-from fake_github import NOT_JSON, api_response
+from fake_http import NOT_JSON, api_response
 from hardware_monitor import config
 from hardware_monitor.config import COMPUTER_NAME
 from hardware_monitor.gemini_client import (

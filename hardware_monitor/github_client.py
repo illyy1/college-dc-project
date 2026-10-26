@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import requests
 
-from .retry import retry
+from .api_calls import RETRYABLE_STATUS_CODES, request_failure, retry_api_call
 
 GITHUB_API_URL = "https://api.github.com"
 REQUEST_TIMEOUT_SECONDS = 5
@@ -16,8 +16,6 @@ REQUIRED_RESPONSE_FIELDS = {"number": int, "html_url": str}
 
 MAX_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 1  # waits 1 s, then 2 s, 4 s, ... between attempts
-# rate limited or a server-side problem: likely to work if tried again a bit later
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 @dataclass
@@ -46,33 +44,8 @@ def create_issue(token, repo, title, body, labels=(), timeout=REQUEST_TIMEOUT_SE
     if not token:
         return IssueResult(False, error="GitHub token missing or decryption failed.", attempts=0)
 
-    attempts = 0
-
-    def attempt():
-        nonlocal attempts
-        attempts += 1
-        outcome, retryable = _try_once(token, repo, title, body, labels, timeout)
-        outcome.attempts = attempts
-        if not outcome.ok and retryable:
-            raise _TemporaryFailure(outcome)
-        return outcome
-
-    try:
-        return retry(attempt, retry_on=_TemporaryFailure, max_attempts=max_attempts,
-                     backoff_seconds=RETRY_BACKOFF_SECONDS, label="GitHub")
-    except _TemporaryFailure as failure:
-        result = failure.result
-        result.error = f"Gave up after {max_attempts} attempt(s). Last error: {result.error}"
-        return result
-
-
-class _TemporaryFailure(Exception):
-    """A failed attempt worth retrying; carries its IssueResult so the last
-    one can be returned once retry() gives up."""
-
-    def __init__(self, result):
-        super().__init__(result.error)
-        self.result = result
+    return retry_api_call(lambda: _try_once(token, repo, title, body, labels, timeout),
+                          max_attempts=max_attempts, backoff_seconds=RETRY_BACKOFF_SECONDS, label="GitHub")
 
 
 def _try_once(token, repo, title, body, labels, timeout):
@@ -84,17 +57,9 @@ def _try_once(token, repo, title, body, labels, timeout):
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"},
             timeout=timeout,
         )
-    # most specific first: ConnectTimeout is both a Timeout and a ConnectionError,
-    # and every requests error is a RequestException. Only the exception's name is
-    # reported: requests quotes the headers or URL in its messages, and with them the key.
-    except requests.exceptions.Timeout:
-        return IssueResult(False, error=f"GitHub did not answer within {timeout} s."), True
-    except requests.exceptions.ConnectionError as e:  # DNS failure, refused/reset connection, SSL, proxy
-        return IssueResult(False, error=f"Could not connect to GitHub ({type(e).__name__})."), True
-    except requests.exceptions.RequestException as e:  # any other request problem: redirects, a bad URL or header, ...
-        # only a reply cut off mid-way may work next time; the rest would fail the same way again
-        retryable = isinstance(e, requests.exceptions.ChunkedEncodingError)
-        return IssueResult(False, error=f"GitHub request failed ({type(e).__name__})."), retryable
+    except requests.exceptions.RequestException as e:
+        error, retryable = request_failure(e, "GitHub", timeout)
+        return IssueResult(False, error=error), retryable
 
     if response.status_code != 201:
         error = f"GitHub returned HTTP {response.status_code}{_api_message(response)}."

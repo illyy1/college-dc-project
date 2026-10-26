@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import requests
 from requests import post
 
-from .retry import retry
+from .api_calls import RETRYABLE_STATUS_CODES, request_failure, retry_api_call
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
 # Flash-Lite: answers in about 2 s; on 2026-10-26 the larger Flash models timed out or were "under high demand"
@@ -23,8 +23,6 @@ MAX_SUGGESTION_CHARS = 3000   # the text goes into a GitHub issue: a runaway rep
 # fewer than GitHub's: the issue waits for the suggestions, and they are optional
 MAX_ATTEMPTS = 2
 RETRY_BACKOFF_SECONDS = 1
-# over the quota or a server-side problem (e.g. the model is overloaded): may work a bit later
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 @dataclass
@@ -61,32 +59,8 @@ def suggest_fixes(api_key, title, details, component, timeout=REQUEST_TIMEOUT_SE
         return SuggestionResult(False, error="Gemini API key missing.", attempts=0)
 
     prompt = build_prompt(title, details, component)
-    attempts = 0
-
-    def attempt():
-        nonlocal attempts
-        attempts += 1
-        outcome, retryable = _try_once(api_key, prompt, timeout)
-        outcome.attempts = attempts
-        if not outcome.ok and retryable:
-            raise _TemporaryFailure(outcome)
-        return outcome
-
-    try:
-        return retry(attempt, retry_on=_TemporaryFailure, max_attempts=max_attempts,
-                     backoff_seconds=RETRY_BACKOFF_SECONDS, label="Gemini")
-    except _TemporaryFailure as failure:
-        result = failure.result
-        result.error = f"Gave up after {max_attempts} attempt(s). Last error: {result.error}"
-        return result
-
-
-class _TemporaryFailure(Exception):
-    """A failed attempt worth retrying; carries its SuggestionResult."""
-
-    def __init__(self, result):
-        super().__init__(result.error)
-        self.result = result
+    return retry_api_call(lambda: _try_once(api_key, prompt, timeout),
+                          max_attempts=max_attempts, backoff_seconds=RETRY_BACKOFF_SECONDS, label="Gemini")
 
 
 def _try_once(api_key, prompt, timeout):
@@ -99,14 +73,9 @@ def _try_once(api_key, prompt, timeout):
             headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
             timeout=timeout,
         )
-    # only the exception's name is reported: requests may quote the headers, and with them the key
-    except requests.exceptions.Timeout:
-        return SuggestionResult(False, error=f"Gemini did not answer within {timeout} s."), True
-    except requests.exceptions.ConnectionError as e:
-        return SuggestionResult(False, error=f"Could not connect to Gemini ({type(e).__name__})."), True
     except requests.exceptions.RequestException as e:
-        retryable = isinstance(e, requests.exceptions.ChunkedEncodingError)
-        return SuggestionResult(False, error=f"Gemini request failed ({type(e).__name__})."), retryable
+        error, retryable = request_failure(e, "Gemini", timeout)
+        return SuggestionResult(False, error=error), retryable
 
     if response.status_code != 200:
         error = f"Gemini returned HTTP {response.status_code}{_api_message(response)}."
