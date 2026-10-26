@@ -9,7 +9,8 @@ retries (see conftest.py and fake_github.py). create_issue itself always runs fo
 import pytest
 import requests
 
-from fake_github import CREATED, NOT_JSON, api_response, created
+from fake_github import CREATED, created
+from fake_http import NOT_JSON, api_response
 from hardware_monitor import github_client
 from hardware_monitor.github_client import (
     MAX_ATTEMPTS,

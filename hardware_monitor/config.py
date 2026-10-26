@@ -49,3 +49,14 @@ def get_github_token():
     except Exception as e:
         print(f"Decryption failed. Check your .env file and key. Error: {e}")
         return None
+
+
+def get_gemini_api_key():
+    """The Gemini API key (GEMINI_API_KEY in .env, from Google AI Studio), or
+    None if it isn't set: the GitHub issues are then sent without AI
+    suggestions."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    # stripped: a key saved with a trailing newline would be rejected as a header value
+    return (os.getenv("GEMINI_API_KEY") or "").strip() or None

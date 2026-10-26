@@ -4,24 +4,10 @@ conftest.py); the code that builds the request and reads the reply runs
 for real."""
 
 from types import SimpleNamespace
-from unittest import mock
 
-import requests
+from fake_http import MockedPost, api_response
 
-NOT_JSON = object()
 CREATED = {"number": 42, "html_url": "https://github.com/owner/repo/issues/42", "title": "Camera down"}
-
-
-def api_response(status_code, payload: object = NOT_JSON, text=""):
-    """A mock with only the attributes a real requests.Response has."""
-    response = mock.Mock(spec=requests.Response)
-    response.status_code = status_code
-    response.text = text
-    if payload is NOT_JSON:
-        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", text, 0)
-    else:
-        response.json.return_value = payload
-    return response
 
 
 def created():
@@ -29,31 +15,13 @@ def created():
     return api_response(201, CREATED)
 
 
-class MockedGitHub:
-    """Wraps the mocked requests.post (autospec, so a call the real one would
-    reject fails the test).
+class MockedGitHub(MockedPost):
+    """The mocked requests.post (see fake_http.MockedPost). By default every
+    issue is created, numbered 1, 2, 3...; .posted shows the issues sent."""
 
-    .reply: None (the default) creates every issue, numbered 1, 2, 3...;
-    a response or exception is used for every attempt; a list gives one per
-    attempt. .calls and .posted show what was sent."""
-
-    def __init__(self, post):
-        self.post, self.reply = post, None
-        post.side_effect = self._answer
-
-    def _answer(self, url, **kwargs):
-        if self.reply is None:
-            number = self.post.call_count
-            return api_response(201, {"number": number, "html_url": f"https://example.invalid/{number}"})
-        reply = self.reply.pop(0) if isinstance(self.reply, list) else self.reply
-        if isinstance(reply, Exception):
-            raise reply
-        return reply
-
-    @property
-    def calls(self):
-        """Every request, as SimpleNamespace(url, json, headers, timeout)."""
-        return [SimpleNamespace(url=c.args[0], **c.kwargs) for c in self.post.call_args_list]
+    def default_reply(self):
+        number = self.post.call_count
+        return api_response(201, {"number": number, "html_url": f"https://example.invalid/{number}"})
 
     @property
     def posted(self):
