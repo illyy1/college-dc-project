@@ -300,6 +300,7 @@ def no_real_secrets(monkeypatch):
         pass
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -388,6 +389,14 @@ def github():
     from fake_github import MockedGitHub
     with mock.patch("hardware_monitor.github_client.requests.post", autospec=True) as post:
         yield MockedGitHub(post)
+
+
+@pytest.fixture
+def gemini():
+    """Gemini's post, mocked: see fake_gemini.MockedGemini."""
+    from fake_gemini import MockedGemini
+    with mock.patch("hardware_monitor.gemini_client.post", autospec=True) as post:
+        yield MockedGemini(post)
 
 
 @pytest.fixture
