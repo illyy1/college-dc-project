@@ -173,6 +173,22 @@ class MaintenanceDesk:
             self._persist(request)
             return request
 
+    def apply_triage(self, request_id, triage):
+        """Applies Gemini's triage (gemini_client.Triage) to a call: the call
+        takes the more urgent of its own priority (the hardware rule) and the
+        triage's, so Gemini can raise urgency but never lower it; it keeps the
+        likely cause and the estimated repair time; and it is saved."""
+        with self._lock:
+            try:
+                request = self.requests[request_id]
+            except KeyError:
+                raise ValueError(f"Maintenance request '{request_id}' does not exist.") from None
+            request.priority = min(request.priority, triage.priority)  # lower is more urgent
+            request.cause = triage.cause
+            request.estimated_minutes = triage.repair_minutes
+            self._persist(request)
+            return request
+
     def technician_for(self, request):
         return self.technicians.get(request.assigned_tech_id)
 

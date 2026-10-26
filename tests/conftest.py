@@ -398,6 +398,25 @@ def github():
         yield MockedGitHub(post)
 
 
+GEMINI_KEY = "secret-gemini-key"
+
+
+def make_triage(priority=2, cause="cable", minutes=15):
+    """A gemini_client.Triage, as triage_fault returns it, for the code that
+    acts on one (MaintenanceDesk.apply_triage)."""
+    from hardware_monitor.gemini_client import Triage
+    return Triage(priority, cause, minutes, ("Reseat the USB cable.",))
+
+
+@pytest.fixture
+def ai_dash(dash, gemini):
+    """The shared `dash`, with the Gemini key GEMINI_KEY; .gemini is the
+    mocked Gemini."""
+    dash.app.gemini_api_key = GEMINI_KEY
+    dash.gemini = gemini
+    return dash
+
+
 @pytest.fixture
 def gemini():
     """Gemini's post, mocked: see fake_gemini.MockedGemini."""

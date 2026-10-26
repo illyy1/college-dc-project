@@ -48,12 +48,16 @@ python -c "from cryptography.fernet import Fernet; k = Fernet.generate_key(); pr
 ```
 Without `.env`, everything still runs: the dashboard prints a warning and shows alerts and maintenance calls on screen, but posts nothing to GitHub.
 
-### AI troubleshooting suggestions (optional)
-With a Gemini API key from Google AI Studio in the same `.env`, each GitHub issue also gets a **Suggested Fixes** section written by Gemini (`gemini-3.1-flash-lite`), marked as AI-generated:
+### AI triage (optional)
+With a Gemini API key from Google AI Studio in the same `.env`, Gemini (`gemini-3.1-flash-lite`) triages each new fault: a priority (1 = most urgent), the likely cause (cable, driver, hardware, permissions, software or other), an estimated repair time and up to five troubleshooting steps, as checked JSON. The triage drives the system:
+- **The call's priority:** it takes the more urgent of the hardware rule's and Gemini's, so Gemini can raise urgency but never lower it. The cause and the estimate are saved with the call, in the log and the CSV report.
+- **The GitHub issue:** labelled `priority-N` with the call's final priority, with a Triage section marked as AI-generated.
+- **The history report (`--report`):** the most common causes, the estimated repair time per technician, and the estimated work still open.
+
 ```
 GEMINI_API_KEY=<your key from https://aistudio.google.com>
 ```
-Only the alert itself is sent (its title, component and details), never the computer's name or the technician. Without the key, or when Gemini is slow or fails, the issue is posted without the section and the reason is printed.
+Only the alert itself is sent (its title, component and details), never the computer's name or the technician. Without the key, when Gemini is slow or fails, or when its answer is invalid, the call keeps its priority, the issue is posted without the section, and the reason is printed.
 
 ## Running the project
 | Command | What it does |
@@ -125,9 +129,10 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **Incomplete replies:** missing or wrongly typed `number`/`html_url`, a body that isn't JSON, or JSON that isn't an object.
   - **The dashboard:** it posts the maintenance call and technician, and prints each failure instead of crashing.
   - **Retry mechanism:** recovery after a temporary failure (timeout, connection error, a reply cut off mid-way, 429, 5xx), including on the last allowed attempt. Giving up after the maximum attempts: no extra request, no wait after the final attempt, and the last error reported. Permanent errors (401, 404, 422, …, a bad URL or header, a redirect loop) and incomplete replies are never retried.
-- `tests/test_gemini_client.py` — the Gemini suggestions, written test-first (TDD, the `feature/ai-issue-text` branch), with Gemini's request faked:
-  - **The client:** the request (key in a header, never the URL), joining and capping the reply, blocked or empty replies, HTTP errors with Gemini's message, timeouts, and retrying only temporary failures.
-  - **In the dashboard:** the suggestions in the GitHub issue under an AI-generated heading; the issue still posted when Gemini fails or there is no key; nothing identifying a person sent to Gemini; one request per issue.
+- `tests/test_gemini_client.py` — the Gemini triage, written test-first (TDD, the `feature/ai-issue-text` and `feature/ai-triage` branches), with Gemini's request faked:
+  - **The client:** the request (JSON mode with the triage schema; the key in a header, never the URL), every triage field checked (a missing or impossible value rejects the triage), blocked, unfinished or empty answers, HTTP errors with Gemini's message, timeouts, and retrying only temporary failures.
+  - **In the dashboard:** the triage in the GitHub issue under an AI-generated heading; the issue still posted when Gemini fails or there is no key; nothing identifying a person sent to Gemini; one request per issue.
+- `tests/test_business_application.py` — the triage driving the system: the call taking the more urgent priority, the cause and estimate saved (log, restart, CSV), the issue's `priority-N` label, nothing changed when Gemini fails, and the report's calculations (common causes, minutes per technician, open backlog).
 - `tests/test_dashboard.py` — the live dashboard's logic, run without a window. Tk is replaced by a fake, time by a clock the tests move forward exactly, the mic/camera by scripted signals, and GitHub by a stub.
   - **Monitoring loops:** mic disconnects and silence, and camera disconnects and frame errors, each opening and then resolving a maintenance call.
   - **Timing rules, tested exactly at their limits:** silence must last *more* than 8 s; a volume exactly at the threshold isn't silence; a popup stays at least 5 s; the same fault can't pop up again within 10 s; at most one GitHub issue per fault every 10 minutes; the watchdog forces a fault after exactly 45 quiet seconds, only on a device free to show it, and never counts a break as quiet time.
@@ -182,7 +187,7 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 - `hardware_monitor/stats_viewer.py` — the live statistics window (`python main.py --stats`): text sections, two pie charts drawn on Tk canvases, and a refresh every 2 seconds.
 - `hardware_monitor/retry.py` — `retry()`: the one retry loop the project uses (a doubling wait, no wait after the last attempt, only the errors the caller lists as temporary are retried). Reading the data files and logs, log appends, the CSV report and resetting the demo logs retry a `PermissionError` 3 times, waiting 0.1 s and then 0.2 s.
 - `hardware_monitor/github_client.py` — `create_issue()`: posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, connection error, other request error, incomplete reply) comes back as a result instead of an exception. Temporary failures (timeouts, connection errors, a reply cut off mid-way, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …, a bad URL or header, a redirect loop) and incomplete replies are not retried. Error messages never include the token.
-- `hardware_monitor/gemini_client.py` — `suggest_fixes()`: asks Gemini for troubleshooting steps for a fault. Laid out like `create_issue()`: every failure (no key, HTTP error, timeout, a blocked prompt, a reply with no text) comes back as a result; timeouts, connection errors and HTTP 429/5xx are retried once; the key is sent in a header and never appears in an error. The reply is capped at 3000 characters.
+- `hardware_monitor/gemini_client.py` — `triage_fault()`: asks Gemini to triage a fault and returns a checked `Triage` (priority, cause, repair minutes, steps). Laid out like `create_issue()`: every failure (no key, HTTP error, timeout, a blocked or unfinished answer, an invalid triage) comes back as a result; timeouts, connection errors and HTTP 429/5xx are retried once; the key is sent in a header and never appears in an error. Each step is capped at 300 characters.
 - `hardware_monitor/api_calls.py` — what the two API clients share: how a failed request is described, which HTTP errors are retried, and the retry loop around one attempt.
 - `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
 - `hardware_monitor/config.py` — constants, GitHub token decryption and the Gemini key.
