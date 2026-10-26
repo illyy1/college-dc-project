@@ -16,11 +16,8 @@ from .repository import (
 )
 from .retry import retry
 
-HISTORY_CSV_FIELDS = [
-    "request_id", "status", "priority", "error_type", "workstation_id",
-    "component_id", "assigned_tech_id", "assigned_tech_name",
-    "opened_at", "resolved_at", "alert_id",
-]
+# the CSV's columns: every field of a call, as to_dict() writes it
+HISTORY_CSV_FIELDS = MaintenanceRequest.FIELDS
 
 
 def validate_and_assign_request(request: MaintenanceRequest, tech_id: str, technicians_dict: dict[str, Technician]):
@@ -106,7 +103,7 @@ def export_maintenance_history_csv(log_path: str, csv_path: str, verbose=True):
     def write():
         # utf-8-sig so Excel displays the Hebrew/technician names correctly
         with open(csv_path, "w", encoding="utf-8-sig", newline="") as csv_file:
-            writer = csv.DictWriter(csv_file, fieldnames=HISTORY_CSV_FIELDS, extrasaction="ignore")
+            writer = csv.DictWriter(csv_file, fieldnames=HISTORY_CSV_FIELDS)
             writer.writeheader()
             writer.writerows(call.to_dict() for call in history)
 
