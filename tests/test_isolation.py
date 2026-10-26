@@ -13,8 +13,8 @@ import pytest
 import requests
 
 from conftest import NetworkAccessBlocked
-from hardware_monitor import config, github_client, retry
-from hardware_monitor.github_client import create_issue
+from hardware_monitor import api_client, config, retry
+from hardware_monitor.api_client import create_issue
 
 
 # --- no internet ---
@@ -64,7 +64,7 @@ def test_exhausting_every_retry_takes_no_real_time(server_down, retry_waits):
     result = create_issue("token", "owner/repo", "title", "body", max_attempts=6)
     elapsed = time.perf_counter() - started
 
-    assert retry_waits == [github_client.RETRY_BACKOFF_SECONDS * 2 ** n for n in range(5)]  # 31 s if real, by default
+    assert retry_waits == [api_client.GITHUB_RETRY_BACKOFF_SECONDS * 2 ** n for n in range(5)]  # 31 s if real, by default
     assert not result.ok and server_down.call_count == 6
     assert elapsed < 0.5
 
@@ -73,7 +73,7 @@ def test_exhausting_every_retry_takes_no_real_time(server_down, retry_waits):
 
 def test_create_issue_under_test_is_the_real_function(server_down):
     assert not isinstance(create_issue, mock.Mock)
-    assert inspect.getsourcefile(create_issue) == inspect.getsourcefile(github_client)
+    assert inspect.getsourcefile(create_issue) == inspect.getsourcefile(api_client)
     create_issue("token", "owner/repo", "title", "body", max_attempts=1)
     assert server_down.called  # the real create_issue ran and reached the mocked dependency
 

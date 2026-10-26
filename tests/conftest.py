@@ -394,7 +394,7 @@ def slow_requests(monkeypatch):
 def github():
     """requests.post, mocked: see fake_github.MockedGitHub."""
     from fake_github import MockedGitHub
-    with mock.patch("hardware_monitor.github_client.requests.post", autospec=True) as post:
+    with mock.patch("hardware_monitor.api_client.requests.post", autospec=True) as post:
         yield MockedGitHub(post)
 
 
@@ -402,9 +402,9 @@ GEMINI_KEY = "secret-gemini-key"
 
 
 def make_triage(priority=2, cause="cable", minutes=15):
-    """A gemini_client.Triage, as triage_fault returns it, for the code that
-    acts on one (MaintenanceDesk.apply_triage)."""
-    from hardware_monitor.gemini_client import Triage
+    """An api_client.Triage, as triage_fault returns it, for the code that
+    acts on one (services.apply_triage)."""
+    from hardware_monitor.api_client import Triage
     return Triage(priority, cause, minutes, ("Reseat the USB cable.",))
 
 
@@ -421,7 +421,7 @@ def ai_dash(dash, gemini):
 def gemini():
     """Gemini's post, mocked: see fake_gemini.MockedGemini."""
     from fake_gemini import MockedGemini
-    with mock.patch("hardware_monitor.gemini_client.post", autospec=True) as post:
+    with mock.patch("hardware_monitor.api_client.post", autospec=True) as post:
         yield MockedGemini(post)
 
 

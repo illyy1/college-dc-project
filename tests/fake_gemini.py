@@ -1,5 +1,5 @@
 """The Gemini API, faked at its external dependency: the `post` that
-gemini_client imports from requests (see the `gemini` fixture in
+api_client imports from requests for Gemini (see the `gemini` fixture in
 conftest.py). Patched apart from GitHub's requests.post, so a test can fake
 both services at once; the code that builds the request and reads the
 reply runs for real."""
@@ -8,7 +8,7 @@ import json
 
 from fake_http import MockedPost, api_response
 
-# Gemini's triage of a fault, as the JSON it is asked for (gemini_client.TRIAGE_SCHEMA)
+# Gemini's triage of a fault, as the JSON it is asked for (api_client.TRIAGE_SCHEMA)
 TRIAGE = {"priority": 2, "cause": "cable", "repair_minutes": 15,
           "steps": ["Reseat the USB cable.", "Try another USB port."]}
 
