@@ -62,8 +62,7 @@ from hardware_monitor.gemini_client import (
 
 KEY = GEMINI_KEY  # the key ai_dash uses
 # TRIAGE (fake_gemini) as the object triage_fault must return
-EXPECTED = Triage(priority=2, cause="cable", repair_minutes=15,
-                  steps=("Reseat the USB cable.", "Try another USB port."))
+EXPECTED = Triage(**{**TRIAGE, "steps": tuple(TRIAGE["steps"])})
 
 
 def ask(api_key: str | None = KEY, **kwargs):

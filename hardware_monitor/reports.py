@@ -115,10 +115,15 @@ def triage_summary(history):
             minutes[call.assigned_tech_id] += call.estimated_minutes
     return TriageSummary(
         triaged_calls=len(triaged),
-        causes=sorted(causes.items(), key=lambda item: (-item[1], item[0])),
+        causes=_most_first(causes),
         minutes_by_technician=dict(minutes),
         open_backlog_minutes=sum(call.estimated_minutes for call in triaged if call.status != "RESOLVED"),
     )
+
+
+def _most_first(counts):
+    """{name: number} as (name, number) pairs, largest first; ties alphabetical."""
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
 
 def _print_triage_summary(summary):
@@ -129,7 +134,7 @@ def _print_triage_summary(summary):
     for cause, calls in summary.causes:
         print(f"    {cause}: {calls}")
     print("  זמן תיקון משוער לפי טכנאי:")  # "estimated repair time per technician"
-    for tech_id, minutes in sorted(summary.minutes_by_technician.items(), key=lambda item: (-item[1], item[0])):
+    for tech_id, minutes in _most_first(summary.minutes_by_technician):
         print(f"    {tech_id}: {minutes} min")
     print(f"  עבודה פתוחה משוערת: {summary.open_backlog_minutes} min")  # "estimated open work"
 
