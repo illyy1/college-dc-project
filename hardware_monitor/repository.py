@@ -4,9 +4,8 @@ from logs/maintenance_requests.jsonl."""
 
 import json
 import os
-from datetime import datetime
 
-from .models import HardwareComponent, Workstation, Technician
+from .models import HardwareComponent, MaintenanceRequest, Workstation, Technician
 from .retry import retry
 
 # a data file, log or report another program holds for a moment (antivirus,
@@ -111,11 +110,13 @@ def load_technicians_from_jsonl(path):
 def load_maintenance_history(path, reported=None):
     """Reads the append-only maintenance log line-by-line. Every state change
     of a request is its own line, so the last line seen per request_id is its
-    current state. Returns those latest records ordered by request_id.
+    current state. Returns those latest states as MaintenanceRequest objects
+    (built by MaintenanceRequest.from_dict), ordered by request_id.
 
-    A line with a wrongly typed field (e.g. from a hand-edited log) is
-    skipped with a warning, so the call keeps its last readable state, or
-    is left out if it has none. reported: see iter_jsonl_records."""
+    A line that can't become a MaintenanceRequest (e.g. a wrongly typed
+    field in a hand-edited log) is skipped with a warning, so the call keeps
+    its last readable state, or is left out if it has none.
+    reported: see iter_jsonl_records."""
     if not os.path.exists(path):
         return []
 
@@ -123,15 +124,15 @@ def load_maintenance_history(path, reported=None):
     for line_number, record in _numbered_records(path, reported):
         if "request_id" not in record:
             continue
-        field = _wrongly_typed_field(record)
-        if field is not None:
+        try:
+            request = MaintenanceRequest.from_dict(record)
+        except ValueError as error:
             _warn_once(reported, path, line_number,
-                       f"Warning: skipping unreadable call on line {line_number} in {path} "
-                       f"({field} is {record[field]!r}).")
+                       f"Warning: skipping unreadable call on line {line_number} in {path} ({error})")
             continue
-        latest[record["request_id"]] = record
+        latest[request.request_id] = request
 
-    return sorted(latest.values(), key=lambda r: request_number(r["request_id"]))
+    return sorted(latest.values(), key=lambda r: request_number(r.request_id))
 
 
 def highest_request_number(path, reported=None):
@@ -140,24 +141,6 @@ def highest_request_number(path, reported=None):
     0 for an empty or missing log. reported: see iter_jsonl_records."""
     return max((request_number(record["request_id"]) for record in iter_jsonl_records(path, reported)
                 if "request_id" in record), default=0)
-
-
-# fields the program reads as text, and must be text (or missing) in the log
-_TEXT_FIELDS = ("request_id", "assigned_tech_id", "error_type", "opened_at")
-
-
-def _wrongly_typed_field(record):
-    """The first field of a log record with the wrong type, or None."""
-    for field in _TEXT_FIELDS:
-        value = record.get(field)
-        if value is not None and not isinstance(value, str):
-            return field
-    if record.get("opened_at"):
-        try:
-            datetime.fromisoformat(record["opened_at"])
-        except ValueError:
-            return "opened_at"
-    return None
 
 
 def request_number(request_id):

@@ -269,10 +269,10 @@ def demo_maintenance_workflow(alert_manager):
     history = load_maintenance_history(DEMO_MAINTENANCE_LOG_PATH)
     unknown = find_unknown_technician_references(history, technicians)
     print(f"  Cross-file check: {len(history)} call(s) in the log, {len(unknown)} with an unknown technician")
-    tampered = history + [{"request_id": "MR-TAMPERED", "assigned_tech_id": "T42"}]
-    for record in find_unknown_technician_references(tampered, technicians):
-        print(f"  Cross-file check flagged {record['request_id']}: technician "
-              f"'{record['assigned_tech_id']}' is not in technicians.jsonl")
+    tampered = history + [MaintenanceRequest.from_dict({"request_id": "MR-TAMPERED", "assigned_tech_id": "T42"})]
+    for call in find_unknown_technician_references(tampered, technicians):
+        print(f"  Cross-file check flagged {call.request_id}: technician "
+              f"'{call.assigned_tech_id}' is not in technicians.jsonl")
 
     for tech in technicians.values():
         print(f"  {tech}")
