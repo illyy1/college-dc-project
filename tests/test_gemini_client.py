@@ -54,7 +54,7 @@ def ask(api_key: str | None = KEY, **kwargs):
 def test_the_gemini_defaults():
     # the one place the defaults are pinned; every other test reads them from gemini_client
     assert (GEMINI_MODEL, REQUEST_TIMEOUT_SECONDS, MAX_ATTEMPTS, RETRY_BACKOFF_SECONDS, MAX_SUGGESTION_CHARS) == \
-        ("gemini-2.5-flash", 10, 2, 1, 3000)
+        ("gemini-3.1-flash-lite", 10, 2, 1, 3000)
 
 
 # --- the key ---

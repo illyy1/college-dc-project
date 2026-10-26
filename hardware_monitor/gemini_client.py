@@ -15,7 +15,8 @@ from requests import post
 from .retry import retry
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
-GEMINI_MODEL = "gemini-2.5-flash"
+# Flash-Lite: answers in about 2 s; on 2026-10-26 the larger Flash models timed out or were "under high demand"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 REQUEST_TIMEOUT_SECONDS = 10  # a model takes longer to answer than GitHub
 MAX_SUGGESTION_CHARS = 3000   # the text goes into a GitHub issue: a runaway reply can't flood it
 
