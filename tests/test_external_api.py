@@ -11,11 +11,11 @@ import requests
 
 from fake_github import CREATED, created
 from fake_http import NOT_JSON, api_response, watching_raise_for_status
-from hardware_monitor import github_client
-from hardware_monitor.github_client import (
-    MAX_ATTEMPTS,
-    REQUEST_TIMEOUT_SECONDS,
-    RETRY_BACKOFF_SECONDS,
+from hardware_monitor import api_client
+from hardware_monitor.api_client import (
+    GITHUB_MAX_ATTEMPTS as MAX_ATTEMPTS,
+    GITHUB_RETRY_BACKOFF_SECONDS as RETRY_BACKOFF_SECONDS,
+    GITHUB_TIMEOUT_SECONDS as REQUEST_TIMEOUT_SECONDS,
     IssueResult,
     create_issue,
 )
@@ -40,7 +40,7 @@ def test_success_sends_the_expected_request(github):
         "https://api.github.com/repos/owner/repo/issues",
         json={"title": "Camera down", "body": "details", "labels": ["hardware-alert", "camera"]},
         headers={"Authorization": "Bearer secret-token", "Accept": "application/vnd.github.v3+json"},
-        timeout=github_client.REQUEST_TIMEOUT_SECONDS,
+        timeout=api_client.GITHUB_TIMEOUT_SECONDS,
     )
 
 
@@ -225,7 +225,7 @@ TIMED_OUT = f"GitHub did not answer within {REQUEST_TIMEOUT_SECONDS} s."
 
 
 def test_the_default_retry_policy():
-    # the one place the defaults are pinned; every other test reads them from github_client
+    # the one place the defaults are pinned; every other test reads them from api_client
     assert (MAX_ATTEMPTS, RETRY_BACKOFF_SECONDS, REQUEST_TIMEOUT_SECONDS) == (3, 1, 5)
 
 

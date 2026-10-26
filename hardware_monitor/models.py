@@ -356,7 +356,7 @@ class MaintenanceRequest:
         self._status = "OPEN"
         self.assigned_tech_id: str | None = None
         self.assigned_tech_name: str | None = None  # as saved in the log, for a technician who has since left
-        # Gemini's triage (gemini_client.Triage), once the dashboard has one: see MaintenanceDesk.apply_triage
+        # Gemini's triage (api_client.Triage), once there is one: see services.apply_triage
         self.cause: str | None = None
         self.estimated_minutes: int | None = None
 

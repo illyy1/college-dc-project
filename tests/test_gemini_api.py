@@ -1,4 +1,5 @@
-"""TDD specification for hardware_monitor/gemini_client.py: Gemini triages
+"""TDD specification for the Gemini part of hardware_monitor/api_client.py
+(the GEMINI_ constants keep their short names here): Gemini triages
 each hardware fault, and the triage drives the system (business application):
 it can raise the call's priority, labels the GitHub issue, and feeds the
 maintenance report (tests/test_business_application.py).
@@ -43,16 +44,16 @@ from hardware_monitor import config
 from hardware_monitor.config import COMPUTER_NAME
 
 from conftest import GEMINI_KEY
-from hardware_monitor.gemini_client import (
+from hardware_monitor.api_client import (
     CAUSES,
     GEMINI_API_URL,
+    GEMINI_MAX_ATTEMPTS as MAX_ATTEMPTS,
     GEMINI_MODEL,
-    MAX_ATTEMPTS,
+    GEMINI_RETRY_BACKOFF_SECONDS as RETRY_BACKOFF_SECONDS,
+    GEMINI_TIMEOUT_SECONDS as REQUEST_TIMEOUT_SECONDS,
     MAX_REPAIR_MINUTES,
     MAX_STEP_CHARS,
     MAX_STEPS,
-    REQUEST_TIMEOUT_SECONDS,
-    RETRY_BACKOFF_SECONDS,
     TRIAGE_SCHEMA,
     Triage,
     TriageResult,
@@ -70,7 +71,7 @@ def ask(api_key: str | None = KEY, **kwargs):
 
 
 def test_the_gemini_defaults():
-    # the one place the defaults are pinned; every other test reads them from gemini_client
+    # the one place the defaults are pinned; every other test reads them from api_client
     assert (GEMINI_MODEL, REQUEST_TIMEOUT_SECONDS, MAX_ATTEMPTS, RETRY_BACKOFF_SECONDS) == \
         ("gemini-3.1-flash-lite", 10, 2, 1)
     assert (MAX_STEPS, MAX_STEP_CHARS, MAX_REPAIR_MINUTES) == (5, 300, 480)

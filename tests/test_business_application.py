@@ -1,9 +1,9 @@
-"""Business application: Gemini's triage of a fault (gemini_client.Triage)
+"""Business application: Gemini's triage of a fault (api_client.Triage)
 drives what the system decides, saves and reports; it isn't just printed.
 
 What the code must do (TDD specification; the API client itself is in
-tests/test_gemini_client.py):
-- MaintenanceDesk.apply_triage(request_id, triage): the call takes the
+tests/test_gemini_api.py):
+- services.apply_triage(desk, request_id, triage): the call takes the
     more urgent of its own priority (the hardware rule) and Gemini's (lower
     is more urgent), keeps the likely cause and the estimated repair time,
     and is saved to the log. An unknown call raises ValueError.
@@ -12,7 +12,7 @@ tests/test_gemini_client.py):
 - The dashboard applies each triage to its call, and labels the GitHub
     issue with the call's final priority ("priority-N"). When Gemini fails,
     the call and the labels are left as they were.
-- reports.triage_summary(history) -> TriageSummary(triaged_calls, causes,
+- services.triage_summary(history) -> TriageSummary(triaged_calls, causes,
     minutes_by_technician, open_backlog_minutes): the most common causes
     (most first, ties alphabetical), the estimated minutes per technician,
     and the estimated work still open. The history report prints it."""
@@ -23,12 +23,8 @@ import pytest
 
 from fake_gemini import TRIAGE, api_error
 from hardware_monitor.models import MaintenanceRequest
-from hardware_monitor.reports import (
-    TriageSummary,
-    export_maintenance_history_csv,
-    generate_maintenance_history_report,
-    triage_summary,
-)
+from hardware_monitor.reports import export_maintenance_history_csv, generate_maintenance_history_report
+from hardware_monitor.services import TriageSummary, apply_triage, triage_summary
 from hardware_monitor.repository import load_maintenance_history
 
 from conftest import as_requests, make_triage
@@ -41,7 +37,7 @@ from conftest import as_requests, make_triage
 def test_the_call_takes_the_more_urgent_priority(desk, alerts, rule, ai, final):
     # Gemini can raise a call's urgency, never lower what the hardware rule set
     request = desk.open_request_for_alert(alerts.camera(priority=rule))
-    desk.apply_triage(request.request_id, make_triage(priority=ai))
+    apply_triage(desk, request.request_id, make_triage(priority=ai))
     assert request.priority == final
 
 
@@ -49,13 +45,13 @@ def test_the_call_keeps_the_cause_and_the_estimate(desk, alerts):
     request = desk.open_request_for_alert(alerts.camera())
     assert (request.cause, request.estimated_minutes) == (None, None)  # before any triage
 
-    desk.apply_triage(request.request_id, make_triage(cause="driver", minutes=30))
+    apply_triage(desk, request.request_id, make_triage(cause="driver", minutes=30))
     assert (request.cause, request.estimated_minutes) == ("driver", 30)
 
 
 def test_the_triaged_call_is_saved(desk, alerts):
     request = desk.open_request_for_alert(alerts.camera(priority=4))
-    desk.apply_triage(request.request_id, make_triage(priority=2, cause="driver", minutes=30))
+    apply_triage(desk, request.request_id, make_triage(priority=2, cause="driver", minutes=30))
 
     (saved,) = load_maintenance_history(desk.log_path)
     assert (saved.priority, saved.cause, saved.estimated_minutes) == (2, "driver", 30)
@@ -63,7 +59,7 @@ def test_the_triaged_call_is_saved(desk, alerts):
 
 def test_a_restarted_desk_keeps_the_triage_of_an_open_call(desk, make_desk, alerts):
     request = desk.open_request_for_alert(alerts.camera(priority=4))
-    desk.apply_triage(request.request_id, make_triage(priority=2, cause="driver", minutes=30))
+    apply_triage(desk, request.request_id, make_triage(priority=2, cause="driver", minutes=30))
 
     restored = make_desk().requests[request.request_id]  # same log: a restart
     assert (restored.priority, restored.cause, restored.estimated_minutes) == (2, "driver", 30)
@@ -71,7 +67,7 @@ def test_a_restarted_desk_keeps_the_triage_of_an_open_call(desk, make_desk, aler
 
 def test_triaging_an_unknown_call_raises(desk):
     with pytest.raises(ValueError, match="Maintenance request 'MR-9999' does not exist"):
-        desk.apply_triage("MR-9999", make_triage())
+        apply_triage(desk, "MR-9999", make_triage())
 
 
 # --- the call's new fields, in the log and the CSV ---
@@ -99,13 +95,13 @@ def test_a_wrongly_typed_triage_field_raises(make_call, change, field):
 
 def test_the_triage_round_trips(desk, alerts):
     request = desk.open_request_for_alert(alerts.camera())
-    desk.apply_triage(request.request_id, make_triage(cause="driver", minutes=30))
+    apply_triage(desk, request.request_id, make_triage(cause="driver", minutes=30))
     assert MaintenanceRequest.from_dict(request.to_dict()).to_dict() == request.to_dict()
 
 
 def test_the_csv_report_has_the_cause_and_the_estimate(desk, alerts, tmp_path):
     request = desk.open_request_for_alert(alerts.camera())
-    desk.apply_triage(request.request_id, make_triage(cause="driver", minutes=30))
+    apply_triage(desk, request.request_id, make_triage(cause="driver", minutes=30))
 
     csv_path = tmp_path / "report.csv"
     export_maintenance_history_csv(desk.log_path, str(csv_path), verbose=False)

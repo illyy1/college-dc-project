@@ -25,7 +25,7 @@ from hardware_monitor.concurrency import (
 from hardware_monitor.config import MAX_VISIBLE_ALERTS
 from hardware_monitor.repository import load_maintenance_history
 
-from conftest import TEST_FLEET_PATH, make_triage, run_together
+from conftest import TEST_FLEET_PATH, run_together
 from fake_tk import FakeToplevel
 
 
@@ -214,7 +214,7 @@ def test_maintenance_desk_methods_wait_for_its_lock(desk, alerts):
 
     assert waits_for_lock(desk._lock, lambda: desk.open_request_for_alert(alerts.camera()))
     assert waits_for_lock(desk._lock, lambda: desk.resolve_request(request.request_id))
-    assert waits_for_lock(desk._lock, lambda: desk.apply_triage(request.request_id, make_triage()))
+    assert waits_for_lock(desk._lock, lambda: desk.update_request(request.request_id, lambda call: None))
     assert waits_for_lock(desk._lock, desk.open_requests)
     assert waits_for_lock(desk._lock, lambda: desk.find_open_requests("WS-104", "CAM-104", "CAMERA_FAILURE"))
 
