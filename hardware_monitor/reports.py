@@ -4,8 +4,6 @@ history report (who handled which error) with a CSV export."""
 
 import csv
 import os
-from collections import Counter
-from dataclasses import dataclass
 
 from .config import MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH
 
@@ -17,6 +15,7 @@ from .repository import (
     load_maintenance_history,
 )
 from .retry import retry
+from .services import most_first, triage_summary
 
 # the CSV's columns: every field of a call, as to_dict() writes it
 HISTORY_CSV_FIELDS = MaintenanceRequest.FIELDS
@@ -95,38 +94,8 @@ def generate_maintenance_history_report(log_path):
     return history
 
 
-@dataclass
-class TriageSummary:
-    triaged_calls: int
-    causes: list                 # (cause, calls), most common first, ties alphabetical
-    minutes_by_technician: dict  # tech_id -> estimated minutes of all their triaged calls
-    open_backlog_minutes: int    # estimated minutes of the triaged calls still open
-
-
-def triage_summary(history):
-    """Calculations from Gemini's triages (MaintenanceDesk.apply_triage): how
-    often each likely cause came up, the estimated work per technician, and
-    the estimated work still open. Calls without a triage are left out."""
-    triaged = [call for call in history if call.cause is not None and call.estimated_minutes is not None]
-    causes = Counter(call.cause for call in triaged)
-    minutes = Counter()
-    for call in triaged:
-        if call.assigned_tech_id:
-            minutes[call.assigned_tech_id] += call.estimated_minutes
-    return TriageSummary(
-        triaged_calls=len(triaged),
-        causes=_most_first(causes),
-        minutes_by_technician=dict(minutes),
-        open_backlog_minutes=sum(call.estimated_minutes for call in triaged if call.status != "RESOLVED"),
-    )
-
-
-def _most_first(counts):
-    """{name: number} as (name, number) pairs, largest first; ties alphabetical."""
-    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-
-
 def _print_triage_summary(summary):
+    """Prints services.triage_summary(), when any call has a triage."""
     if not summary.triaged_calls:
         return
     print("-" * 60)
@@ -134,7 +103,7 @@ def _print_triage_summary(summary):
     for cause, calls in summary.causes:
         print(f"    {cause}: {calls}")
     print("  זמן תיקון משוער לפי טכנאי:")  # "estimated repair time per technician"
-    for tech_id, minutes in _most_first(summary.minutes_by_technician):
+    for tech_id, minutes in most_first(summary.minutes_by_technician):
         print(f"    {tech_id}: {minutes} min")
     print(f"  עבודה פתוחה משוערת: {summary.open_backlog_minutes} min")  # "estimated open work"
 
