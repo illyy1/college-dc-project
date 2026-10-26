@@ -16,11 +16,8 @@ from .repository import (
 )
 from .retry import retry
 
-HISTORY_CSV_FIELDS = [
-    "request_id", "status", "priority", "error_type", "workstation_id",
-    "component_id", "assigned_tech_id", "assigned_tech_name",
-    "opened_at", "resolved_at", "alert_id",
-]
+# the CSV's columns: every field of a call, as to_dict() writes it
+HISTORY_CSV_FIELDS = MaintenanceRequest.FIELDS
 
 
 def validate_and_assign_request(request: MaintenanceRequest, tech_id: str, technicians_dict: dict[str, Technician]):
@@ -43,8 +40,8 @@ def find_unknown_technician_references(history, technicians_dict: dict[str, Tech
     """Cross-file validation: maintenance-log records whose assigned_tech_id
     does not exist in the technician data file."""
     return [
-        record for record in history
-        if record.get("assigned_tech_id") and record["assigned_tech_id"] not in technicians_dict
+        call for call in history
+        if call.assigned_tech_id and call.assigned_tech_id not in technicians_dict
     ]
 
 
@@ -74,16 +71,17 @@ def generate_maintenance_history_report(log_path):
     if not history:
         print("  אין קריאות שירות בהיסטוריה.")
 
-    for record in history:
-        tech = record.get("assigned_tech_name") or record.get("assigned_tech_id") or "לא שויך"
-        print(f"• {record['request_id']} | {record['error_type']} | עמדה: {record['workstation_id']}"
-              f" | רכיב: {record['component_id']}")
-        print(f"    טכנאי מטפל: {tech} | סטטוס: {record['status']} | עדיפות: {record['priority']}")
-        print(f"    נפתחה: {record['opened_at']} | נסגרה: {record.get('resolved_at') or '—'}")
+    for call in history:
+        tech = call.assigned_tech_name or call.assigned_tech_id or "לא שויך"
+        record = call.to_dict()  # the times as saved (ISO text), as the report has always shown them
+        print(f"• {call.request_id} | {call.error_type} | עמדה: {call.workstation_id}"
+              f" | רכיב: {call.component_id}")
+        print(f"    טכנאי מטפל: {tech} | סטטוס: {call.status} | עדיפות: {call.priority}")
+        print(f"    נפתחה: {record['opened_at']} | נסגרה: {record['resolved_at'] or '—'}")
 
     by_tech = {}
-    for record in history:
-        tech = record.get("assigned_tech_name") or "לא שויך"
+    for call in history:
+        tech = call.assigned_tech_name or "לא שויך"
         by_tech[tech] = by_tech.get(tech, 0) + 1
     if by_tech:
         print("-" * 60)
@@ -105,9 +103,9 @@ def export_maintenance_history_csv(log_path: str, csv_path: str, verbose=True):
     def write():
         # utf-8-sig so Excel displays the Hebrew/technician names correctly
         with open(csv_path, "w", encoding="utf-8-sig", newline="") as csv_file:
-            writer = csv.DictWriter(csv_file, fieldnames=HISTORY_CSV_FIELDS, extrasaction="ignore")
+            writer = csv.DictWriter(csv_file, fieldnames=HISTORY_CSV_FIELDS)
             writer.writeheader()
-            writer.writerows(history)
+            writer.writerows(call.to_dict() for call in history)
 
     retry(write, retry_on=TEMPORARY_FILE_ERRORS, max_attempts=FILE_WRITE_ATTEMPTS,
           backoff_seconds=FILE_RETRY_BACKOFF_SECONDS, label=f"Writing {csv_path}")

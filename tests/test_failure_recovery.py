@@ -62,7 +62,7 @@ def test_a_locked_csv_does_not_stop_a_call_being_opened(desk, capsys, alerts):
         request = desk.open_request_for_alert(alerts.camera())
 
     assert request.status == "IN_PROGRESS"
-    assert [r["request_id"] for r in load_maintenance_history(desk.log_path)] == [request.request_id]
+    assert [r.request_id for r in load_maintenance_history(desk.log_path)] == [request.request_id]
     output = capsys.readouterr().out
     assert "could not update" in output and "is it open in Excel?" in output
     assert "The call was still saved" in output
@@ -73,7 +73,7 @@ def test_a_locked_csv_does_not_stop_a_call_being_resolved(desk, capsys, alerts):
     with excel_has_the_csv_open():
         desk.resolve_request(request.request_id)
 
-    assert load_maintenance_history(desk.log_path)[0]["status"] == "RESOLVED"
+    assert load_maintenance_history(desk.log_path)[0].status == "RESOLVED"
     assert "is it open in Excel?" in capsys.readouterr().out
 
 
@@ -158,7 +158,7 @@ def test_the_desk_keeps_working_after_a_killed_run(technicians, make_call, write
 
     assert request.request_id == "MR-0002"  # numbering ignores the unreadable fragment
     reopened = load_maintenance_history(log)
-    assert [r["request_id"] for r in reopened] == ["MR-0001", "MR-0002"]
+    assert [r.request_id for r in reopened] == ["MR-0001", "MR-0002"]
 
 
 # --- 4. the `--report` command, end to end ---
@@ -220,7 +220,7 @@ def test_a_log_held_for_a_moment_still_gets_the_record(make_call, write_jsonl, r
     with file_locked("repository", log, times=FILE_WRITE_ATTEMPTS - 1):
         append_jsonl_record(log, {"request_id": "MR-0002", "status": "IN_PROGRESS"})
 
-    assert [r["request_id"] for r in load_maintenance_history(log)] == ["MR-0001", "MR-0002"]
+    assert [r.request_id for r in load_maintenance_history(log)] == ["MR-0001", "MR-0002"]
     assert retry_waits == FILE_WAITS
 
 
@@ -269,8 +269,8 @@ def test_a_call_is_kept_when_the_log_cannot_be_written_and_saved_on_its_next_cha
 
     desk.resolve_request(request.request_id)  # the log works again
     (saved,) = load_maintenance_history(desk.log_path)
-    assert (saved["request_id"], saved["status"]) == (request.request_id, "RESOLVED")
-    assert saved["assigned_tech_name"] == desk.technician_for(request).name
+    assert (saved.request_id, saved.status) == (request.request_id, "RESOLVED")
+    assert saved.assigned_tech_name == desk.technician_for(request).name
 
 
 def test_a_csv_that_cannot_be_written_for_another_reason_does_not_stop_the_call(desk, alerts, capsys, retry_waits):
@@ -278,7 +278,7 @@ def test_a_csv_that_cannot_be_written_for_another_reason_does_not_stop_the_call(
         request = desk.open_request_for_alert(alerts.camera())
 
     assert retry_waits == []  # a full disk is not a moment's lock: not retried
-    assert [r["request_id"] for r in load_maintenance_history(desk.log_path)] == [request.request_id]
+    assert [r.request_id for r in load_maintenance_history(desk.log_path)] == [request.request_id]
     output = capsys.readouterr().out
     assert "could not update" in output and "No space left" in output and "Excel" not in output
 

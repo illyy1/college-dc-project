@@ -20,12 +20,14 @@ status other than RESOLVED.
 """
 
 
+from datetime import datetime
+
 import pytest
 
 from hardware_monitor.stats import AlertTypeCount, CallRow, TechnicianLoad, compute_stats, load_stats
 from hardware_monitor.repository import load_maintenance_history
 
-from conftest import BAD_FIELDS
+from conftest import BAD_FIELDS, as_requests
 
 
 
@@ -40,7 +42,7 @@ def write_log(write_jsonl):
 # --- totals ---
 
 def test_totals(history, technicians):
-    stats = compute_stats(history, technicians)
+    stats = compute_stats(as_requests(history), technicians)
     assert (stats.total_calls, stats.open_calls, stats.resolved_calls) == (7, 3, 4)
 
 
@@ -53,7 +55,7 @@ def test_no_calls_yet(technicians):
 # --- alerts by type ---
 
 def test_alerts_are_grouped_by_type_busiest_first(history, technicians):
-    assert compute_stats(history, technicians).alert_types == [
+    assert compute_stats(as_requests(history), technicians).alert_types == [
         AlertTypeCount("Camera", total=4, open=2, resolved=2),
         AlertTypeCount("Microphone", total=2, open=1, resolved=1),
         AlertTypeCount("Other", total=1, open=0, resolved=1),
@@ -69,20 +71,20 @@ def test_alerts_are_grouped_by_type_busiest_first(history, technicians):
     ("", "Other"),
 ], ids=["camera-failure", "lowercase", "mic-silence", "mic-disconnected", "unknown-device", "empty"])
 def test_each_error_type_maps_to_an_alert_type(make_call, technicians, error_type, alert_type):
-    stats = compute_stats([make_call(1, error_type, "T1", "RESOLVED", "09:00")], technicians)
+    stats = compute_stats(as_requests([make_call(1, error_type, "T1", "RESOLVED", "09:00")]), technicians)
     assert [t.alert_type for t in stats.alert_types] == [alert_type]
 
 
 def test_types_with_equal_counts_are_listed_alphabetically(make_call, technicians):
     calls = [make_call(1, "MICROPHONE_SILENCE", "T2", "RESOLVED", "09:00"),
              make_call(2, "CAMERA_FAILURE", "T1", "RESOLVED", "09:10")]
-    assert [t.alert_type for t in compute_stats(calls, technicians).alert_types] == ["Camera", "Microphone"]
+    assert [t.alert_type for t in compute_stats(as_requests(calls), technicians).alert_types] == ["Camera", "Microphone"]
 
 
 # --- the spread across technicians ---
 
 def test_technician_spread_busiest_first(history, technicians):
-    loads = compute_stats(history, technicians).technicians
+    loads = compute_stats(as_requests(history), technicians).technicians
 
     assert [(t.tech_id, t.name, t.total, t.open, t.resolved) for t in loads] == [
         ("T1", "Dana Levi", 3, 1, 2),
@@ -93,7 +95,7 @@ def test_technician_spread_busiest_first(history, technicians):
 
 
 def test_shares_are_percentages_of_all_calls(history, technicians):
-    shares = {t.tech_id: t.share for t in compute_stats(history, technicians).technicians}
+    shares = {t.tech_id: t.share for t in compute_stats(as_requests(history), technicians).technicians}
 
     assert shares["T1"] == pytest.approx(300 / 7)
     assert shares["T2"] == pytest.approx(200 / 7)
@@ -102,7 +104,7 @@ def test_shares_are_percentages_of_all_calls(history, technicians):
 
 
 def test_technicians_without_calls_are_still_listed(make_call, technicians):
-    loads = compute_stats([make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED", "09:00")], technicians).technicians
+    loads = compute_stats(as_requests([make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED", "09:00")]), technicians).technicians
 
     assert [t.tech_id for t in loads] == ["T1", "T4", "T3", "T2"]  # T1 first, then the idle ones by name
     idle = [t for t in loads if t.tech_id != "T1"]
@@ -118,65 +120,65 @@ def test_unassigned_calls_get_their_own_row(make_call, technicians):
     calls = [make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED", "09:00"),
              make_call(2, "CAMERA_FAILURE", None, "OPEN", "09:10"),
              make_call(3, "CAMERA_FAILURE", None, "OPEN", "09:20")]
-    loads = compute_stats(calls, technicians).technicians
+    loads = compute_stats(as_requests(calls), technicians).technicians
 
     assert loads[0] == TechnicianLoad(None, "Unassigned", total=2, open=2, resolved=0, share=pytest.approx(200 / 3))
 
 
 def test_no_unassigned_row_when_every_call_has_a_technician(history, technicians):
-    assert "Unassigned" not in [t.name for t in compute_stats(history, technicians).technicians]
+    assert "Unassigned" not in [t.name for t in compute_stats(as_requests(history), technicians).technicians]
 
 
 def test_a_technician_missing_from_the_data_file_is_still_counted(make_call, technicians):
     # the log names T9, who has since been removed from technicians.jsonl
     gone = {**make_call(1, "CAMERA_FAILURE", "T9", "RESOLVED", "09:00"), "assigned_tech_name": "Former Tech"}
-    loads = compute_stats([gone], technicians).technicians
+    loads = compute_stats(as_requests([gone]), technicians).technicians
 
     assert (loads[0].tech_id, loads[0].name, loads[0].total) == ("T9", "Former Tech", 1)
 
 
 def test_a_missing_technician_without_a_logged_name_shows_the_id(make_call, technicians):
     gone = {**make_call(1, "CAMERA_FAILURE", "T9", "RESOLVED", "09:00"), "assigned_tech_name": None}
-    assert compute_stats([gone], technicians).technicians[0].name == "T9"
+    assert compute_stats(as_requests([gone]), technicians).technicians[0].name == "T9"
 
 
 def test_counts_use_the_current_technician_name(make_call, technicians):
     # the name stored in the log is a snapshot; the data file is the current truth
     renamed = {**make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED", "09:00"), "assigned_tech_name": "Old Name"}
-    assert compute_stats([renamed], technicians).technicians[0].name == "Dana Levi"
+    assert compute_stats(as_requests([renamed]), technicians).technicians[0].name == "Dana Levi"
 
 
 # --- who took each alert ---
 
 def test_recent_calls_newest_first_with_who_took_them(history, technicians):
-    recent = compute_stats(history, technicians).recent_calls
+    recent = compute_stats(as_requests(history), technicians).recent_calls
 
     assert recent[0] == CallRow("MR-0007", "Camera", "CAMERA_FAILURE", "WS-104", "Dana Levi", "IN_PROGRESS",
-                                "2026-10-20T10:00:00")
+                                datetime(2026, 10, 20, 10, 0))  # the open time as a datetime, not text
     assert [c.request_id for c in recent] == [f"MR-{n:04d}" for n in range(7, 0, -1)]
     assert [c.technician for c in recent[:3]] == ["Dana Levi", "Avi Peretz", "Dana Levi"]
 
 
 @pytest.mark.parametrize("limit, shown", [(3, 3), (7, 7), (50, 7)], ids=["fewer", "exactly-all", "more-than-there-are"])
 def test_recent_calls_are_limited(history, technicians, limit, shown):
-    recent = compute_stats(history, technicians, recent_limit=limit).recent_calls
+    recent = compute_stats(as_requests(history), technicians, recent_limit=limit).recent_calls
     assert len(recent) == shown and recent[0].request_id == "MR-0007"
 
 
 def test_an_unassigned_recent_call_says_so(make_call, technicians):
-    recent = compute_stats([make_call(1, "CAMERA_FAILURE", None, "OPEN", "09:00")], technicians).recent_calls
+    recent = compute_stats(as_requests([make_call(1, "CAMERA_FAILURE", None, "OPEN", "09:00")]), technicians).recent_calls
     assert recent[0].technician == "Unassigned"
 
 
 def test_calls_opened_at_the_same_moment_newest_number_first(make_call, technicians):
     calls = [make_call(n, "CAMERA_FAILURE", "T1", "OPEN", "09:00") for n in (1, 2, 3)]
-    assert [c.request_id for c in compute_stats(calls, technicians).recent_calls] == ["MR-0003", "MR-0002", "MR-0001"]
+    assert [c.request_id for c in compute_stats(as_requests(calls), technicians).recent_calls] == ["MR-0003", "MR-0002", "MR-0001"]
 
 
 def test_a_call_without_an_open_time_goes_last(make_call, technicians):
     undated = {**make_call(1, "CAMERA_FAILURE", "T1", "OPEN", "09:00"), "opened_at": None}
     dated = make_call(2, "CAMERA_FAILURE", "T3", "OPEN", "08:00")
-    recent = compute_stats([undated, dated], technicians).recent_calls
+    recent = compute_stats(as_requests([undated, dated]), technicians).recent_calls
     assert [c.request_id for c in recent] == ["MR-0002", "MR-0001"]
 
 

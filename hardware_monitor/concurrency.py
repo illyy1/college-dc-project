@@ -64,7 +64,7 @@ async def _gather_maintenance_summary(maintenance_log_path: str) -> dict:
     """Source 3: how many maintenance calls exist and which are still open."""
     await asyncio.sleep(SOURCE_LATENCY_SECONDS)
     history = await asyncio.to_thread(load_maintenance_history, maintenance_log_path)
-    open_calls = [record["request_id"] for record in history if record.get("status") != "RESOLVED"]
+    open_calls = [call.request_id for call in history if call.status != "RESOLVED"]
     return {"total_calls": len(history), "open_calls": open_calls}
 
 

@@ -20,7 +20,7 @@ except ImportError:
     sys.modules["tkinter"] = types.ModuleType("tkinter")
 
 from hardware_monitor.maintenance import MaintenanceDesk  # noqa: E402
-from hardware_monitor.models import Camera, Microphone, Technician, Workstation  # noqa: E402
+from hardware_monitor.models import Camera, MaintenanceRequest, Microphone, Technician, Workstation  # noqa: E402
 from hardware_monitor.processing import Alert, AlertManager  # noqa: E402
 from hardware_monitor.repository import (  # noqa: E402
     load_workstations_from_jsonl,
@@ -206,9 +206,16 @@ def reports_log(make_call, write_jsonl):
     )
 
 
+def as_requests(records):
+    """What load_maintenance_history gives for these log records (raw dicts,
+    e.g. from make_call): one MaintenanceRequest each, built by from_dict."""
+    return [MaintenanceRequest.from_dict(record) for record in records]
+
+
 @pytest.fixture
 def history(make_call):
-    """Seven calls: 4 camera, 2 microphone, 1 other; 3 still open.
+    """Seven raw log records (as_requests turns them into calls): 4 camera,
+    2 microphone, 1 other; 3 still open.
     Dana 3 calls (1 open), Yossi 2 (1 open), Noa 1 (open), Avi 1 (resolved)."""
     return [
         make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED", "09:00"),

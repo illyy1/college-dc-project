@@ -94,33 +94,23 @@ class MaintenanceDesk:
         self._last_assigned_at = {}
         # tech_id -> calls given to them, ever: what FewestCallsStrategy evens out
         self._calls_taken = Counter()
-        for record in history:
-            tech_id, opened_at = record.get("assigned_tech_id"), record.get("opened_at")
+        for call in history:
+            tech_id, when = call.assigned_tech_id, call.opened_at
             if tech_id:
                 self._calls_taken[tech_id] += 1
-            if tech_id and opened_at:
-                when = datetime.fromisoformat(opened_at)
+            if tech_id and when:
                 self._last_assigned_at[tech_id] = max(when, self._last_assigned_at.get(tech_id, when))
         self._restore_open_requests(history)
 
     def _restore_open_requests(self, history):
         """Reloads calls a previous run left open, so they can still be
         resolved and still count towards their technician's workload."""
-        for record in history:
-            if record.get("status") == "RESOLVED":
+        for request in history:
+            if request.status == "RESOLVED":
                 continue
-            opened_at = record.get("opened_at")
-            request = MaintenanceRequest(
-                request_id=record["request_id"],
-                alert_id=record.get("alert_id"),
-                priority=record.get("priority", 5),
-                error_type=record.get("error_type", ""),
-                workstation_id=record.get("workstation_id", ""),
-                component_id=record.get("component_id", ""),
-                opened_at=datetime.fromisoformat(opened_at) if opened_at else None,
-            )
-            request.status = record.get("status", "OPEN")
-            request.assigned_tech_id = record.get("assigned_tech_id")
+            if request.opened_at is None:
+                # an open call must have an open time: the desk sorts open calls by it
+                request.opened_at = datetime.now()
             technician = self.technicians.get(request.assigned_tech_id)
             if technician is not None:
                 technician.assigned_requests.append(request)

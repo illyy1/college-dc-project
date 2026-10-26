@@ -21,6 +21,18 @@ def _require_fields(record, fields, kind):
                          f"{', '.join(repr(record[f]) for f in not_text)}.")
 
 
+def _parse_time(record, field, kind):
+    """`field` as a datetime, or None if it is missing or empty. Raises
+    ValueError if it is there but not an ISO date and time."""
+    value = record.get(field)
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f"{kind} field '{field}' must be an ISO date and time, got {value!r}.") from None
+
+
 def _check_number(record, field, kind, integer=False):
     """Raises ValueError if `field` is present but not a number (bools rejected)."""
     if field not in record:
@@ -339,10 +351,53 @@ class MaintenanceRequest:
         self.error_type = error_type
         self.workstation_id = workstation_id
         self.component_id = component_id
-        self.opened_at = opened_at or datetime.now()
-        self.resolved_at = None
+        self.opened_at: datetime | None = opened_at or datetime.now()
+        self.resolved_at: datetime | None = None
         self._status = "OPEN"
-        self.assigned_tech_id = None
+        self.assigned_tech_id: str | None = None
+        self.assigned_tech_name: str | None = None  # as saved in the log, for a technician who has since left
+
+    # every field of a maintenance-log record, in the order of the CSV report's columns:
+    # to_dict() writes them, from_dict() reads them, the CSV export lists them
+    FIELDS = ("request_id", "status", "priority", "error_type", "workstation_id", "component_id",
+              "assigned_tech_id", "assigned_tech_name", "opened_at", "resolved_at", "alert_id")
+    NUMBER_FIELDS = ("alert_id", "priority")
+    TIME_FIELDS = ("opened_at", "resolved_at")  # datetimes here, ISO text in a record
+    # the rest are text when present (request_id must also be filled in)
+    TEXT_FIELDS = tuple(sorted(set(FIELDS) - set(NUMBER_FIELDS), key=FIELDS.index))
+
+    @classmethod
+    def from_dict(cls, record):
+        """Factory: builds a MaintenanceRequest from one maintenance-log record
+        (a call's state as the desk saved it), each field with its type: the
+        times become datetimes. A field left out gets its default; an unknown
+        time stays None rather than "now". Raises ValueError naming a field
+        that is missing (request_id), of the wrong type, or impossible (an
+        unknown status, a time that isn't an ISO date)."""
+        kind = "MaintenanceRequest"
+        _require_fields(record, ("request_id",), kind)
+        for field in cls.NUMBER_FIELDS:
+            if record.get(field) is not None:
+                _check_number(record, field, kind, integer=True)
+        for field in cls.TEXT_FIELDS:
+            value = record.get(field)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{kind} field '{field}' must be text, got {value!r}.")
+        priority = record.get("priority")
+        request = cls(record["request_id"], record.get("alert_id"), 5 if priority is None else priority,
+                      error_type=record.get("error_type") or "", workstation_id=record.get("workstation_id") or "",
+                      component_id=record.get("component_id") or "")
+        for field in cls.TIME_FIELDS:
+            setattr(request, field, _parse_time(record, field, kind))
+        status = record.get("status") or "OPEN"
+        try:
+            request.status = status  # the status setter's own check
+        except ValueError:
+            raise ValueError(f"{kind} field 'status' must be one of {sorted(cls.VALID_STATUSES)}, "
+                             f"got {status!r}.") from None
+        request.assigned_tech_id = record.get("assigned_tech_id")
+        request.assigned_tech_name = record.get("assigned_tech_name")
+        return request
 
     @property
     def status(self) -> str:
@@ -364,18 +419,11 @@ class MaintenanceRequest:
         self.resolved_at = datetime.now()
 
     def to_dict(self) -> dict:
-        return {
-            "request_id": self.request_id,
-            "alert_id": self.alert_id,
-            "priority": self.priority,
-            "error_type": self.error_type,
-            "workstation_id": self.workstation_id,
-            "component_id": self.component_id,
-            "status": self.status,
-            "assigned_tech_id": self.assigned_tech_id,
-            "opened_at": self.opened_at.isoformat(),
-            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
-        }
+        """The call as a log record: every field in FIELDS, the times as ISO text."""
+        record = {field: getattr(self, field) for field in self.FIELDS}
+        for field in self.TIME_FIELDS:
+            record[field] = record[field].isoformat() if record[field] else None
+        return record
 
     def __repr__(self):
         return f"MaintenanceRequest(id='{self.request_id}', alert_id={self.alert_id}, status='{self.status}')"
