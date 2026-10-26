@@ -9,12 +9,13 @@ from fake_http import MockedPost, api_response
 SUGGESTION = "1. Check that the USB cable is plugged in.\n2. Close other apps that use the camera."
 
 
-def answer(*texts):
-    """Gemini's 200 reply: one candidate whose text comes in these parts."""
-    return api_response(200, {"candidates": [{
-        "content": {"role": "model", "parts": [{"text": text} for text in texts]},
-        "finishReason": "STOP",
-    }]})
+def answer(*texts, finish="STOP"):
+    """Gemini's 200 reply: one candidate whose text comes in these parts, and
+    why the model stopped (STOP: it finished; None leaves the field out)."""
+    candidate = {"content": {"role": "model", "parts": [{"text": text} for text in texts]}}
+    if finish is not None:
+        candidate["finishReason"] = finish
+    return api_response(200, {"candidates": [candidate]})
 
 
 def api_error(status, message):

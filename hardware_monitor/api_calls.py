@@ -28,6 +28,33 @@ def request_failure(error, service, timeout):
         isinstance(error, requests.exceptions.ChunkedEncodingError)
 
 
+def status_failure(response, service, expected_status, api_message):
+    """(message, worth retrying) if the reply's status isn't expected_status,
+    else None. The status is checked with requests' raise_for_status() (any
+    4xx/5xx); it lets every other code through, so the exact success code is
+    checked after it. api_message(response) gives the API's own explanation,
+    as ': <message>' or ''."""
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError:
+        return (f"{service} returned HTTP {response.status_code}{api_message(response)}.",
+                response.status_code in RETRYABLE_STATUS_CODES)
+    if response.status_code != expected_status:
+        return f"{service} returned HTTP {response.status_code}{api_message(response)}.", False
+    return None
+
+
+def json_object(response, service):
+    """(the reply's JSON object, None), or (None, what is wrong with it)."""
+    try:
+        data = response.json()
+    except ValueError:
+        return None, f"{service}'s reply was not valid JSON."
+    if not isinstance(data, dict):
+        return None, f"{service}'s reply was not a JSON object."
+    return data, None
+
+
 def retry_api_call(try_once, *, max_attempts, backoff_seconds, label):
     """Calls try_once() until it succeeds or fails for good, through retry().
     try_once() returns (result, worth retrying); result has .ok, .error and

@@ -1,7 +1,10 @@
-"""What the faked web APIs share (fake_github.py, fake_gemini.py): replies
-shaped like a real requests.Response, and a wrapper around a mocked post
+"""What the faked web APIs share (fake_github.py, fake_gemini.py): real
+requests.Response replies, and a wrapper around a mocked post
 that answers with scripted replies and records what was sent."""
 
+import json
+from contextlib import contextmanager
+from http import HTTPStatus
 from types import SimpleNamespace
 from unittest import mock
 
@@ -11,15 +14,26 @@ NOT_JSON = object()
 
 
 def api_response(status_code, payload: object = NOT_JSON, text=""):
-    """A mock with only the attributes a real requests.Response has."""
-    response = mock.Mock(spec=requests.Response)
+    """A real requests.Response, as a server would send it: the body is
+    `payload` as JSON, or `text` (e.g. an HTML error page) when payload is
+    NOT_JSON. Its raise_for_status() and json() are requests' own."""
+    response = requests.Response()
     response.status_code = status_code
-    response.text = text
-    if payload is NOT_JSON:
-        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", text, 0)
-    else:
-        response.json.return_value = payload
+    response.reason = HTTPStatus(status_code).phrase
+    response.url = "https://api.example.invalid/"
+    response.encoding = "utf-8"
+    body = text if payload is NOT_JSON else json.dumps(payload)
+    response._content = body.encode("utf-8")  # what requests sets once the body has been read
     return response
+
+
+@contextmanager
+def watching_raise_for_status():
+    """Records each call to requests' Response.raise_for_status, which still
+    runs for real: the spy only shows that a client asked for the check."""
+    with mock.patch.object(requests.Response, "raise_for_status", autospec=True,
+                           side_effect=requests.Response.raise_for_status) as check:
+        yield check
 
 
 class MockedPost:

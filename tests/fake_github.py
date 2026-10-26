@@ -21,7 +21,7 @@ class MockedGitHub(MockedPost):
 
     def default_reply(self):
         number = self.post.call_count
-        return api_response(201, {"number": number, "html_url": f"https://example.invalid/{number}"})
+        return api_response(201, {"number": number, "html_url": f"https://github.com/owner/repo/issues/{number}"})
 
     @property
     def posted(self):
