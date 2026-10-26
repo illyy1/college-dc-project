@@ -2,7 +2,7 @@
 drives what the system decides, saves and reports; it isn't just printed.
 
 What the code must do (TDD specification; the API client itself is in
-tests/test_gemini_client.py):
+tests/test_gemini_api.py):
 - services.apply_triage(desk, request_id, triage): the call takes the
     more urgent of its own priority (the hardware rule) and Gemini's (lower
     is more urgent), keeps the likely cause and the estimated repair time,

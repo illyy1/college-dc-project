@@ -36,23 +36,20 @@ def report_fault(desk, github_token, gemini_api_key, alert_key, title, message, 
     a key, or when Gemini fails, the issue goes out as before."""
     body = issue_body(alert_key, message, request, desk.technician_for(request) if request is not None else None)
     labels = ["hardware-alert", alert_key]
-    outcome = FaultReport(issue=None)
+    triage, triage_error, priority = None, None, None
 
     if gemini_api_key:
         result = triage_fault(gemini_api_key, title, message, alert_key)
-        if result.ok:
-            outcome.triage = result.triage
-            if request is not None:
-                apply_triage(desk, request.request_id, result.triage)
-            outcome.priority = request.priority if request is not None else result.triage.priority
-            labels.append(f"priority-{outcome.priority}")
-            body += triage_section(result.triage, outcome.priority)
-        else:
-            outcome.triage_error = result.error
+        triage, triage_error = result.triage, result.error
+    if triage is not None:
+        if request is not None:
+            apply_triage(desk, request.request_id, triage)
+        priority = request.priority if request is not None else triage.priority
+        labels.append(f"priority-{priority}")
+        body += triage_section(triage, priority)
 
-    outcome.issue = create_issue(github_token, GITHUB_REPO, f"\U0001f6a8 [{COMPUTER_NAME}] {title}", body,
-                                 labels=labels)
-    return outcome
+    issue = create_issue(github_token, GITHUB_REPO, f"\U0001f6a8 [{COMPUTER_NAME}] {title}", body, labels=labels)
+    return FaultReport(issue, triage, triage_error, priority)
 
 
 def issue_body(alert_key, message, request=None, technician=None):
