@@ -6,6 +6,8 @@ Only the external dependencies are mocked: requests.post (with autospec, so
 a call the real function would reject fails the test) and the sleep between
 retries (see conftest.py and fake_github.py). create_issue itself always runs for real."""
 
+from unittest import mock
+
 import pytest
 import requests
 
@@ -182,6 +184,38 @@ def test_replies_missing_required_fields_are_rejected(github, payload, problem):
 def test_replies_that_are_not_a_json_object_are_rejected(github, payload, error):
     github.reply = api_response(201, payload, text="OK")
     assert send() == IssueResult(False, error=error)
+
+
+# --- response validation: the status, then the JSON, then every field's value ---
+
+def test_the_http_status_is_checked_with_raise_for_status(github):
+    # requests' own check, run for real; the spy only records that it was asked
+    with mock.patch.object(requests.Response, "raise_for_status", autospec=True,
+                           side_effect=requests.Response.raise_for_status) as check:
+        send()
+    check.assert_called_once()
+
+
+@pytest.mark.parametrize("payload, problem", [
+    ({"number": 0, "html_url": "https://github.com/owner/repo/issues/0"}, "'number' should be positive, got 0"),
+    ({"number": -3, "html_url": "https://github.com/owner/repo/issues/-3"}, "'number' should be positive, got -3"),
+    ({"number": 42, "html_url": ""}, "'html_url' is empty"),
+    ({"number": 42, "html_url": "   "}, "'html_url' is empty"),
+    ({"number": 42, "html_url": "http://github.com/owner/repo/issues/42"}, "'html_url' should be an https link"),
+    ({"number": 42, "html_url": "github.com/owner/repo/issues/42"}, "'html_url' should be an https link"),
+    ({"number": 42, "html_url": "https://github.com/owner/repo/issues/41"}, "'html_url' doesn't link to issue #42"),
+], ids=["number-zero", "number-negative", "url-empty", "url-blank", "url-not-https", "url-no-scheme",
+        "url-other-issue"])
+def test_replies_with_impossible_values_are_rejected(github, payload, problem):
+    github.reply = api_response(201, payload)
+    result = send()
+    assert not result.ok and result.issue_number is None
+    assert result.error == f"GitHub's reply is invalid: {problem}."
+
+
+def test_a_reply_with_every_field_valid_is_accepted(github):
+    github.reply = api_response(201, {"number": 7, "html_url": "https://github.com/owner/repo/issues/7"})
+    assert send() == IssueResult(True, issue_number=7, url="https://github.com/owner/repo/issues/7")
 
 
 # --- retry: recovering after a temporary failure ---

@@ -25,6 +25,8 @@ Only the external dependencies are mocked: Gemini's post (the `gemini`
 fixture, fake_gemini.py), GitHub's requests.post (`github`) and the sleep
 between retries. suggest_fixes and the dashboard run for real."""
 
+from unittest import mock
+
 import pytest
 import requests
 
@@ -146,6 +148,45 @@ def test_replies_that_are_not_a_json_object_are_rejected(gemini, payload, error)
     gemini.reply = api_response(200, payload)
     result = ask()
     assert not result.ok and error in result.error
+
+
+# --- response validation: the status, then the JSON, then every field's value ---
+
+def test_the_http_status_is_checked_with_raise_for_status(gemini):
+    # requests' own check, run for real; the spy only records that it was asked
+    with mock.patch.object(requests.Response, "raise_for_status", autospec=True,
+                           side_effect=requests.Response.raise_for_status) as check:
+        ask()
+    check.assert_called_once()
+
+
+@pytest.mark.parametrize("finish", ["STOP", "MAX_TOKENS"], ids=["finished", "hit-the-length-limit"])
+def test_a_reply_that_finished_or_hit_the_length_limit_is_used(gemini, finish):
+    gemini.reply = answer(SUGGESTION, finish=finish)
+    assert ask() == SuggestionResult(True, text=SUGGESTION)
+
+
+@pytest.mark.parametrize("finish", ["SAFETY", "RECITATION", "PROHIBITED_CONTENT", "OTHER"])
+def test_a_reply_stopped_for_any_other_reason_is_rejected(gemini, finish):
+    # e.g. a safety stop can leave a half-written answer: it must not reach the issue
+    gemini.reply = answer("1. Unplug the", finish=finish)
+    result = ask()
+    assert not result.ok and result.text is None
+    assert result.error == f"Gemini stopped before finishing the suggestion ({finish})."
+
+
+def test_a_reply_without_a_finish_reason_is_rejected(gemini):
+    gemini.reply = answer(SUGGESTION, finish=None)
+    result = ask()
+    assert not result.ok and result.error == "Gemini's reply is incomplete: missing 'finishReason'."
+
+
+@pytest.mark.parametrize("part", [{"text": 5}, {"inlineData": {"mimeType": "image/png"}}, "text"],
+                         ids=["text-a-number", "not-text", "part-not-an-object"])
+def test_parts_that_are_not_text_are_left_out(gemini, part):
+    gemini.reply = api_response(200, {"candidates": [{
+        "content": {"role": "model", "parts": [{"text": "1. Check the cable."}, part]}, "finishReason": "STOP"}]})
+    assert ask().text == "1. Check the cable."
 
 
 # --- errors ---
