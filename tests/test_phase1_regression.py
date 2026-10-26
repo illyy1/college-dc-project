@@ -243,7 +243,7 @@ def test_maintenance_history_keeps_latest_state_and_skips_corrupt_lines(make_cal
                        fragment='{"request_id": "MR-0011", "sta')  # half-written last line
     history = load_maintenance_history(path)
 
-    assert [(r["request_id"], r["status"]) for r in history] == [("MR-0002", "IN_PROGRESS"), ("MR-0010", "RESOLVED")]
+    assert [(r.request_id, r.status) for r in history] == [("MR-0002", "IN_PROGRESS"), ("MR-0010", "RESOLVED")]
     assert load_maintenance_history(str(tmp_path / "missing.jsonl")) == []
 
 
@@ -251,7 +251,7 @@ def test_maintenance_history_keeps_latest_state_and_skips_corrupt_lines(make_cal
 
 def test_unknown_technician_references_are_reported(reports_log, technicians):
     unknown = find_unknown_technician_references(load_maintenance_history(reports_log), technicians)
-    assert [r["request_id"] for r in unknown] == ["MR-0002"]
+    assert [r.request_id for r in unknown] == ["MR-0002"]
 
 
 def test_history_report_lists_every_call(reports_log, tmp_path, capsys):

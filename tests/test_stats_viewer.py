@@ -53,7 +53,7 @@ import main
 from hardware_monitor import stats_viewer
 from hardware_monitor.config import MAINTENANCE_LOG_PATH, TECHNICIANS_PATH
 from hardware_monitor.stats import compute_stats
-from conftest import BAD_FIELDS
+from conftest import BAD_FIELDS, as_requests
 from fake_tk import FAKE_TK, FakeCanvas, FakeTk
 from hardware_monitor.stats_viewer import (
     BAR_WIDTH,
@@ -78,7 +78,7 @@ def columns(line):
 
 @pytest.fixture
 def stats(history, technicians):
-    return compute_stats(history, technicians)
+    return compute_stats(as_requests(history), technicians)
 
 
 # --- the text of each section ---
@@ -122,7 +122,7 @@ def test_the_spread_bar_is_scaled_to_the_busiest_technician(stats):
 
 
 def test_an_idle_technician_has_no_bar(make_call, technicians):
-    stats = compute_stats([make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED")], technicians)
+    stats = compute_stats(as_requests([make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED")]), technicians)
     idle = format_technicians(stats).splitlines()[1]
     assert columns(idle) == ["Avi Peretz", "0 calls", "0 open", "0 resolved", "0.0%"]
 
