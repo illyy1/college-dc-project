@@ -61,9 +61,13 @@ def _try_once(token, repo, title, body, labels, timeout):
         error, retryable = request_failure(e, "GitHub", timeout)
         return IssueResult(False, error=error), retryable
 
-    if response.status_code != 201:
+    try:
+        response.raise_for_status()  # 4xx/5xx
+    except requests.exceptions.HTTPError:
         error = f"GitHub returned HTTP {response.status_code}{_api_message(response)}."
         return IssueResult(False, error=error), response.status_code in RETRYABLE_STATUS_CODES
+    if response.status_code != 201:  # raise_for_status lets any other code through; a new issue is 201 Created
+        return IssueResult(False, error=f"GitHub returned HTTP {response.status_code}{_api_message(response)}."), False
     return _parse_created_issue(response), False
 
 
@@ -94,4 +98,22 @@ def _parse_created_issue(response):
     if problems:
         return IssueResult(False, error=f"GitHub's reply is incomplete: {', '.join(problems)}.")
 
+    problems = _impossible_values(data["number"], data["html_url"])
+    if problems:
+        return IssueResult(False, error=f"GitHub's reply is invalid: {', '.join(problems)}.")
     return IssueResult(True, issue_number=data["number"], url=data["html_url"])
+
+
+def _impossible_values(number, url):
+    """What is wrong with a reply's values, once their types are right: the
+    dashboard prints the number and link, so both must point at the new issue."""
+    problems = []
+    if number <= 0:
+        problems.append(f"'number' should be positive, got {number}")
+    if not url.strip():
+        problems.append("'html_url' is empty")
+    elif not url.startswith("https://"):
+        problems.append("'html_url' should be an https link")
+    elif not url.rstrip("/").endswith(f"/issues/{number}"):
+        problems.append(f"'html_url' doesn't link to issue #{number}")
+    return problems

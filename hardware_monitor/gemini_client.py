@@ -19,6 +19,8 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_MODEL = "gemini-3.1-flash-lite"
 REQUEST_TIMEOUT_SECONDS = 10  # a model takes longer to answer than GitHub
 MAX_SUGGESTION_CHARS = 3000   # the text goes into a GitHub issue: a runaway reply can't flood it
+# why the model stopped: it finished, or reached its length limit (the text is still usable, and is cut anyway)
+USABLE_FINISH_REASONS = {"STOP", "MAX_TOKENS"}
 
 # fewer than GitHub's: the issue waits for the suggestions, and they are optional
 MAX_ATTEMPTS = 2
@@ -77,9 +79,13 @@ def _try_once(api_key, prompt, timeout):
         error, retryable = request_failure(e, "Gemini", timeout)
         return SuggestionResult(False, error=error), retryable
 
-    if response.status_code != 200:
+    try:
+        response.raise_for_status()  # 4xx/5xx
+    except requests.exceptions.HTTPError:
         error = f"Gemini returned HTTP {response.status_code}{_api_message(response)}."
         return SuggestionResult(False, error=error), response.status_code in RETRYABLE_STATUS_CODES
+    if response.status_code != 200:  # raise_for_status lets any other code through; an answer is 200 OK
+        return SuggestionResult(False, error=f"Gemini returned HTTP {response.status_code}."), False
     return _parse_suggestion(response), False
 
 
@@ -104,17 +110,30 @@ def _parse_suggestion(response):
     if blocked:
         return SuggestionResult(False, error=f"Gemini blocked the prompt ({blocked}).")
 
-    text = _candidate_text(data.get("candidates")).strip()
+    candidate = _first_candidate(data.get("candidates"))
+    text = _candidate_text(candidate).strip()
     if not text:
         return SuggestionResult(False, error="Gemini's reply had no suggestion.")
+
+    finish = candidate.get("finishReason")
+    if finish is None:
+        return SuggestionResult(False, error="Gemini's reply is incomplete: missing 'finishReason'.")
+    if finish not in USABLE_FINISH_REASONS:
+        # e.g. a safety stop can leave a half-written answer: it must not reach the issue
+        return SuggestionResult(False, error=f"Gemini stopped before finishing the suggestion ({finish}).")
     return SuggestionResult(True, text=text[:MAX_SUGGESTION_CHARS].rstrip())
 
 
-def _candidate_text(candidates):
-    """The first candidate's text parts, joined; "" if the reply has none."""
+def _first_candidate(candidates):
+    """The first candidate of the reply, or {} if there is none."""
     if not isinstance(candidates, list) or not candidates or not isinstance(candidates[0], dict):
-        return ""
-    parts = (candidates[0].get("content") or {}).get("parts")
+        return {}
+    return candidates[0]
+
+
+def _candidate_text(candidate):
+    """The candidate's text parts, joined; "" if it has none."""
+    parts = (candidate.get("content") or {}).get("parts")
     if not isinstance(parts, list):
         return ""
     return "".join(part["text"] for part in parts if isinstance(part, dict) and isinstance(part.get("text"), str))
