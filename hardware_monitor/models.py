@@ -356,12 +356,16 @@ class MaintenanceRequest:
         self._status = "OPEN"
         self.assigned_tech_id: str | None = None
         self.assigned_tech_name: str | None = None  # as saved in the log, for a technician who has since left
+        # Gemini's triage (gemini_client.Triage), once the dashboard has one: see MaintenanceDesk.apply_triage
+        self.cause: str | None = None
+        self.estimated_minutes: int | None = None
 
     # every field of a maintenance-log record, in the order of the CSV report's columns:
     # to_dict() writes them, from_dict() reads them, the CSV export lists them
     FIELDS = ("request_id", "status", "priority", "error_type", "workstation_id", "component_id",
-              "assigned_tech_id", "assigned_tech_name", "opened_at", "resolved_at", "alert_id")
-    NUMBER_FIELDS = ("alert_id", "priority")
+              "assigned_tech_id", "assigned_tech_name", "opened_at", "resolved_at", "alert_id",
+              "cause", "estimated_minutes")
+    NUMBER_FIELDS = ("alert_id", "priority", "estimated_minutes")
     TIME_FIELDS = ("opened_at", "resolved_at")  # datetimes here, ISO text in a record
     # the rest are text when present (request_id must also be filled in)
     TEXT_FIELDS = tuple(sorted(set(FIELDS) - set(NUMBER_FIELDS), key=FIELDS.index))
@@ -397,6 +401,8 @@ class MaintenanceRequest:
                              f"got {status!r}.") from None
         request.assigned_tech_id = record.get("assigned_tech_id")
         request.assigned_tech_name = record.get("assigned_tech_name")
+        request.cause = record.get("cause")
+        request.estimated_minutes = record.get("estimated_minutes")
         return request
 
     @property
