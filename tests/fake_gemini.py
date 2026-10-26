@@ -4,9 +4,13 @@ conftest.py). Patched apart from GitHub's requests.post, so a test can fake
 both services at once; the code that builds the request and reads the
 reply runs for real."""
 
+import json
+
 from fake_http import MockedPost, api_response
 
-SUGGESTION = "1. Check that the USB cable is plugged in.\n2. Close other apps that use the camera."
+# Gemini's triage of a fault, as the JSON it is asked for (gemini_client.TRIAGE_SCHEMA)
+TRIAGE = {"priority": 2, "cause": "cable", "repair_minutes": 15,
+          "steps": ["Reseat the USB cable.", "Try another USB port."]}
 
 
 def answer(*texts, finish="STOP"):
@@ -23,12 +27,19 @@ def api_error(status, message):
     return api_response(status, {"error": {"code": status, "message": message}})
 
 
+def triage_answer(finish="STOP", **changes):
+    """Gemini's 200 reply carrying TRIAGE as JSON text, with any field
+    changed, or left out when set to None."""
+    triage = {**TRIAGE, **changes}
+    return answer(json.dumps({key: value for key, value in triage.items() if value is not None}), finish=finish)
+
+
 class MockedGemini(MockedPost):
     """The mocked post (see fake_http.MockedPost). By default every request
-    is answered with SUGGESTION; .prompts shows the prompts sent."""
+    is answered with TRIAGE; .prompts shows the prompts sent."""
 
     def default_reply(self):
-        return answer(SUGGESTION)
+        return triage_answer()
 
     @property
     def prompts(self):

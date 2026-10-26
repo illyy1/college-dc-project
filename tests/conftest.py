@@ -398,6 +398,18 @@ def github():
         yield MockedGitHub(post)
 
 
+GEMINI_KEY = "secret-gemini-key"
+
+
+@pytest.fixture
+def ai_dash(dash, gemini):
+    """The shared `dash`, with the Gemini key GEMINI_KEY; .gemini is the
+    mocked Gemini."""
+    dash.app.gemini_api_key = GEMINI_KEY
+    dash.gemini = gemini
+    return dash
+
+
 @pytest.fixture
 def gemini():
     """Gemini's post, mocked: see fake_gemini.MockedGemini."""
