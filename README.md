@@ -37,7 +37,7 @@ Alternatively, install the project as a package with `pip install -e .`. `pyproj
 To build a standalone executable, also install PyInstaller: `pip install pyinstaller`
 
 ### GitHub alerts (optional)
-The live dashboard can open a GitHub issue for each new fault. This needs a `.env` file in the project root (it is in `.gitignore` and is never committed):
+The live dashboard can open a GitHub issue for each new fault. This needs a `.env` file in the project root (it is in `.gitignore` and is never committed). Copy `.env.example` to `.env` and fill it in; it lists every value, the GitHub ones and the Gemini key:
 ```
 GITHUB_TOKEN=<GitHub personal access token, encrypted with Fernet>
 ENCRYPTION_KEY=<the Fernet key used to encrypt it>
