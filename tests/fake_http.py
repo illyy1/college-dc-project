@@ -3,8 +3,10 @@ requests.Response replies, and a wrapper around a mocked post
 that answers with scripted replies and records what was sent."""
 
 import json
+from contextlib import contextmanager
 from http import HTTPStatus
 from types import SimpleNamespace
+from unittest import mock
 
 import requests
 
@@ -23,6 +25,15 @@ def api_response(status_code, payload: object = NOT_JSON, text=""):
     body = text if payload is NOT_JSON else json.dumps(payload)
     response._content = body.encode("utf-8")  # what requests sets once the body has been read
     return response
+
+
+@contextmanager
+def watching_raise_for_status():
+    """Records each call to requests' Response.raise_for_status, which still
+    runs for real: the spy only shows that a client asked for the check."""
+    with mock.patch.object(requests.Response, "raise_for_status", autospec=True,
+                           side_effect=requests.Response.raise_for_status) as check:
+        yield check
 
 
 class MockedPost:

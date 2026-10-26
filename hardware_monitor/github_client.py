@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import requests
 
-from .api_calls import RETRYABLE_STATUS_CODES, request_failure, retry_api_call
+from .api_calls import json_object, request_failure, retry_api_call, status_failure
 
 GITHUB_API_URL = "https://api.github.com"
 REQUEST_TIMEOUT_SECONDS = 5
@@ -61,13 +61,10 @@ def _try_once(token, repo, title, body, labels, timeout):
         error, retryable = request_failure(e, "GitHub", timeout)
         return IssueResult(False, error=error), retryable
 
-    try:
-        response.raise_for_status()  # 4xx/5xx
-    except requests.exceptions.HTTPError:
-        error = f"GitHub returned HTTP {response.status_code}{_api_message(response)}."
-        return IssueResult(False, error=error), response.status_code in RETRYABLE_STATUS_CODES
-    if response.status_code != 201:  # raise_for_status lets any other code through; a new issue is 201 Created
-        return IssueResult(False, error=f"GitHub returned HTTP {response.status_code}{_api_message(response)}."), False
+    failure = status_failure(response, "GitHub", 201, _api_message)  # a new issue is 201 Created
+    if failure:
+        error, retryable = failure
+        return IssueResult(False, error=error), retryable
     return _parse_created_issue(response), False
 
 
@@ -81,12 +78,9 @@ def _api_message(response):
 
 
 def _parse_created_issue(response):
-    try:
-        data = response.json()
-    except ValueError:
-        return IssueResult(False, error="GitHub's reply was not valid JSON.")
-    if not isinstance(data, dict):
-        return IssueResult(False, error="GitHub's reply was not a JSON object.")
+    data, error = json_object(response, "GitHub")
+    if error:
+        return IssueResult(False, error=error)
 
     problems = []
     for field, expected in REQUIRED_RESPONSE_FIELDS.items():

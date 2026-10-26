@@ -6,13 +6,11 @@ Only the external dependencies are mocked: requests.post (with autospec, so
 a call the real function would reject fails the test) and the sleep between
 retries (see conftest.py and fake_github.py). create_issue itself always runs for real."""
 
-from unittest import mock
-
 import pytest
 import requests
 
 from fake_github import CREATED, created
-from fake_http import NOT_JSON, api_response
+from fake_http import NOT_JSON, api_response, watching_raise_for_status
 from hardware_monitor import github_client
 from hardware_monitor.github_client import (
     MAX_ATTEMPTS,
@@ -189,9 +187,7 @@ def test_replies_that_are_not_a_json_object_are_rejected(github, payload, error)
 # --- response validation: the status, then the JSON, then every field's value ---
 
 def test_the_http_status_is_checked_with_raise_for_status(github):
-    # requests' own check, run for real; the spy only records that it was asked
-    with mock.patch.object(requests.Response, "raise_for_status", autospec=True,
-                           side_effect=requests.Response.raise_for_status) as check:
+    with watching_raise_for_status() as check:
         send()
     check.assert_called_once()
 

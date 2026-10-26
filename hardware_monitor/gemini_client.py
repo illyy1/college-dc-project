@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import requests
 from requests import post
 
-from .api_calls import RETRYABLE_STATUS_CODES, request_failure, retry_api_call
+from .api_calls import json_object, request_failure, retry_api_call, status_failure
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta"
 # Flash-Lite: answers in about 2 s; on 2026-10-26 the larger Flash models timed out or were "under high demand"
@@ -79,13 +79,10 @@ def _try_once(api_key, prompt, timeout):
         error, retryable = request_failure(e, "Gemini", timeout)
         return SuggestionResult(False, error=error), retryable
 
-    try:
-        response.raise_for_status()  # 4xx/5xx
-    except requests.exceptions.HTTPError:
-        error = f"Gemini returned HTTP {response.status_code}{_api_message(response)}."
-        return SuggestionResult(False, error=error), response.status_code in RETRYABLE_STATUS_CODES
-    if response.status_code != 200:  # raise_for_status lets any other code through; an answer is 200 OK
-        return SuggestionResult(False, error=f"Gemini returned HTTP {response.status_code}."), False
+    failure = status_failure(response, "Gemini", 200, _api_message)  # an answer is 200 OK
+    if failure:
+        error, retryable = failure
+        return SuggestionResult(False, error=error), retryable
     return _parse_suggestion(response), False
 
 
@@ -99,12 +96,9 @@ def _api_message(response):
 
 
 def _parse_suggestion(response):
-    try:
-        data = response.json()
-    except ValueError:
-        return SuggestionResult(False, error="Gemini's reply was not valid JSON.")
-    if not isinstance(data, dict):
-        return SuggestionResult(False, error="Gemini's reply was not a JSON object.")
+    data, error = json_object(response, "Gemini")
+    if error:
+        return SuggestionResult(False, error=error)
 
     blocked = (data.get("promptFeedback") or {}).get("blockReason")
     if blocked:

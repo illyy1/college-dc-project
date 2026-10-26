@@ -25,13 +25,11 @@ Only the external dependencies are mocked: Gemini's post (the `gemini`
 fixture, fake_gemini.py), GitHub's requests.post (`github`) and the sleep
 between retries. suggest_fixes and the dashboard run for real."""
 
-from unittest import mock
-
 import pytest
 import requests
 
 from fake_gemini import SUGGESTION, answer, api_error
-from fake_http import NOT_JSON, api_response
+from fake_http import NOT_JSON, api_response, watching_raise_for_status
 from hardware_monitor import config
 from hardware_monitor.config import COMPUTER_NAME
 from hardware_monitor.gemini_client import (
@@ -153,9 +151,7 @@ def test_replies_that_are_not_a_json_object_are_rejected(gemini, payload, error)
 # --- response validation: the status, then the JSON, then every field's value ---
 
 def test_the_http_status_is_checked_with_raise_for_status(gemini):
-    # requests' own check, run for real; the spy only records that it was asked
-    with mock.patch.object(requests.Response, "raise_for_status", autospec=True,
-                           side_effect=requests.Response.raise_for_status) as check:
+    with watching_raise_for_status() as check:
         ask()
     check.assert_called_once()
 
