@@ -1,7 +1,8 @@
 """The business logic and decisions made with the data the APIs return. The
 network itself is api_client.py's job; this module never touches it.
 
-- report_fault(): reports a hardware fault to GitHub. It decides whether to
+- report_fault(): reports a hardware fault to GitHub, unless this
+  computer's issue for it is still open. It decides whether to
   ask Gemini for a triage, lets the triage set the call's final priority,
   and composes the issue's text and labels.
 - apply_triage(): the rule for a triage: the call takes the more urgent of
@@ -40,9 +41,9 @@ def report_fault(desk, github_token, gemini_api_key, alert_key, title, message, 
     one), and the issue gets a priority-N label and a Triage section. Without
     a key, or when Gemini fails, the issue goes out as before."""
     labels = ["hardware-alert", alert_key]
-    issue_title = f"\U0001f6a8 [{COMPUTER_NAME}] {title}"
+    full_title = issue_title(title)  # with the computer's name: never sent to Gemini
     search = find_open_issues(github_token, GITHUB_REPO, tuple(labels))
-    still_open = next((issue for issue in search.issues if issue.title == issue_title), None)
+    still_open = next((issue for issue in search.issues if issue.title == full_title), None)
     if still_open is not None:
         return FaultReport(IssueResult(True, issue_number=still_open.number, url=still_open.url,
                                        attempts=search.attempts), already_open=True)
@@ -61,8 +62,14 @@ def report_fault(desk, github_token, gemini_api_key, alert_key, title, message, 
         labels.append(f"priority-{priority}")
         body += triage_section(triage, priority)
 
-    issue = create_issue(github_token, GITHUB_REPO, issue_title, body, labels=labels)
+    issue = create_issue(github_token, GITHUB_REPO, full_title, body, labels=labels)
     return FaultReport(issue, triage, triage_error, priority, lookup_error=lookup_error)
+
+
+def issue_title(title):
+    """The GitHub issue's title for a fault on this computer. The duplicate
+    check matches it exactly, so this is its one definition."""
+    return f"\U0001f6a8 [{COMPUTER_NAME}] {title}"
 
 
 def issue_body(alert_key, message, request=None, technician=None):

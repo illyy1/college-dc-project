@@ -1,15 +1,16 @@
 """Raw network communication, and only that: the one module that talks to
-the network. It sends the requests to GitHub Issues (create_issue) and to
-Gemini (triage_fault), checks each reply (the HTTP status, the JSON, every
-field) and turns it into a plain result: IssueResult, or TriageResult with
-a Triage. A failed result names its ErrorCategory: no reply
+the network. It sends the requests to GitHub Issues (create_issue, and
+find_open_issues, a GET) and to Gemini (triage_fault), checks each reply
+(the HTTP status, the JSON, every field) and turns it into a plain result:
+IssueResult, IssueSearchResult of OpenIssues, or TriageResult with a
+Triage. A failed result names its ErrorCategory: no reply
 (COMMUNICATION), an error status (HTTP), a reply that isn't JSON
 (INVALID_JSON), or JSON with the wrong structure or values (VALIDATION).
 It decides nothing about the business: what to do with a result
 (the call's priority, the issue's text and labels, the report) is in
 services.py. From the package it uses only the generic retry loop.
 
-GitHub is reached through requests.post and Gemini through `post`, imported
+GitHub is reached through requests.post and requests.get, and Gemini through `post`, imported
 by name, so tests can fake each service on its own."""
 
 import json
@@ -149,6 +150,7 @@ def create_issue(token, repo, title, body, labels=(), timeout=GITHUB_TIMEOUT_SEC
 
     A timeout can hide a request GitHub did receive, so a retry after one may
     occasionally post a duplicate issue; that is preferred to losing the alert.
+    (Later reports of the same fault find it with find_open_issues.)
 
     Never raises for API problems: every failure comes back as
     IssueResult(ok=False, error=...), so a failed alert can't crash the
@@ -166,7 +168,7 @@ def _github_try_once(token, repo, title, body, labels, timeout):
         response = requests.post(
             f"{GITHUB_API_URL}/repos/{repo}/issues",
             json={"title": title, "body": body, "labels": list(labels)},
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"},
+            headers=_github_headers(token),
             timeout=timeout,
         )
     except requests.exceptions.RequestException as e:
@@ -178,6 +180,10 @@ def _github_try_once(token, repo, title, body, labels, timeout):
         error, category, retryable = failure
         return IssueResult(False, error=error, category=category), retryable
     return _parse_created_issue(response), False
+
+
+def _github_headers(token):
+    return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
 
 
 def _github_message(response):
@@ -194,13 +200,7 @@ def _parse_created_issue(response):
     if error:
         return IssueResult(False, error=error, category=category)
 
-    problems = []
-    for field, expected in REQUIRED_RESPONSE_FIELDS.items():
-        value = data.get(field)
-        if value is None:
-            problems.append(f"missing '{field}'")
-        elif isinstance(value, bool) or not isinstance(value, expected):
-            problems.append(f"'{field}' should be {expected.__name__}, got {value!r}")
+    problems = _field_problems(data, REQUIRED_RESPONSE_FIELDS)
     if problems:
         return _invalid_issue(f"GitHub's reply is incomplete: {', '.join(problems)}.")
 
@@ -213,6 +213,19 @@ def _parse_created_issue(response):
 def _invalid_issue(error):
     """A GitHub reply whose JSON has the wrong structure or values."""
     return IssueResult(False, error=error, category=ErrorCategory.VALIDATION)
+
+
+def _field_problems(data, fields):
+    """What is missing or wrongly typed in an issue's JSON; fields maps each
+    name to its type (a bool is not a number here)."""
+    problems = []
+    for field, expected in fields.items():
+        value = data.get(field)
+        if value is None:
+            problems.append(f"missing '{field}'")
+        elif isinstance(value, bool) or not isinstance(value, expected):
+            problems.append(f"'{field}' should be {expected.__name__}, got {value!r}")
+    return problems
 
 
 def _impossible_issue_values(number, url):
@@ -231,6 +244,10 @@ def _impossible_issue_values(number, url):
 
 
 # --- the open issues: so the same fault isn't posted twice ---
+
+# fields of each entry in GitHub's list of open issues the program relies on
+OPEN_ISSUE_FIELDS = {**REQUIRED_RESPONSE_FIELDS, "title": str}
+
 
 @dataclass(frozen=True)
 class OpenIssue:
@@ -268,7 +285,7 @@ def _search_try_once(token, repo, labels, timeout):
         response = requests.get(
             f"{GITHUB_API_URL}/repos/{repo}/issues",
             params={"state": "open", "labels": ",".join(labels), "per_page": 100},
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"},
+            headers=_github_headers(token),
             timeout=timeout,
         )
     except requests.exceptions.RequestException as e:
@@ -297,13 +314,7 @@ def _parse_open_issues(response):
             return _invalid_search(f"GitHub's list of open issues has an entry that is not an issue: {item!r}.")
         if "pull_request" in item:  # GitHub lists pull requests among the issues
             continue
-        problems = []
-        for field, expected in {**REQUIRED_RESPONSE_FIELDS, "title": str}.items():
-            value = item.get(field)
-            if value is None:
-                problems.append(f"missing '{field}'")
-            elif isinstance(value, bool) or not isinstance(value, expected):
-                problems.append(f"'{field}' should be {expected.__name__}, got {value!r}")
+        problems = _field_problems(item, OPEN_ISSUE_FIELDS)
         if not problems:
             problems = _impossible_issue_values(item["number"], item["html_url"])
         if problems:
