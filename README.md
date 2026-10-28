@@ -316,7 +316,11 @@ The full module list is in [Project layout](#project-layout). The Stage 2 parts:
     2. external service fails: `test_when_gemini_fails_the_call_and_the_labels_are_unchanged`;
     3. broken link between the systems: `test_triaging_an_unknown_call_raises`;
     4. the new report metric: `test_the_triage_summary`.
-*   **Division of work:** _TODO (team): one line per member: name and what they owned._
+*   **Division of work:**
+    *   **Elinor** — the external API, architecture and design patterns: `api_client.py`, `services.py`, `retry.py`, `config.py` + `.env.example`, `logging_module.py`, `assignment.py` (Strategy), `factory.py` (Factory) and dependency injection.
+    *   **Illy** — automated testing and TDD: the `tests/` suite (fixtures, `parametrize`, `pytest.raises`, mocks, offline isolation) and the RED/GREEN/REFACTOR cycles.
+    *   **Rachel** — concurrency and synchronization: `concurrency.py` (async collection, sequential vs. concurrent) and the thread locks with their tests in `tests/test_concurrency.py`.
+    *   **Dania** — subsystem integration: the Gemini triage driving maintenance calls, the extended report in `reports.py`, the four extra tests above and the end-to-end demo in `main.py`.
 
 ### Key design decisions
 *   **External services:** the [GitHub REST API, Issues](https://docs.github.com/en/rest/issues/issues) (a GET lists the open issues with the alert's labels, a POST opens one) and the [Gemini API](https://ai.google.dev/gemini-api/docs) (the triage, as checked JSON). Every reply goes through `raise_for_status()`, JSON parsing and a check of every field it relies on. A timeout or connection error is retried (GitHub up to 3 attempts in total, waiting 1 s and then 2 s); bad data and auth errors are never retried.
