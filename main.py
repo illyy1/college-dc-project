@@ -1,16 +1,19 @@
 """Entry point only — all logic lives in the hardware_monitor package.
 
-Runs the linear demonstration of the information system (hardware_monitor/
-demo.py), then launches the live hardware-monitoring dashboard for this
-machine, with the live alert statistics window next to it. When the
-dashboard is closed, the statistics window closes too and the maintenance
-history report is printed and exported to CSV.
+By default runs the linear demonstration of the information system
+(hardware_monitor/demo.py) and the maintenance history report, offline:
+no network, no keys, no window. --dashboard then launches the live
+hardware-monitoring dashboard for this machine (real GitHub and Gemini when
+.env has the keys), with the live alert statistics window next to it. When
+the dashboard is closed, the statistics window closes too and the report is
+printed and exported to CSV.
 
-    python main.py                  demo + live dashboard and statistics window + history report
-    python main.py --no-stats       the same, without the statistics window
-    python main.py --no-dashboard   demo + history report, no window (runs start to finish)
+    python main.py                  demo + history report, offline (runs start to finish)
+    python main.py --dashboard      demo + live dashboard and statistics window + history report
+    python main.py --no-stats       the dashboard without the statistics window
     python main.py --report         only print/export the maintenance history report
     python main.py --stats          only open the live alert statistics window
+    python main.py --live           only the joint process against the real GitHub and Gemini
 """
 
 import argparse
@@ -38,12 +41,15 @@ def main():
     parser = argparse.ArgumentParser(description="Room hardware monitor")
     parser.add_argument("--report", action="store_true",
                         help="only print and export the maintenance history report")
+    parser.add_argument("--dashboard", action="store_true",
+                        help="after the demo, open the live dashboard (real GitHub and Gemini when .env "
+                             "has the keys) with the statistics window next to it")
     parser.add_argument("--no-dashboard", action="store_true",
-                        help="run the demo and reports without opening the live dashboard window")
+                        help="the default: run the demo and reports without opening a window")
     parser.add_argument("--stats", action="store_true",
                         help="only open the live alert statistics window (follows the maintenance log)")
     parser.add_argument("--no-stats", action="store_true",
-                        help="open the dashboard without the statistics window next to it")
+                        help="open the dashboard (implies --dashboard) without the statistics window next to it")
     parser.add_argument("--live", action="store_true",
                         help="only run the joint-process step against the real GitHub and Gemini "
                              "(keys from .env; posts a real issue)")
@@ -75,12 +81,19 @@ def _run(args):
 
     run_demo()
 
-    if args.no_dashboard:
+    if not (args.dashboard or args.no_stats) or args.no_dashboard:
         return 0 if _publish_reports() else 1
 
-    # imported here so --report and --no-dashboard work without tkinter installed
-    from hardware_monitor.dashboard import HardwareMonitorApp
-    from hardware_monitor.stats_viewer import launch_in_background, stop_background_viewer
+    # imported here so the other modes work without tkinter installed
+    try:
+        from hardware_monitor.dashboard import HardwareMonitorApp
+        from hardware_monitor.stats_viewer import launch_in_background, stop_background_viewer
+    except ImportError as error:
+        if error.name != "tkinter":
+            raise
+        print("The live dashboard needs tkinter, which this Python was installed without. "
+              "Run `python main.py` for the offline demo and report.", file=sys.stderr)
+        return 1
 
     print("\nLaunching live hardware monitoring dashboard for this workstation...")
     app = HardwareMonitorApp()  # uses the real maintenance log, not the demo one

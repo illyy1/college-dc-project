@@ -29,6 +29,13 @@ def test_a_real_http_request_fails_as_if_offline():
         requests.get("https://api.github.com", timeout=1)
 
 
+def test_no_proxy_can_pass_a_request_on():
+    # a proxy on localhost is allowed through the loopback exception, so without this
+    # a request would leave through it (this happened in a container behind one)
+    assert not [name for name in os.environ if name.lower().endswith("_proxy")]
+    assert requests.utils.get_environ_proxies("https://api.github.com") == {}
+
+
 def test_the_github_client_cannot_reach_github_unmocked():
     # create_issue reports network problems as a result, naming only the exception,
     # so the lookup is watched to show it was the block that stopped it

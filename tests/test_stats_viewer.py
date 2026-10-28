@@ -697,7 +697,7 @@ def program(monkeypatch, popen):
 
 
 def test_the_program_opens_the_viewer_next_to_the_dashboard(program):
-    calls = program()
+    calls = program("--dashboard")
 
     calls.popen.assert_called_once_with([sys.executable, stats_viewer.MAIN_SCRIPT, "--stats"])
     assert calls.viewer_open_when_dashboard_started is True  # opened first, so it's there while monitoring
@@ -705,7 +705,7 @@ def test_the_program_opens_the_viewer_next_to_the_dashboard(program):
 
 
 def test_closing_the_dashboard_closes_the_viewer(program):
-    calls = program()
+    calls = program("--dashboard")
     viewer = calls.popen.return_value
     viewer.terminate.assert_called_once_with()
     calls.reports.assert_called_once_with()  # the history report is still published
@@ -713,14 +713,14 @@ def test_closing_the_dashboard_closes_the_viewer(program):
 
 def test_the_viewer_is_closed_even_if_the_dashboard_crashes(program, popen):
     with pytest.raises(RuntimeError, match="dashboard crashed"):
-        program(dashboard_error=RuntimeError("dashboard crashed"))
+        program("--dashboard", dashboard_error=RuntimeError("dashboard crashed"))
     # program() raised, so look at the mock directly
     popen.return_value.terminate.assert_called_once_with()
 
 
 def test_the_dashboard_still_runs_if_the_viewer_cannot_start(program, popen, capsys):
     popen.side_effect = OSError("no such file")
-    calls = program()
+    calls = program("--dashboard")
     calls.app.start.assert_called_once_with()
     assert "Could not open the statistics window" in capsys.readouterr().out
 
@@ -731,13 +731,24 @@ def test_no_stats_opens_only_the_dashboard(program):
     calls.app.start.assert_called_once_with()
 
 
-@pytest.mark.parametrize("flag", ["--no-dashboard", "--report"])
-def test_modes_without_the_dashboard_open_no_viewer(program, flag):
-    calls = program(flag)
+@pytest.mark.parametrize("flags", [(), ("--no-dashboard",), ("--report",)],
+                         ids=["no-flags", "no-dashboard", "report"])
+def test_modes_without_the_dashboard_open_no_viewer(program, flags):
+    calls = program(*flags)
     calls.popen.assert_not_called()
 
 
-@pytest.mark.parametrize("flag", ["--stats", "--no-stats"])
+@pytest.mark.parametrize("flags", [(), ("--no-dashboard",)], ids=["no-flags", "no-dashboard"])
+def test_the_default_run_is_the_offline_demo_and_report(program, flags):
+    # the brief: the default run demonstrates the process without network or keys,
+    # so plain `python main.py` never opens the dashboard, which uses the real services
+    calls = program(*flags)
+    calls.demo.assert_called_once_with()
+    calls.reports.assert_called_once_with()
+    calls.app.start.assert_not_called()
+
+
+@pytest.mark.parametrize("flag", ["--stats", "--no-stats", "--dashboard"])
 def test_the_flag_is_listed_in_the_help(capsys, monkeypatch, flag):
     monkeypatch.setattr(sys, "argv", ["main.py", "--help"])
     with pytest.raises(SystemExit):

@@ -402,6 +402,18 @@ class MaintenanceRequest:
         return request
 
     @property
+    def priority(self) -> int:
+        return self._priority
+
+    @priority.setter
+    def priority(self, value: int):
+        # bool is an int in Python, but True is not a priority
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 5:
+            raise ValueError(f"MaintenanceRequest priority must be a whole number from 1 (most urgent) "
+                             f"to 5, got {value!r}.")
+        self._priority = value
+
+    @property
     def status(self) -> str:
         return self._status
 
@@ -410,9 +422,17 @@ class MaintenanceRequest:
         new_status = str(new_status).upper()
         if new_status not in self.VALID_STATUSES:
             raise ValueError(f"סטטוס לא חוקי: {new_status}. סטטוסים מותרים: {self.VALID_STATUSES}")
+        self._check_not_resolved(new_status)
         self._status = new_status
 
+    def _check_not_resolved(self, new_status):
+        """A resolved call is closed for good: a fault that comes back opens a new call."""
+        if getattr(self, "_status", None) == "RESOLVED" and new_status != "RESOLVED":
+            raise ValueError(f"Maintenance call {self.request_id} is already resolved; "
+                             f"it can't go back to {new_status}.")
+
     def assign_to(self, tech_id: str):
+        self._check_not_resolved("IN_PROGRESS")  # before anything changes
         self.assigned_tech_id = tech_id
         self.status = "IN_PROGRESS"
 
