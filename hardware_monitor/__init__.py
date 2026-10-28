@@ -41,14 +41,13 @@ from .maintenance import (
     RoundRobinStrategy,
 )
 from .stats import compute_stats, load_stats
-from .concurrency import (
+from .async_processing import (
     fetch_statuses_sequential,
     fetch_statuses_concurrent,
     gather_overview_sequential,
     gather_overview_concurrent,
-    LockedAlertLog,
-    record_alerts_from_threads,
 )
+from .threaded_processing import FaultCalls, report_from_threads
 
 if TYPE_CHECKING:  # for editors and type checkers only; at runtime __getattr__ below imports it on first use
     from .dashboard import HardwareMonitorApp
@@ -86,8 +85,8 @@ __all__ = [
     "fetch_statuses_concurrent",
     "gather_overview_sequential",
     "gather_overview_concurrent",
-    "LockedAlertLog",
-    "record_alerts_from_threads",
+    "FaultCalls",
+    "report_from_threads",
     "HardwareMonitorApp",
 ]
 

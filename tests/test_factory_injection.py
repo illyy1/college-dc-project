@@ -2,8 +2,8 @@
 
 repository.load_workstations_from_jsonl(path, component_factory=...) builds
 each line's component with the factory it is given instead of calling a
-fixed one. The default is factory.create_component, so every existing
-caller (demo.py, concurrency.py) works unchanged. Whatever the injected
+fixed one. The default is factories.create_component, so every existing
+caller (demo.py, async_processing.py) works unchanged. Whatever the injected
 factory raises as ValueError is still reported as a DataFileError naming
 the file and line, and the loader no longer calls
 HardwareComponent.from_dict itself.
@@ -18,7 +18,7 @@ import os
 import pytest
 
 from conftest import PROJECT_ROOT
-from hardware_monitor import factory
+from hardware_monitor import factories
 from hardware_monitor.models import Camera, Microphone
 from hardware_monitor.repository import DataFileError, load_workstations_from_jsonl
 
@@ -35,7 +35,7 @@ class RecordingFactory:
         self.records, self.built = [], []
 
     def __call__(self, record):
-        component = factory.create_component(record)
+        component = factories.create_component(record)
         self.records.append(record)
         self.built.append(component)
         return component
@@ -47,7 +47,7 @@ LEGACY_NAMES = {"webcam": "camera", "mic": "microphone"}
 def legacy_factory(record):
     """A factory for an older export that says "webcam" and "mic"."""
     kind = record["component_type"].strip().lower()
-    return factory.create_component({**record, "component_type": LEGACY_NAMES.get(kind, kind)})
+    return factories.create_component({**record, "component_type": LEGACY_NAMES.get(kind, kind)})
 
 
 def test_the_injected_factory_builds_every_component(write_jsonl):
@@ -77,7 +77,7 @@ def test_an_injected_factory_s_error_names_the_file_and_line(write_jsonl):
     def refuses_the_second(record):
         if record["component_id"] == "CAM-2":
             raise ValueError("CAM-2 is on the recall list")
-        return factory.create_component(record)
+        return factories.create_component(record)
 
     with pytest.raises(DataFileError, match=r"data\.jsonl line 2: CAM-2 is on the recall list"):
         load_workstations_from_jsonl(path, component_factory=refuses_the_second)
@@ -85,7 +85,7 @@ def test_an_injected_factory_s_error_names_the_file_and_line(write_jsonl):
 
 def test_the_default_is_the_project_s_factory():
     parameter = inspect.signature(load_workstations_from_jsonl).parameters["component_factory"]
-    assert parameter.default is factory.create_component
+    assert parameter.default is factories.create_component
 
 
 def test_the_default_still_loads_the_sample_data():

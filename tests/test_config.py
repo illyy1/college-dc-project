@@ -41,7 +41,7 @@ def test_a_token_of_only_whitespace_gives_no_token(env_vars):
     assert not get_github_token()
 
 
-@pytest.mark.parametrize("present",["token_only", "key_only", "neither"])
+@pytest.mark.parametrize("present", ["token_only", "key_only", "neither"])
 def test_a_missing_value_gives_no_token(env_vars, logged, present):
     token, key = encrypt_token("ghp_example_token")
     env_vars(token=token if present == "token_only" else None, key=key if present == "key_only" else None)

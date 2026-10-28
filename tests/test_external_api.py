@@ -20,6 +20,7 @@ from hardware_monitor.api_client import (
     create_issue,
 )
 
+
 def send(token: str | None = "secret-token", **kwargs):
     return create_issue(token, "owner/repo", "Camera down", "details", labels=["hardware-alert", "camera"], **kwargs)
 

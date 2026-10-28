@@ -7,13 +7,15 @@ interactive input."""
 
 import asyncio
 import io
+import os
+import tempfile
 import time
 from contextlib import redirect_stdout
 from itertools import islice
 
 from . import services as service_layer
 from .api_client import ErrorCategory, IssueResult, IssueSearchResult, Triage, TriageResult
-from .concurrency import SOURCE_LATENCY_SECONDS, gather_overview_sequential, gather_overview_concurrent
+from .async_processing import SOURCE_LATENCY_SECONDS, gather_overview_sequential, gather_overview_concurrent
 from .config import SAMPLE_DATA_PATH, TECHNICIANS_PATH, DEMO_LOG_PATH, DEMO_MAINTENANCE_LOG_PATH
 from .context_managers import DiagnosticConnection
 from .iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
@@ -26,6 +28,7 @@ from .reports import (
     generate_technician_workload_report,
 )
 from .repository import delete_log, load_workstations_from_jsonl, load_technicians_from_jsonl, load_maintenance_history
+from .threaded_processing import FaultCalls, report_from_threads
 
 
 def run_demo():
@@ -60,8 +63,9 @@ def run_demo():
     _header(10, "Maintenance calls opened and assigned to technicians")
     demo_maintenance_workflow(alert_manager)
 
-    _header(11, "Async information gathering: three independent sources with create_task + gather")
+    _header(11, "Concurrency: three sources gathered at once (asyncio), then one fault reported by 8 threads (Lock)")
     demo_async_overview()
+    demo_threads()
 
     _header(12, "Joint process: a fault reaches the maintenance subsystem through GitHub and Gemini")
     demo_joint_process()
@@ -311,6 +315,26 @@ def demo_async_overview():
     print(f"  Fleet: {fleet['workstations']} workstation(s), components by status {fleet['components_by_status']}")
     print(f"  Technicians: {', '.join(overview['technicians'])}")
     print(f"  Maintenance: {maintenance['total_calls']} call(s), still open: {maintenance['open_calls'] or 'none'}")
+
+
+def demo_threads(threads=8):
+    """threaded_processing: `threads` threads report the same fault at once,
+    on a desk with its own temporary log. The Lock makes "has this fault a
+    call?" and "open one" a single step, so exactly one call is opened."""
+    technicians = load_technicians_from_jsonl(TECHNICIANS_PATH)
+    with tempfile.TemporaryDirectory() as folder:
+        desk = MaintenanceDesk(technicians, log_path=os.path.join(folder, "calls.jsonl"), report_csv_path=None)
+
+        def open_call():
+            alert = Alert("MIC-DEMO-T", "WS-DEMO", "MICROPHONE_DISCONNECTED", "Stopped answering.", priority=3)
+            with redirect_stdout(io.StringIO()):  # the desk's own confirmation line
+                return desk.open_request_for_alert(alert)
+
+        results = report_from_threads(FaultCalls(), "mic_conn", open_call, threads)
+    opened = sum(is_new for _, is_new in results)
+    shared = len({call.request_id for call, _ in results}) == 1
+    print(f"  {threads} threads reported the same fault at once: {opened} opened a call, "
+          f"{len(desk.requests)} call(s) on the desk, all threads got the same call: {shared}")
 
 
 # where simulated issues "live": a reserved domain, so a simulated link can't be mistaken for a real issue

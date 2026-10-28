@@ -1,3 +1,29 @@
+* c57f41d Update git-log.txt to the latest history
+| *   e268e63 Merge pull request #53 from illyy1/claude/project-thread-7llheo
+| |\  
+| | * 0bbfc0a Refresh git-log.txt (git log --oneline --graph --all, Part 1 deliverable)
+| | * 5d2e989 stats_viewer docstring: the dashboard opens it with --dashboard
+| | * 2120a74 Tidy: pattern modules named as in the brief, dead alias removed, style warnings fixed
+| | * f79d769 Split concurrency into async_processing and threaded_processing, as the brief names them
+| | * c21ebf4 GREEN: a log time with a UTC offset is read as local time
+| | * 2c589ed RED: a log time with a UTC offset doesn't crash the desk
+| |/  
+| *   dd778e1 Merge pull request #51 from illyy1/claude/project-thread-f2ukt4
+| |\  
+| | * 9792ee8 AI_USAGE: list the three expected results in order
+| | * f9e04d9 AI_USAGE: the fault was synthetic; only the services were real
+| | * 7c04602 AI_USAGE: the joint-process demo's 3 -> 2 priority as a third expected result we set
+| |/  
+|/|   
+| * 7d10ad3 Merge pull request #52 from illyy1/claude/project-thread-87h345
+|/| 
+| * 1874058 Docs: each topic once in the README, the test coverage in tests/README.md
+| * d5c3de5 GREEN: a maintenance call never holds an impossible priority or reopens
+| * 7474699 RED: a maintenance call never holds an impossible priority or reopens
+| * 651e35c Tests: clear the proxy settings so a localhost proxy can't reach the internet
+| * 49289b4 GREEN: the default run is the offline demo; the dashboard needs --dashboard
+| * adc9341 RED: the default run is the offline demo; the dashboard needs --dashboard
+|/  
 *   763812f Merge branch 'feature/joint-process-demo': the demo shows the joint process through the external services (TDD)
 |\  
 | * eea680f Document the joint-process demo: README שלב 2 and AI_USAGE

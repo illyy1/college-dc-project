@@ -9,7 +9,7 @@ class LikeliestPick:
         self.draws = []  # one {tech_id: weight} per draw, in order
 
     def choices(self, population, weights, k=1):
-        self.draws.append({t.tech_id: w for t, w in zip(population, weights)})
+        self.draws.append({t.tech_id: w for t, w in zip(population, weights, strict=True)})
         return [population[weights.index(max(weights))]]
 
     @property

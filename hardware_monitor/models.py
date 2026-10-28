@@ -22,15 +22,18 @@ def _require_fields(record, fields, kind):
 
 
 def _parse_time(record, field, kind):
-    """`field` as a datetime, or None if it is missing or empty. Raises
-    ValueError if it is there but not an ISO date and time."""
+    """`field` as a local datetime, or None if it is missing or empty. Raises
+    ValueError if it is there but not an ISO date and time. A time with a UTC
+    offset is converted to local time: the system's times are all local, and
+    Python can't compare the two kinds."""
     value = record.get(field)
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value)
+        when = datetime.fromisoformat(value)
     except ValueError:
         raise ValueError(f"{kind} field '{field}' must be an ISO date and time, got {value!r}.") from None
+    return when.astimezone().replace(tzinfo=None) if when.tzinfo else when
 
 
 def _check_number(record, field, kind, integer=False):
@@ -64,12 +67,12 @@ class HardwareComponent(ABC):
     def from_dict(cls, record):
         """Validates a parsed JSONL record and builds this class from it.
         Called on HardwareComponent itself, it hands the record to the
-        Factory (factory.create_component), which picks Camera/Microphone
+        Factory (factories.create_component), which picks Camera/Microphone
         from record["component_type"]. Raises ValueError on a missing field,
         unknown type or bad value."""
         if cls is HardwareComponent:
-            from . import factory  # imported here: factory imports this module
-            return factory.create_component(record)
+            from . import factories  # imported here: factories imports this module
+            return factories.create_component(record)
         _require_fields(record, cls.REQUIRED_FIELDS, "Component")
 
         component_type = str(record["component_type"])
@@ -307,6 +310,7 @@ class Workstation:
 
 # ( חבר 4: רחל )
 
+
 class Technician:
     """A technician. There are no specialists: every technician can take any
     call (see maintenance.py for who gets which)."""
@@ -402,6 +406,18 @@ class MaintenanceRequest:
         return request
 
     @property
+    def priority(self) -> int:
+        return self._priority
+
+    @priority.setter
+    def priority(self, value: int):
+        # bool is an int in Python, but True is not a priority
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 5:
+            raise ValueError(f"MaintenanceRequest priority must be a whole number from 1 (most urgent) "
+                             f"to 5, got {value!r}.")
+        self._priority = value
+
+    @property
     def status(self) -> str:
         return self._status
 
@@ -410,9 +426,17 @@ class MaintenanceRequest:
         new_status = str(new_status).upper()
         if new_status not in self.VALID_STATUSES:
             raise ValueError(f"סטטוס לא חוקי: {new_status}. סטטוסים מותרים: {self.VALID_STATUSES}")
+        self._check_not_resolved(new_status)
         self._status = new_status
 
+    def _check_not_resolved(self, new_status):
+        """A resolved call is closed for good: a fault that comes back opens a new call."""
+        if getattr(self, "_status", None) == "RESOLVED" and new_status != "RESOLVED":
+            raise ValueError(f"Maintenance call {self.request_id} is already resolved; "
+                             f"it can't go back to {new_status}.")
+
     def assign_to(self, tech_id: str):
+        self._check_not_resolved("IN_PROGRESS")  # before anything changes
         self.assigned_tech_id = tech_id
         self.status = "IN_PROGRESS"
 

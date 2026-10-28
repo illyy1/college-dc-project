@@ -12,7 +12,7 @@ import pytest
 
 from conftest import TEST_FLEET_PATH
 
-from hardware_monitor import concurrency, demo
+from hardware_monitor import async_processing, demo
 from hardware_monitor.context_managers import DiagnosticConnection
 from hardware_monitor.iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
 from hardware_monitor.models import Camera, HardwareComponent, MaintenanceRequest, Microphone, Technician, Workstation
@@ -98,7 +98,7 @@ def aging_fleet():
     ], start=1):
         workstation = Workstation(f"WS-{number}", f"Desk {number}")
         workstation.add_component(Camera(f"CAM-{number}", "Cam", f"WS-{number}",
-                                          connection_status=status, installed_on=years_ago(age)))
+                                         connection_status=status, installed_on=years_ago(age)))
         fleet.append(workstation)
     return fleet
 
@@ -300,15 +300,16 @@ def test_full_demo_runs_from_start_to_finish(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("hardware_monitor.demo.SAMPLE_DATA_PATH", TEST_FLEET_PATH)  # the exact faults asserted below
     monkeypatch.setattr("hardware_monitor.demo.DEMO_LOG_PATH", str(tmp_path / "demo_history.jsonl"))
     monkeypatch.setattr("hardware_monitor.demo.DEMO_MAINTENANCE_LOG_PATH", str(tmp_path / "demo_maintenance.jsonl"))
-    monkeypatch.setattr(concurrency, "SOURCE_LATENCY_SECONDS", 0)
+    monkeypatch.setattr(async_processing, "SOURCE_LATENCY_SECONDS", 0)
 
     demo.run_demo()
     output = capsys.readouterr().out
 
-    for step in range(1, 12):
+    for step in range(1, 13):
         assert f"STEP {step} " in output
     assert "Logged 5 alert(s) from failed diagnostics." in output
     assert "Same overview either way: True" in output
+    assert "8 threads reported the same fault at once: 1 opened a call, 1 call(s) on the desk" in output
     assert "Maintenance: 4 call(s)" in output
     assert "unknown workstation" not in output  # technicians no longer list workstations
     assert "with an unknown technician" in output  # the log <-> technicians check remains

@@ -4,7 +4,7 @@ logs/maintenance_requests.jsonl so the history of who handled what survives
 past this process. The CSV report is refreshed on every change, so it is
 current even if the program is killed rather than closed.
 
-Which technician gets a call is a Strategy, in assignment.py: the desk
+Which technician gets a call is a Strategy, in strategies.py: the desk
 hands every technician to an AssignmentStrategy object, so the rule can be
 swapped without touching the desk. The strategies are imported here too, so
 `from hardware_monitor.maintenance import FewestCallsStrategy` still works."""
@@ -14,7 +14,7 @@ import threading
 from collections import Counter
 from datetime import datetime
 
-from .assignment import AssignmentStrategy, FewestCallsStrategy, LeastBusyStrategy, RoundRobinStrategy
+from .strategies import AssignmentStrategy, FewestCallsStrategy, LeastBusyStrategy, RoundRobinStrategy
 from .config import MAINTENANCE_LOG_PATH, MAINTENANCE_REPORT_CSV_PATH
 from .models import MaintenanceRequest
 from .reports import validate_and_assign_request, export_maintenance_history_csv
@@ -69,7 +69,7 @@ class MaintenanceDesk:
             else:
                 # cross-file check: the log names a technician missing from technicians.jsonl
                 logger.warning(f"Open call {request.request_id} is assigned to unknown technician "
-                      f"'{request.assigned_tech_id}' (not in the technician data file).")
+                               f"'{request.assigned_tech_id}' (not in the technician data file).")
             self.requests[request.request_id] = request
 
     def open_requests(self):
@@ -152,7 +152,7 @@ class MaintenanceDesk:
             # the call is still open in this run and its technician keeps it; every
             # line holds the call's whole state, so its next change saves it in full
             logger.warning(f"Could not save call {request.request_id} to {self.log_path} ({error}). "
-                  f"It is kept in this run, and saved in full on its next change.")
+                           f"It is kept in this run, and saved in full on its next change.")
             return
 
         self._refresh_csv_report()
@@ -167,4 +167,4 @@ class MaintenanceDesk:
             # and the CSV catches up on the next change or `main.py --report`
             reason = "is it open in Excel?" if isinstance(error, PermissionError) else error
             logger.warning(f"Could not update {self.report_csv_path} ({reason}). "
-                  f"The call was still saved to {self.log_path}.")
+                           f"The call was still saved to {self.log_path}.")

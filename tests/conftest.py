@@ -275,10 +275,15 @@ class NetworkAccessBlocked(socket.gaierror):
 
 
 @pytest.fixture(autouse=True)
-def no_internet():
+def no_internet(monkeypatch):
     """Any attempt to reach a non-local address fails at once, so a test can
     never depend on the internet. Loopback stays allowed: asyncio on Windows
-    connects a local socket pair internally."""
+    connects a local socket pair internally. The proxy settings are cleared
+    too: a proxy on localhost (common on university and company networks)
+    would otherwise pass a request on to the internet through loopback."""
+    for name in list(os.environ):
+        if name.lower().endswith("_proxy"):  # what urllib (and so requests) reads as a proxy
+            monkeypatch.delenv(name)
 
     def getaddrinfo(host, *args, **kwargs):
         if host not in LOCAL_HOSTS:

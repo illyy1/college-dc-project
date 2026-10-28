@@ -1,7 +1,7 @@
 """Live statistics window. `python main.py --stats` opens it alone;
-`python main.py` opens it as a separate process next to the dashboard. It
-re-reads the maintenance log every few seconds, so it follows the calls the
-dashboard opens and resolves. It shows a summary, two pie charts (each
+`python main.py --dashboard` opens it as a separate process next to the
+dashboard. It re-reads the maintenance log every few seconds, so it follows
+the calls the dashboard opens and resolves. It shows a summary, two pie charts (each
 technician's share of the calls and each alert type's share), the
 per-technician spread, and the recent calls with who took each one."""
 

@@ -1,5 +1,5 @@
-"""Design patterns: the Factory (factory.py, reached through
-HardwareComponent.from_dict) and the Strategy (assignment.py: how the
+"""Design patterns: the Factory (factories.py, reached through
+HardwareComponent.from_dict) and the Strategy (strategies.py: how the
 maintenance desk picks a technician). Each pattern is tested on its own
 implementations and on the alternatives it allows; where each lives is
 checked in test_pattern_modules.py."""
@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from hardware_monitor.assignment import (
+from hardware_monitor.strategies import (
     AssignmentStrategy,
     FewestCallsStrategy,
     LeastBusyStrategy,
