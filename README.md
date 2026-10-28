@@ -287,3 +287,66 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 *   **Link to the main system:** each call stores the `alert_id`, `workstation_id` and `component_id` of the alert that opened it.
 *   **Data checks:** `find_unknown_technician_references` flags calls in the maintenance log assigned to a technician who does not exist in `technicians.jsonl`. The demo runs it on the real log and on a deliberately broken record.
 *   **Reports (`reports.py`):** a workload report of open calls per technician, and a history report of every call with the technician who handled it, also exported to `logs/maintenance_report.csv` (opens in Excel).
+
+## שלב 2
+
+### What was added in Stage 2
+*   **The extension:** every new fault is checked against GitHub (is this computer's issue for it still open?) and triaged by Gemini before a technician is sent. The triage changes the maintenance call itself: the call takes the more urgent of the hardware rule's priority and Gemini's, and keeps Gemini's likely cause and repair estimate.
+*   **Business value:** no duplicate issues for a fault already being handled, and urgent faults reach the front of the technicians' queue even when the hardware rule underrates them.
+*   **The subsystem (team of four):** the external data flows from the monitor into the maintenance subsystem (`MaintenanceDesk`), and from there into the history report.
+*   **New report metric:** the estimated open backlog in minutes, the estimated minutes per technician, and the most common causes (`services.triage_summary()`, printed by `python main.py --report`). It shows management how much repair work is still waiting and who carries it.
+
+### How to run it
+*   **Python 3.10+.** Install with `pip install -r requirements.txt` (or `pip install -e .`), see [Installation](#installation).
+*   **Environment variables** (all optional, in `.env`; copy `.env.example`): `GITHUB_TOKEN` + `ENCRYPTION_KEY` for GitHub, `GEMINI_API_KEY` for the triage. No secrets are in the repository.
+*   **Without network or keys:** `python main.py --no-dashboard` runs the demonstration and the report offline.
+*   **Against the real services:** fill in `.env`, then `python main.py`. The live dashboard posts each new fault to GitHub (GET for open issues, then POST) and asks Gemini for a triage.
+*   **Tests:** `pip install pytest`, then `pytest` from the project root. They run offline, with no key and no real retry waits.
+
+### How the code is organised
+The full module list is in [Project layout](#project-layout). The Stage 2 parts:
+*   `hardware_monitor/api_client.py` — the network only: the GitHub GET/POST and the Gemini request, response checks, error categories, retry.
+*   `hardware_monitor/services.py` — the business decisions made with that data (`report_fault`, `apply_triage`, `triage_summary`).
+*   `hardware_monitor/assignment.py` (Strategy) and `hardware_monitor/factory.py` (Factory) — the two design patterns.
+*   `hardware_monitor/concurrency.py` — the async collection (`asyncio`) and a lock-protected shared log (threads).
+*   `hardware_monitor/config.py`, `hardware_monitor/logging_module.py`, `hardware_monitor/retry.py` — keys from `.env`, safe logging, the shared retry loop.
+*   **The subsystem:** `hardware_monitor/maintenance.py` (`MaintenanceDesk`), `models.py` (`Technician`, `MaintenanceRequest`), `reports.py`.
+*   **The four extra team-of-four tests** (all in `tests/test_business_application.py`):
+    1. joint process succeeds: `test_the_dashboard_applies_the_triage_to_the_call`;
+    2. external service fails: `test_when_gemini_fails_the_call_and_the_labels_are_unchanged`;
+    3. broken link between the systems: `test_triaging_an_unknown_call_raises`;
+    4. the new report metric: `test_the_triage_summary`.
+*   **Division of work:**
+    *   **Elinor** — the external API, architecture and design patterns: `api_client.py`, `services.py`, `retry.py`, `config.py` + `.env.example`, `logging_module.py`, `assignment.py` (Strategy), `factory.py` (Factory) and dependency injection.
+    *   **Illy** — automated testing and TDD: the `tests/` suite (fixtures, `parametrize`, `pytest.raises`, mocks, offline isolation) and the RED/GREEN/REFACTOR cycles.
+    *   **Rachel** — concurrency and synchronization: `concurrency.py` (async collection, sequential vs. concurrent) and the thread locks with their tests in `tests/test_concurrency.py`.
+    *   **Dania** — subsystem integration: the Gemini triage driving maintenance calls, the extended report in `reports.py`, the four extra tests above and the end-to-end demo in `main.py`.
+
+### Key design decisions
+*   **External services:** the [GitHub REST API, Issues](https://docs.github.com/en/rest/issues/issues) (a GET lists the open issues with the alert's labels, a POST opens one) and the [Gemini API](https://ai.google.dev/gemini-api/docs) (the triage, as checked JSON). Every reply goes through `raise_for_status()`, JSON parsing and a check of every field it relies on. A timeout or connection error is retried (GitHub up to 3 attempts in total, waiting 1 s and then 2 s); bad data and auth errors are never retried.
+*   **On failure:** if the open-issue lookup fails, the issue is posted anyway (a duplicate is better than a lost alert). If Gemini fails or answers badly, the call keeps its own priority and nothing about it changes, so a bad answer can never lower urgency. The reason is logged.
+*   **Two patterns:** **Strategy** chooses which technician gets a call (`FewestCallsStrategy`, `LeastBusyStrategy`, `RoundRobinStrategy`); it serves the maintenance subsystem directly and lets the rule change without touching the desk. **Factory** builds the right `HardwareComponent` subclass from a data record, so loaders need no `if/elif` on the type. Details in [Design patterns](#design-patterns).
+*   **Dependencies from outside:** `MaintenanceDesk` gets its strategy, `report_fault()` gets its GitHub and Gemini functions, and the dashboard gets its sources, clock and reporter, all through parameters. Each part has one job, a new implementation plugs in without edits, and the tests pass fakes instead of the network.
+*   **Independent tasks (simulated):** the fleet status, the technician roster and the maintenance summary are collected with `asyncio.create_task` + `gather` (with `asyncio.sleep` as the simulated latency) and compared with a sequential version. Results are identical and in input order (demo step 11).
+*   **Shared resource and the Lock:** a fault's open maintenance call. The mic and camera threads can both see the same fault at the same time. Without a lock, both read "no open call for this fault", then both open one: two calls and two technicians for one fault. `dashboard._calls_lock` makes the check and the open one step, so 8 threads reporting one fault open exactly one call (`test_a_fault_reported_by_many_threads_opens_one_call`). The same lock in `MaintenanceDesk` stops two calls from getting the same `MR-` number. No network call is made while a lock is held.
+
+### Proof that it works
+*   **Tests:** 862 tests pass (`pytest`), run on every push by GitHub Actions. Coverage per area is in [Testing](#testing-regression-suite).
+*   **Real run against the services** (2026-10-28, live dashboard with `.env`; the computer's name is left out here): a simulated microphone disconnect opened maintenance call `MR-0047`, Gemini returned a valid triage, and the GitHub issue was posted with it:
+    ```
+    Component: mic_conn · Maintenance Call: MR-0047
+    Triage (AI-generated by Gemini; check before acting)
+    - Priority: 2 (1 = most urgent)
+    - Likely cause: cable
+    - Estimated repair: about 10 min
+    1. Check physical connection of the microphone cable to the computer port
+    2. Inspect cable for visible damage or frays
+    3. Try connecting the microphone to a different USB or audio port
+    4. Open sound settings to verify if the input device is detected
+    5. Restart the classroom computer to reset audio driver initialization
+    ```
+    The hardware rule gives a lost microphone priority 3; Gemini said 2, so the call was raised to 2 (the more urgent of the two) and the issue labelled `priority-2`. The cause and the 10-minute estimate went into the call and the history report.
+*   **TDD (Red → Green → Refactor):** every Stage 2 feature was built test-first on its own branch. For example:
+    *   Duplicate check (GET + retry): [`fc3b566`](../../commit/fc3b566) RED → [`928f7b7`](../../commit/928f7b7) GREEN → [`ca7a640`](../../commit/ca7a640) REFACTOR.
+    *   Gemini triage driving the call: [`0b5ea66`](../../commit/0b5ea66) → [`86e044d`](../../commit/86e044d) → [`5c0627c`](../../commit/5c0627c).
+    *   Error categories: [`5c86a78`](../../commit/5c86a78) → [`199452c`](../../commit/199452c) → [`50939bc`](../../commit/50939bc).
