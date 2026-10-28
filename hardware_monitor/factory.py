@@ -5,7 +5,10 @@ record names its kind in "component_type". create_component() picks the
 matching subclass (Camera, Microphone, ...) and has it build itself with its
 own from_dict(), so no loader needs an if/elif chain over the kinds, and a
 new subclass of HardwareComponent is picked up without changing anything
-here. HardwareComponent.from_dict() hands records to this module."""
+here. The workstation loader receives create_component as its
+component_factory (dependency injection), so another factory can be passed
+in for data described differently; HardwareComponent.from_dict() hands
+records to this module too."""
 
 from .models import HardwareComponent, _require_fields
 
