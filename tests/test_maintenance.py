@@ -285,6 +285,20 @@ def test_the_number_of_a_skipped_call_is_never_reused(make_desk, team, saved_bad
     assert make_desk(team).open_request_for_alert(alerts.camera()).request_id == "MR-0003"
 
 
+def test_the_desk_starts_on_a_log_with_a_time_that_has_a_utc_offset(make_desk, team, make_call, write_jsonl):
+    # a log edited by hand, or copied from another machine, can give a time with its UTC offset;
+    # the desk sorts open calls by time, and Python can't compare such a time with a plain one
+    write_jsonl("logs/maintenance_requests.jsonl",
+                make_call(1, "CAMERA_FAILURE", "A", "IN_PROGRESS"),
+                {**make_call(2, "CAMERA_FAILURE", "B", "IN_PROGRESS"), "opened_at": "2026-10-20T10:00:00+00:00"})
+
+    desk = make_desk(team)  # must not crash
+
+    calls = desk.find_open_requests("WS-104", "CAM-104", "CAMERA_FAILURE")
+    assert sorted(r.request_id for r in calls) == ["MR-0001", "MR-0002"]
+    assert all(r.opened_at.tzinfo is None for r in calls)  # local time, like every other time in the log
+
+
 def test_a_single_technician_takes_everything(make_desk, alerts):
     desk = make_desk({"T9": Technician("T9", "Solo")})
     assert take_calls(desk, alerts, 3, make=alerts.microphone) == ["T9", "T9", "T9"]
