@@ -62,22 +62,18 @@ class HardwareComponent(ABC):
 
     @classmethod
     def from_dict(cls, record):
-        """Factory: validates a parsed JSONL record and builds the matching
-        subclass. Called on HardwareComponent it picks Camera/Microphone from
-        record["component_type"]; called on a subclass it builds that class.
-        Raises ValueError on a missing field, unknown type or bad value."""
+        """Validates a parsed JSONL record and builds this class from it.
+        Called on HardwareComponent itself, it hands the record to the
+        Factory (factory.create_component), which picks Camera/Microphone
+        from record["component_type"]. Raises ValueError on a missing field,
+        unknown type or bad value."""
+        if cls is HardwareComponent:
+            from . import factory  # imported here: factory imports this module
+            return factory.create_component(record)
         _require_fields(record, cls.REQUIRED_FIELDS, "Component")
 
         component_type = str(record["component_type"])
         component_type = component_type.strip().lower()
-        if cls is HardwareComponent:
-            subclasses = {sub.__name__.lower(): sub for sub in cls.__subclasses__()}
-            if component_type not in subclasses:
-                raise ValueError(
-                    f"Unknown component_type '{record['component_type']}'. "
-                    f"Must be one of {sorted(subclasses)}."
-                )
-            return subclasses[component_type].from_dict(record)
         if component_type != cls.__name__.lower():
             raise ValueError(f"{cls.__name__}.from_dict() got a '{record['component_type']}' record.")
 
@@ -87,7 +83,7 @@ class HardwareComponent(ABC):
                              f"string like '2021-05-30', got {installed_on!r}.")
         cls._validate_record(record)
         try:
-            # cls is always a subclass here (the base class returned above), whose __init__
+            # cls is always a subclass here (the base class went to the factory above), whose __init__
             # takes its RECORD_FIELDS; PyCharm checks the call against HardwareComponent.__init__
             # noinspection PyArgumentList
             return cls(
