@@ -9,13 +9,11 @@ from itertools import islice
 
 import pytest
 
-from hardware_monitor import concurrency
-from hardware_monitor.concurrency import (
-    LockedAlertLog,
+from hardware_monitor import async_processing
+from hardware_monitor.async_processing import (
     fetch_statuses_concurrent,
     gather_overview_concurrent,
     gather_overview_sequential,
-    record_alerts_from_threads,
 )
 from hardware_monitor.context_managers import DiagnosticConnection
 from hardware_monitor.iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
@@ -28,6 +26,7 @@ from hardware_monitor.repository import (
     load_workstations_from_jsonl,
     request_number,
 )
+from hardware_monitor.threaded_processing import FaultCalls, report_from_threads
 
 from conftest import TEST_FLEET_PATH, run_together
 
@@ -68,7 +67,7 @@ def test_lazy_pipeline_age_boundary_is_inclusive():
     for number, days_old in enumerate((1096, 1095), start=1):  # just over / just under 3 years
         workstation = Workstation(f"WS-{number}", "Desk")
         workstation.add_component(Camera(f"CAM-{number}", "Cam", f"WS-{number}", connection_status="DISCONNECTED",
-                                          installed_on=(today - timedelta(days=days_old)).isoformat()))
+                                         installed_on=(today - timedelta(days=days_old)).isoformat()))
         fleet.append(workstation)
     no_date = Workstation("WS-3", "Desk")
     no_date.add_component(Camera("CAM-3", "Cam", "WS-3", connection_status="DISCONNECTED"))
@@ -250,28 +249,28 @@ def test_concurrent_alert_logging_keeps_every_record(tmp_path, alerts):
     assert len(manager.alert_history) == len(manager.intake_queue) == 100
 
 
-def test_threaded_batches_stay_contiguous(alerts):
-    batches = [[alerts.make(component_id=f"C{b}") for _ in range(50)] for b in range(10)]
-    log = record_alerts_from_threads(batches)
-
-    assert len(log) == 500
-    for batch in batches:
-        start = log.index(batch[0])
-        assert log[start:start + len(batch)] == batch
-    assert record_alerts_from_threads([]) == []
+def test_a_fault_whose_call_could_not_be_opened_tries_again():
+    calls = FaultCalls()
+    assert calls.open_once("camera", lambda: None) == (None, True)  # e.g. no technicians
+    assert calls.get("camera") is None
+    assert calls.open_once("camera", lambda: "MR-0001") == ("MR-0001", True)
 
 
-def test_locked_alert_log_snapshot_is_a_copy(alerts):
-    alert_log = LockedAlertLog()
-    alert_log.append_batch([alerts.camera()])
-    snapshot = alert_log.snapshot()
-    snapshot.clear()
-    assert len(alert_log.snapshot()) == 1
+def test_a_resolved_fault_opens_a_new_call_next_time():
+    calls = FaultCalls()
+    calls.open_once("camera", lambda: "MR-0001")
+    assert calls.pop("camera") == "MR-0001"
+    assert calls.pop("camera") is None  # nothing left to resolve
+    assert calls.open_once("camera", lambda: "MR-0002") == ("MR-0002", True)
+
+
+def test_one_thread_alone_opens_the_call():
+    assert report_from_threads(FaultCalls(), "camera", lambda: "MR-0001", threads=1) == [("MR-0001", True)]
 
 
 @pytest.fixture
 def no_latency(monkeypatch):
-    monkeypatch.setattr(concurrency, "SOURCE_LATENCY_SECONDS", 0)
+    monkeypatch.setattr(async_processing, "SOURCE_LATENCY_SECONDS", 0)
 
 
 def test_async_overview_matches_sequential(no_latency, tmp_path, technicians_file):
@@ -283,5 +282,3 @@ def test_async_overview_matches_sequential(no_latency, tmp_path, technicians_fil
                                  "components_by_status": {"ACTIVE": 11, "ERROR": 2, "DISCONNECTED": 3}}
     assert overview["technicians"] == [t.name for t in load_technicians_from_jsonl(technicians_file).values()]
     assert overview["maintenance"] == {"total_calls": 0, "open_calls": []}  # missing log = no calls
-
-

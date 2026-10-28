@@ -22,15 +22,18 @@ def _require_fields(record, fields, kind):
 
 
 def _parse_time(record, field, kind):
-    """`field` as a datetime, or None if it is missing or empty. Raises
-    ValueError if it is there but not an ISO date and time."""
+    """`field` as a local datetime, or None if it is missing or empty. Raises
+    ValueError if it is there but not an ISO date and time. A time with a UTC
+    offset is converted to local time: the system's times are all local, and
+    Python can't compare the two kinds."""
     value = record.get(field)
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value)
+        when = datetime.fromisoformat(value)
     except ValueError:
         raise ValueError(f"{kind} field '{field}' must be an ISO date and time, got {value!r}.") from None
+    return when.astimezone().replace(tzinfo=None) if when.tzinfo else when
 
 
 def _check_number(record, field, kind, integer=False):
@@ -64,12 +67,12 @@ class HardwareComponent(ABC):
     def from_dict(cls, record):
         """Validates a parsed JSONL record and builds this class from it.
         Called on HardwareComponent itself, it hands the record to the
-        Factory (factory.create_component), which picks Camera/Microphone
+        Factory (factories.create_component), which picks Camera/Microphone
         from record["component_type"]. Raises ValueError on a missing field,
         unknown type or bad value."""
         if cls is HardwareComponent:
-            from . import factory  # imported here: factory imports this module
-            return factory.create_component(record)
+            from . import factories  # imported here: factories imports this module
+            return factories.create_component(record)
         _require_fields(record, cls.REQUIRED_FIELDS, "Component")
 
         component_type = str(record["component_type"])
@@ -306,6 +309,7 @@ class Workstation:
         return f"<Workstation {self.workstation_id} '{self.name}' components={len(self._components)}>"
 
 # ( חבר 4: רחל )
+
 
 class Technician:
     """A technician. There are no specialists: every technician can take any

@@ -123,7 +123,7 @@ def test_each_call_loads_in_its_latest_state(make_call, write_jsonl):
 
 @pytest.mark.parametrize("bad_field", BAD_FIELDS)
 def test_a_line_that_cant_become_a_call_is_skipped_with_a_warning(make_call, make_bad_call, write_jsonl,
-                                                                   logged, bad_field):
+                                                                  logged, bad_field):
     log = write_jsonl("maintenance.jsonl", make_call(1, "CAMERA_FAILURE", "T1", "RESOLVED"),
                       make_bad_call(2, "T2", bad_field))
 

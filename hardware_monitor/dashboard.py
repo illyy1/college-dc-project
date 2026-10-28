@@ -22,6 +22,7 @@ from .processing import Alert, AlertManager
 from .repository import load_technicians_from_jsonl
 from . import services
 from .synthetic_sources import SyntheticMicrophoneSource, SyntheticCameraSource
+from .threaded_processing import FaultCalls
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,7 @@ class HardwareMonitorApp:
         self.maintenance_desk = maintenance_desk or MaintenanceDesk(
             load_technicians_from_jsonl(TECHNICIANS_PATH)
         )
-        self.open_requests = {}  # alert_key -> MaintenanceRequest still being handled
-        self._calls_lock = threading.Lock()  # guards open_requests' check-then-open
+        self.open_requests = FaultCalls()  # alert_key -> MaintenanceRequest still being handled
         self._adopt_leftover_calls()
 
         self.root = tk.Tk()
@@ -118,52 +118,42 @@ class HardwareMonitorApp:
             leftovers = self.maintenance_desk.find_open_requests(COMPUTER_NAME, component_id, error_type)
             if not leftovers:
                 continue
-            self.open_requests[alert_key] = leftovers[0]
+            self.open_requests.adopt(alert_key, leftovers[0])
             for duplicate in leftovers[1:]:
                 self.maintenance_desk.resolve_request(duplicate.request_id)
                 logger.info(f"Closed duplicate maintenance call {duplicate.request_id} "
-                      f"(same fault as {leftovers[0].request_id}).")
+                            f"(same fault as {leftovers[0].request_id}).")
 
     def open_maintenance_call(self, alert_key, message):
         """Logs an Alert for the fault and opens a maintenance call assigned to
         a technician. Reuses the call already open for this fault, if any.
         Returns (request, is_new)."""
-        with self._calls_lock:
-            request = self.open_requests.get(alert_key)
-            if request is not None:
-                return request, False
-
+        def open_call():
             component_id, error_type, priority = ALERT_DETAILS[alert_key]
-            alert = Alert(
-                component_id=component_id,
-                workstation_id=COMPUTER_NAME,
-                error_type=error_type,
-                message=message,
-                priority=priority,
-            )
+            alert = Alert(component_id=component_id, workstation_id=COMPUTER_NAME, error_type=error_type,
+                          message=message, priority=priority)
             try:
                 self.alert_manager.log_alert(alert)
             except OSError as e:
                 # the alert is still in this run's history; the fault still gets its call
                 logger.warning(f"Could not save the {alert_key} alert to the alert log: {e}")
             try:
-                request = self.maintenance_desk.open_request_for_alert(alert)
+                return self.maintenance_desk.open_request_for_alert(alert)
             except ValueError as e:
                 logger.error(f"Could not open a maintenance call for {alert_key}: {e}")
-                return None, True
+                return None
 
-            self.open_requests[alert_key] = request
-            return request, True
+        # the check and the open are one step: see threaded_processing
+        return self.open_requests.open_once(alert_key, open_call)
 
     def resolve_maintenance_call(self, alert_key):
-        with self._calls_lock:
-            request = self.open_requests.pop(alert_key, None)
+        request = self.open_requests.pop(alert_key)
         if request is None:
             return
         self.maintenance_desk.resolve_request(request.request_id)
         technician = self.maintenance_desk.technician_for(request)
         logger.info(f"Maintenance call {request.request_id} resolved "
-              f"(handled by {technician.tech_id if technician else 'unassigned'}).")  # the id: no names in the log
+                    f"(handled by {technician.tech_id if technician else 'unassigned'}).")  # the id: no names in the log
 
     def send_github_alert(self, alert_key, title, message, request=None):
         """Sends the alert payload to GitHub Issues in a background thread."""
@@ -171,12 +161,12 @@ class HardwareMonitorApp:
         def _post():
             # what the issue says and whether Gemini triages it is decided in services
             outcome = self.report_fault(self.maintenance_desk, self.github_token, self.gemini_api_key,
-                                   alert_key, title, message, request)
+                                        alert_key, title, message, request)
             if outcome.lookup_error:
                 logger.warning(f"Could not check GitHub for an open {alert_key} issue: {outcome.lookup_error}")
             if outcome.already_open:
                 logger.info(f"GitHub issue #{outcome.issue.issue_number} for {alert_key} is still open "
-                      f"({outcome.issue.url}); not posting another.")
+                            f"({outcome.issue.url}); not posting another.")
                 return
             if outcome.triage_error:
                 logger.warning(f"No Gemini triage for {alert_key}: {outcome.triage_error}")
@@ -218,7 +208,7 @@ class HardwareMonitorApp:
             if self.clock.time() - last < GITHUB_ISSUE_COOLDOWN_SECONDS:
                 minutes_left = (GITHUB_ISSUE_COOLDOWN_SECONDS - (self.clock.time() - last)) / 60
                 logger.info(f"GitHub issue for {alert_key} skipped: one was posted recently "
-                      f"(next allowed in {minutes_left:.0f} min). The maintenance call was still opened.")
+                            f"(next allowed in {minutes_left:.0f} min). The maintenance call was still opened.")
                 return False
             self._last_issue_at[alert_key] = self.clock.time()
             return True
@@ -271,9 +261,9 @@ class HardwareMonitorApp:
             tk.Label(alert_win, text=message, font=("Arial", 12), bg="#ffcccc").pack(pady=10)
             if request is not None:
                 technician = self.maintenance_desk.technician_for(request)
+                assignee = technician.name if technician else "unassigned"
                 tk.Label(alert_win, font=("Arial", 11), bg="#ffcccc",
-                         text=f"Call {request.request_id} assigned to "
-                              f"{technician.name if technician else 'unassigned'}").pack()
+                         text=f"Call {request.request_id} assigned to {assignee}").pack()
 
             self.active_alerts[alert_key] = alert_win
 
@@ -320,7 +310,7 @@ class HardwareMonitorApp:
 
             if not mic_source.is_connected():
                 self.show_alert("mic_conn", "Microphone Disconnected",
-                                 "Synthetic microphone reports disconnected (simulated).")
+                                "Synthetic microphone reports disconnected (simulated).")
                 self.hide_alert("mic_silence")
                 self.is_silent = False
                 self.clock.sleep(1)
@@ -336,7 +326,7 @@ class HardwareMonitorApp:
                 elif self.clock.time() - self.silence_start > SILENCE_DURATION:
                     if self.active_alerts.get("mic_silence") is None:
                         self.show_alert("mic_silence", "Microphone Silence Detected",
-                                         "Synthetic input reports no signal (simulated). Is the mic muted?")
+                                        "Synthetic input reports no signal (simulated). Is the mic muted?")
             else:
                 self.is_silent = False
                 self.silence_start = self.clock.time()
@@ -355,10 +345,10 @@ class HardwareMonitorApp:
 
             if not camera_source.is_connected():
                 self.show_alert("camera", "Camera Disconnected",
-                                 "Synthetic camera reports disconnected (simulated).")
+                                "Synthetic camera reports disconnected (simulated).")
             elif not camera_source.read_frame_ok():
                 self.show_alert("camera", "Camera Error",
-                                 "Synthetic camera connected but returned no frame (simulated).")
+                                "Synthetic camera connected but returned no frame (simulated).")
             else:
                 self.hide_alert("camera")
 
@@ -396,7 +386,7 @@ class HardwareMonitorApp:
                 loop()
             except Exception as error:
                 logger.error(f"{name} monitoring stopped by an error ({type(error).__name__}: {error}); "
-                      f"restarting in {MONITOR_RESTART_SECONDS} s.")
+                             f"restarting in {MONITOR_RESTART_SECONDS} s.")
                 self.clock.sleep(MONITOR_RESTART_SECONDS)
 
     def start(self):

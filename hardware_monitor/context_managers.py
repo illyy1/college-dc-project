@@ -34,7 +34,7 @@ class DiagnosticConnection:
         DiagnosticConnection._ports_in_use.add(self.port)
         if self.verbose:
             logger.info(f"[DIAGNOSTICS] Opening diagnostic channel {self.port} for component "
-                  f"'{self.component.component_id}'...")
+                        f"'{self.component.component_id}'...")
         try:
             self.component.begin_test()
         except Exception:
@@ -45,7 +45,7 @@ class DiagnosticConnection:
     def __exit__(self, exc_type, exc_value, traceback):
         if self.verbose:
             logger.info(f"[DIAGNOSTICS] Closing diagnostic channel {self.port} for component "
-                  f"'{self.component.component_id}'.")
+                        f"'{self.component.component_id}'.")
         try:
             if exc_type is not None:
                 logger.error(f"[DIAGNOSTICS] Session failed with error ({exc_type.__name__}): {exc_value}")
@@ -59,7 +59,3 @@ class DiagnosticConnection:
     def _release_port(self):
         DiagnosticConnection._ports_in_use.discard(self.port)
         self.port = None
-
-
-# earlier name, kept so existing code using it keeps working
-HardwareDiagnosticSession = DiagnosticConnection

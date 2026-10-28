@@ -30,7 +30,7 @@ import sys
 
 import pytest
 
-from hardware_monitor import api_client, concurrency, demo, services
+from hardware_monitor import api_client, async_processing, demo, services
 from hardware_monitor.repository import load_maintenance_history
 
 
@@ -141,7 +141,7 @@ def test_simulated_services_post_numbered_issues_and_fail_on_request():
 
 def test_run_demo_includes_the_joint_process(demo_log, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("hardware_monitor.demo.DEMO_LOG_PATH", str(tmp_path / "demo_history.jsonl"))
-    monkeypatch.setattr(concurrency, "SOURCE_LATENCY_SECONDS", 0)
+    monkeypatch.setattr(async_processing, "SOURCE_LATENCY_SECONDS", 0)
     demo.run_demo()
     out = capsys.readouterr().out
     assert "STEP 12 — Joint process" in out and "[SIMULATED]" in out

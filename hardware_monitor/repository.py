@@ -6,7 +6,7 @@ import logging
 import json
 import os
 
-from .factory import create_component
+from .factories import create_component
 from .models import MaintenanceRequest, Workstation, Technician
 from .retry import retry
 
