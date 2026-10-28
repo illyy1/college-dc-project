@@ -14,7 +14,7 @@ import requests
 
 from conftest import NetworkAccessBlocked
 from hardware_monitor import api_client, config, retry
-from hardware_monitor.api_client import create_issue
+from hardware_monitor.api_client import create_issue, triage_fault
 
 
 # --- no internet ---
@@ -38,11 +38,24 @@ def test_the_github_client_cannot_reach_github_unmocked():
     assert lookup.call_args.args[0] == "api.github.com"
 
 
+def test_the_gemini_client_cannot_reach_gemini_unmocked():
+    # no `gemini` fixture here: api_client's own `post` runs, and the block stops it
+    with mock.patch("socket.getaddrinfo", wraps=socket.getaddrinfo) as lookup:
+        result = triage_fault("key", "Camera Disconnected", "no frame", "camera", max_attempts=1)
+    assert not result.ok and result.error.endswith("Could not connect to Gemini (ConnectionError).")
+    assert lookup.call_args.args[0] == "generativelanguage.googleapis.com"
+
+
 # --- no real API key ---
 
 def test_no_token_is_available_from_the_environment_or_the_real_env_file():
     assert "GITHUB_TOKEN" not in os.environ and "ENCRYPTION_KEY" not in os.environ
     assert config.get_github_token() is None  # even though the project's .env may hold a real one
+
+
+def test_no_gemini_key_is_available_from_the_environment_or_the_real_env_file():
+    assert "GEMINI_API_KEY" not in os.environ
+    assert config.get_gemini_api_key() is None  # even though the project's .env holds a real one
 
 
 # --- no real waiting between retries ---
