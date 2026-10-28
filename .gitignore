@@ -1,4 +1,7 @@
+# secrets: .env and its variants (.env.local, ...); only the example is committed
 .env
+.env.*
+!.env.example
 .venv/
 .idea/
 .vscode/
