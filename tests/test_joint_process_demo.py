@@ -7,7 +7,8 @@ What hardware_monitor/demo.py must provide:
   API calls. find_open_issues finds nothing open; triage_fault returns a
   triage of priority 2, cause "cable", 15 minutes (or, with gemini_fails,
   the failure "Gemini did not answer within 10 s."); create_issue posts
-  issue #1, #2, ... and keeps them in .created. clients() gives them as
+  issue #1, #2, ... (keeping their titles in .issues), with links that are
+  clearly simulated. clients() gives them as
   report_fault's create_issue / find_open_issues / triage_fault.
 - demo_joint_process(label="SIMULATED", services=None, failing_services=None,
   github_token=..., gemini_api_key=...) -> (triaged_call, untriaged_call)

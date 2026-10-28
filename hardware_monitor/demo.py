@@ -313,12 +313,17 @@ def demo_async_overview():
     print(f"  Maintenance: {maintenance['total_calls']} call(s), still open: {maintenance['open_calls'] or 'none'}")
 
 
+# where simulated issues "live": a reserved domain, so a simulated link can't be mistaken for a real issue
+SIMULATED_ISSUES_URL = "https://github.example/simulated/issues"
+
+
 class SimulatedServices:
     """Offline stand-ins for api_client's three calls, passed into
     services.report_fault() (dependency injection): no network, no keys.
     triage_fault answers with TRIAGE, or with a timeout when gemini_fails;
-    create_issue numbers the issues 1, 2, ... (in `issues`, which several
-    instances may share)."""
+    create_issue numbers the issues 1, 2, ... and keeps their titles in
+    `issues` (a list several instances may share). The links point at
+    SIMULATED_ISSUES_URL, never at real issues."""
 
     TRIAGE = Triage(priority=2, cause="cable", repair_minutes=15,
                     steps=("Reseat the microphone's USB cable.", "Try another USB port."))
@@ -326,10 +331,6 @@ class SimulatedServices:
     def __init__(self, gemini_fails=False, issues=None):
         self.gemini_fails = gemini_fails
         self.issues = issues if issues is not None else []
-
-    @property
-    def created(self):
-        return list(self.issues)
 
     def find_open_issues(self, token, repo, labels):
         return IssueSearchResult(True)  # nothing open
@@ -343,7 +344,7 @@ class SimulatedServices:
     def create_issue(self, token, repo, title, body, labels=()):
         self.issues.append(title)
         number = len(self.issues)
-        return IssueResult(True, issue_number=number, url=f"https://github.com/{repo}/issues/{number}")
+        return IssueResult(True, issue_number=number, url=f"{SIMULATED_ISSUES_URL}/{number}")
 
     def clients(self):
         return dict(create_issue=self.create_issue, find_open_issues=self.find_open_issues,
@@ -398,7 +399,9 @@ def _joint_process(label, clients, failing_clients, github_token, gemini_api_key
 
     summary = service_layer.triage_summary(load_maintenance_history(DEMO_MAINTENANCE_LOG_PATH))
     causes = ", ".join(f"{cause}: {n}" for cause, n in summary.causes) or "none"
-    minutes = ", ".join(f"{tech}: {m} min" for tech, m in summary.minutes_by_technician.items()) or "none"
+    # in the report's order: most first, ties alphabetical
+    minutes = ", ".join(f"{tech}: {m} min" for tech, m in service_layer.most_first(summary.minutes_by_technician))
+    minutes = minutes or "none"
     say("In the history report (python main.py --report), from the demo log:")
     say(f"  triaged calls: {summary.triaged_calls}")
     say(f"  most common causes: {causes}")
