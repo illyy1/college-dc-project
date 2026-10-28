@@ -28,7 +28,7 @@ from unittest import mock
 import pytest
 
 from conftest import PROJECT_ROOT
-from hardware_monitor import maintenance, models
+from hardware_monitor import maintenance
 from hardware_monitor.models import Camera, HardwareComponent, Microphone
 
 PACKAGE = os.path.join(PROJECT_ROOT, "hardware_monitor")
@@ -107,7 +107,7 @@ def test_create_component_picks_the_product_from_the_record_type(component_type,
 
 
 def test_create_component_builds_what_the_subclass_factory_builds():
-    data = record("Camera", camera_index=2, resolution="1280x720", connection_status="INACTIVE")
+    data = record("Camera", camera_index=2, resolution="1280x720", connection_status="DISCONNECTED")
     built, direct = module("factory").create_component(data), Camera.from_dict(data)
     assert vars(built) == vars(direct)
 
