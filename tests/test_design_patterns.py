@@ -1,12 +1,14 @@
-"""Design patterns: the Factory (from_dict class methods) and the Strategy
-(how the maintenance desk picks a technician). Each pattern is tested on its
-own implementations and on the alternatives it allows."""
+"""Design patterns: the Factory (factory.py, reached through
+HardwareComponent.from_dict) and the Strategy (assignment.py: how the
+maintenance desk picks a technician). Each pattern is tested on its own
+implementations and on the alternatives it allows; where each lives is
+checked in test_pattern_modules.py."""
 
 from datetime import datetime, timedelta
 
 import pytest
 
-from hardware_monitor.maintenance import (
+from hardware_monitor.assignment import (
     AssignmentStrategy,
     FewestCallsStrategy,
     LeastBusyStrategy,
