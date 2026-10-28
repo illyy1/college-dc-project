@@ -22,6 +22,7 @@ from .processing import Alert, AlertManager
 from .repository import load_technicians_from_jsonl
 from . import services
 from .synthetic_sources import SyntheticMicrophoneSource, SyntheticCameraSource
+from .threaded_processing import FaultCalls
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,7 @@ class HardwareMonitorApp:
         self.maintenance_desk = maintenance_desk or MaintenanceDesk(
             load_technicians_from_jsonl(TECHNICIANS_PATH)
         )
-        self.open_requests = {}  # alert_key -> MaintenanceRequest still being handled
-        self._calls_lock = threading.Lock()  # guards open_requests' check-then-open
+        self.open_requests = FaultCalls()  # alert_key -> MaintenanceRequest still being handled
         self._adopt_leftover_calls()
 
         self.root = tk.Tk()
@@ -118,7 +118,7 @@ class HardwareMonitorApp:
             leftovers = self.maintenance_desk.find_open_requests(COMPUTER_NAME, component_id, error_type)
             if not leftovers:
                 continue
-            self.open_requests[alert_key] = leftovers[0]
+            self.open_requests.adopt(alert_key, leftovers[0])
             for duplicate in leftovers[1:]:
                 self.maintenance_desk.resolve_request(duplicate.request_id)
                 logger.info(f"Closed duplicate maintenance call {duplicate.request_id} "
@@ -128,36 +128,26 @@ class HardwareMonitorApp:
         """Logs an Alert for the fault and opens a maintenance call assigned to
         a technician. Reuses the call already open for this fault, if any.
         Returns (request, is_new)."""
-        with self._calls_lock:
-            request = self.open_requests.get(alert_key)
-            if request is not None:
-                return request, False
-
+        def open_call():
             component_id, error_type, priority = ALERT_DETAILS[alert_key]
-            alert = Alert(
-                component_id=component_id,
-                workstation_id=COMPUTER_NAME,
-                error_type=error_type,
-                message=message,
-                priority=priority,
-            )
+            alert = Alert(component_id=component_id, workstation_id=COMPUTER_NAME, error_type=error_type,
+                          message=message, priority=priority)
             try:
                 self.alert_manager.log_alert(alert)
             except OSError as e:
                 # the alert is still in this run's history; the fault still gets its call
                 logger.warning(f"Could not save the {alert_key} alert to the alert log: {e}")
             try:
-                request = self.maintenance_desk.open_request_for_alert(alert)
+                return self.maintenance_desk.open_request_for_alert(alert)
             except ValueError as e:
                 logger.error(f"Could not open a maintenance call for {alert_key}: {e}")
-                return None, True
+                return None
 
-            self.open_requests[alert_key] = request
-            return request, True
+        # the check and the open are one step: see threaded_processing
+        return self.open_requests.open_once(alert_key, open_call)
 
     def resolve_maintenance_call(self, alert_key):
-        with self._calls_lock:
-            request = self.open_requests.pop(alert_key, None)
+        request = self.open_requests.pop(alert_key)
         if request is None:
             return
         self.maintenance_desk.resolve_request(request.request_id)

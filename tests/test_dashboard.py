@@ -376,7 +376,7 @@ def test_leftover_calls_are_adopted_and_duplicates_closed(dash, make_call, write
                            make_call(2, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "10:00", **this_machine))
 
     app = dash.build(log_path=log_path)
-    assert app.open_requests["camera"].request_id == "MR-0001"  # the oldest is kept
+    assert app.open_requests.get("camera").request_id == "MR-0001"  # the oldest is kept
     assert "Closed duplicate maintenance call MR-0002" in logged()
     assert [r.request_id for r in app.maintenance_desk.open_requests()] == ["MR-0001"]
 

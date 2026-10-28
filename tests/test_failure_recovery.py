@@ -289,7 +289,7 @@ def test_a_fault_still_gets_its_call_when_the_alert_log_cannot_be_written(dash, 
     with file_locked("repository", processing.LOG_PATH):
         dash.app.show_alert("camera", "Camera Disconnected", "no frame")
 
-    assert dash.app.open_requests["camera"].status == "IN_PROGRESS"
+    assert dash.app.open_requests.get("camera").status == "IN_PROGRESS"
     assert "Could not save the camera alert" in logged()
 
 

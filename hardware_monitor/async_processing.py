@@ -1,16 +1,11 @@
-"""Small, self-contained examples of concurrency used by the monitor.
-
-The async examples fetch workstation status snapshots without changing the
-models, and gather a monitoring overview from three independent sources at
-once. The threaded example demonstrates protecting a shared alert log.
-"""
+"""Asynchronous information gathering: workstation status snapshots fetched
+without changing the models, and a monitoring overview gathered from three
+independent sources, one after another or all at once."""
 
 import asyncio
-import threading
 from collections import Counter
 
 from .models import Workstation
-from .processing import Alert
 from .repository import load_workstations_from_jsonl, load_technicians_from_jsonl, load_maintenance_history
 
 # simulated round trip to the server holding each source, so the overlap is visible
@@ -91,40 +86,3 @@ async def gather_overview_concurrent(workstations_path: str, technicians_path: s
     maintenance_task = asyncio.create_task(_gather_maintenance_summary(maintenance_log_path))
     fleet, technicians, maintenance = await asyncio.gather(fleet_task, roster_task, maintenance_task)
     return {"fleet": fleet, "technicians": technicians, "maintenance": maintenance}
-
-
-class LockedAlertLog:
-    """An in-memory alert log whose batch writes are protected by one lock."""
-
-    def __init__(self):
-        self._alerts: list[Alert] = []
-        self._lock = threading.Lock()
-
-    def append_batch(self, alerts: list[Alert]) -> None:
-        """Append a worker's complete batch as one indivisible operation."""
-        with self._lock:
-            self._alerts.extend(alerts)
-
-    def snapshot(self) -> list[Alert]:
-        """Return a consistent copy of the current log."""
-        with self._lock:
-            return list(self._alerts)
-
-
-def record_alerts_from_threads(batches: list[list[Alert]]) -> list[Alert]:
-    """Have one thread per batch append to a shared log, then return its contents.
-
-    Each batch remains contiguous in the log because the lock covers the full
-    extend operation. The order between batches depends on thread scheduling.
-    """
-    alert_log = LockedAlertLog()
-
-    def worker(batch: list[Alert]) -> None:
-        alert_log.append_batch(batch)
-
-    threads = [threading.Thread(target=worker, args=(batch,)) for batch in batches]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    return alert_log.snapshot()

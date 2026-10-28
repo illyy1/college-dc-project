@@ -44,6 +44,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -584,12 +585,12 @@ def test_the_viewer_opens_on_a_log_that_already_has_a_wrongly_typed_call(open_vi
 
 
 def test_the_viewer_never_writes_to_the_log(open_viewer, log):
-    before = open(log.path, "rb").read()
+    before = Path(log.path).read_bytes()
     viewer = open_viewer()
     for _ in range(3):
         viewer.root.run_next()
     viewer.close()
-    assert open(log.path, "rb").read() == before  # read-only: it can't clash with the dashboard's writes
+    assert Path(log.path).read_bytes() == before  # read-only: it can't clash with the dashboard's writes
 
 
 # --- starting it: `python main.py --stats` ---

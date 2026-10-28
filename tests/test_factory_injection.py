@@ -3,7 +3,7 @@
 repository.load_workstations_from_jsonl(path, component_factory=...) builds
 each line's component with the factory it is given instead of calling a
 fixed one. The default is factory.create_component, so every existing
-caller (demo.py, concurrency.py) works unchanged. Whatever the injected
+caller (demo.py, async_processing.py) works unchanged. Whatever the injected
 factory raises as ValueError is still reported as a DataFileError naming
 the file and line, and the loader no longer calls
 HardwareComponent.from_dict itself.
