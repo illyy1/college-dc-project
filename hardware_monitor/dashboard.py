@@ -20,7 +20,7 @@ from .config import (
 from .maintenance import MaintenanceDesk
 from .processing import Alert, AlertManager
 from .repository import load_technicians_from_jsonl
-from .services import report_fault
+from . import services
 from .synthetic_sources import SyntheticMicrophoneSource, SyntheticCameraSource
 
 logger = logging.getLogger(__name__)
@@ -37,11 +37,26 @@ ALERT_DETAILS = {
 MONITOR_RESTART_SECONDS = 3  # pause before a crashed monitoring loop is started again
 
 
+# passed as a key: read it from .env (None means "no key")
+READ_FROM_ENV = object()
+
+
+def start_daemon_thread(target):
+    """Runs target in a new daemon thread, so it never keeps the program open."""
+    threading.Thread(target=target, daemon=True).start()
+
+
 class HardwareMonitorApp:
-    def __init__(self, maintenance_desk=None):
-        self.github_token = get_github_token()
-        self.gemini_api_key = get_gemini_api_key()  # None: the issues are sent without AI suggestions
-        self.alert_manager = AlertManager()
+    def __init__(self, maintenance_desk=None, *, alert_manager=None, mic_source=None, camera_source=None,
+                 github_token=READ_FROM_ENV, gemini_api_key=READ_FROM_ENV, report_fault=None, clock=None,
+                 start_thread=None):
+        self.clock = clock or time  # anything with time() and sleep()
+        self.start_thread = start_thread or start_daemon_thread
+        self.report_fault = report_fault or services.report_fault
+        self.github_token = get_github_token() if github_token is READ_FROM_ENV else github_token
+        # None: the issues are sent without AI suggestions
+        self.gemini_api_key = get_gemini_api_key() if gemini_api_key is READ_FROM_ENV else gemini_api_key
+        self.alert_manager = alert_manager or AlertManager()
         self.maintenance_desk = maintenance_desk or MaintenanceDesk(
             load_technicians_from_jsonl(TECHNICIANS_PATH)
         )
@@ -56,7 +71,7 @@ class HardwareMonitorApp:
 
         self.running = True
         self.is_paused = False
-        self.silence_start = time.time()
+        self.silence_start = self.clock.time()
         self.is_silent = False
 
         # alert_key -> its popup window, "pending" while one is being drawn, or None
@@ -70,10 +85,10 @@ class HardwareMonitorApp:
         self._closed_at = {}                 # alert_key -> when its popup was last closed
         self._popup_slots = {}               # alert_key -> screen slot (0 = top), so popups don't overlap
         self._last_issue_at: dict[str, float] = {}  # alert_key -> when a GitHub issue was last posted for it
-        self._last_popup_at = time.time()    # for the quiet-period watchdog
+        self._last_popup_at = self.clock.time()    # for the quiet-period watchdog
 
-        self.mic_source = SyntheticMicrophoneSource()
-        self.camera_source = SyntheticCameraSource()
+        self.mic_source = mic_source or SyntheticMicrophoneSource()
+        self.camera_source = camera_source or SyntheticCameraSource()
 
         self.status_lbl = tk.Label(self.root, text="Monitoring Active", fg="green", font=("Arial", 14, "bold"))
         self.status_lbl.pack(pady=20)
@@ -92,7 +107,7 @@ class HardwareMonitorApp:
         else:
             self.status_lbl.config(text="Monitoring Active", fg="green")
             self.pause_btn.config(text="Pause for Break")
-            self.silence_start = time.time()
+            self.silence_start = self.clock.time()
 
     def _adopt_leftover_calls(self):
         """Takes over calls this machine left open when it last shut down, so
@@ -155,7 +170,7 @@ class HardwareMonitorApp:
 
         def _post():
             # what the issue says and whether Gemini triages it is decided in services
-            outcome = report_fault(self.maintenance_desk, self.github_token, self.gemini_api_key,
+            outcome = self.report_fault(self.maintenance_desk, self.github_token, self.gemini_api_key,
                                    alert_key, title, message, request)
             if outcome.lookup_error:
                 logger.warning(f"Could not check GitHub for an open {alert_key} issue: {outcome.lookup_error}")
@@ -172,7 +187,7 @@ class HardwareMonitorApp:
             else:
                 logger.error(f"GitHub alert for {alert_key} not sent: {result.error}")
 
-        threading.Thread(target=_post, daemon=True).start()
+        self.start_thread(_post)
 
     def _reserve_popup_slot(self, alert_key):
         """Claims a screen slot for a new popup. Returns False if the popup
@@ -182,15 +197,15 @@ class HardwareMonitorApp:
         with self._popup_lock:
             if self.active_alerts.get(alert_key) is not None:
                 return False
-            if time.time() - self._closed_at.get(alert_key, 0) < ALERT_COOLDOWN_SECONDS:
+            if self.clock.time() - self._closed_at.get(alert_key, 0) < ALERT_COOLDOWN_SECONDS:
                 return False
             used = set(self._popup_slots.values())
             free = [slot for slot in range(MAX_VISIBLE_ALERTS) if slot not in used]
             if not free:
                 return False
             self._popup_slots[alert_key] = free[0]
-            self._shown_at[alert_key] = time.time()
-            self._last_popup_at = time.time()
+            self._shown_at[alert_key] = self.clock.time()
+            self._last_popup_at = self.clock.time()
             self.active_alerts[alert_key] = "pending"
             return True
 
@@ -200,12 +215,12 @@ class HardwareMonitorApp:
         The popup and maintenance call still happen either way."""
         with self._popup_lock:
             last = self._last_issue_at.get(alert_key, float("-inf"))  # never posted: as if long ago
-            if time.time() - last < GITHUB_ISSUE_COOLDOWN_SECONDS:
-                minutes_left = (GITHUB_ISSUE_COOLDOWN_SECONDS - (time.time() - last)) / 60
+            if self.clock.time() - last < GITHUB_ISSUE_COOLDOWN_SECONDS:
+                minutes_left = (GITHUB_ISSUE_COOLDOWN_SECONDS - (self.clock.time() - last)) / 60
                 logger.info(f"GitHub issue for {alert_key} skipped: one was posted recently "
                       f"(next allowed in {minutes_left:.0f} min). The maintenance call was still opened.")
                 return False
-            self._last_issue_at[alert_key] = time.time()
+            self._last_issue_at[alert_key] = self.clock.time()
             return True
 
     def _run_on_ui_thread(self, callback):
@@ -274,9 +289,9 @@ class HardwareMonitorApp:
         with self._popup_lock:
             popup_open = self.active_alerts.get(alert_key) is not None
             if resolve_call and popup_open:
-                if time.time() - self._shown_at.get(alert_key, 0) < ALERT_MIN_DISPLAY_SECONDS:
+                if self.clock.time() - self._shown_at.get(alert_key, 0) < ALERT_MIN_DISPLAY_SECONDS:
                     return
-                self._closed_at[alert_key] = time.time()
+                self._closed_at[alert_key] = self.clock.time()
 
         if resolve_call:
             self.resolve_maintenance_call(alert_key)
@@ -300,7 +315,7 @@ class HardwareMonitorApp:
 
         while self.running:
             if self.is_paused:
-                time.sleep(1)
+                self.clock.sleep(1)
                 continue
 
             if not mic_source.is_connected():
@@ -308,7 +323,7 @@ class HardwareMonitorApp:
                                  "Synthetic microphone reports disconnected (simulated).")
                 self.hide_alert("mic_silence")
                 self.is_silent = False
-                time.sleep(1)
+                self.clock.sleep(1)
                 continue
 
             self.hide_alert("mic_conn")
@@ -316,26 +331,26 @@ class HardwareMonitorApp:
 
             if volume < SILENCE_THRESHOLD:
                 if not self.is_silent:
-                    self.silence_start = time.time()
+                    self.silence_start = self.clock.time()
                     self.is_silent = True
-                elif time.time() - self.silence_start > SILENCE_DURATION:
+                elif self.clock.time() - self.silence_start > SILENCE_DURATION:
                     if self.active_alerts.get("mic_silence") is None:
                         self.show_alert("mic_silence", "Microphone Silence Detected",
                                          "Synthetic input reports no signal (simulated). Is the mic muted?")
             else:
                 self.is_silent = False
-                self.silence_start = time.time()
+                self.silence_start = self.clock.time()
                 # unconditional: also resolves a silence call adopted from a previous run
                 self.hide_alert("mic_silence")
 
-            time.sleep(1)
+            self.clock.sleep(1)
 
     def monitor_camera(self):
         camera_source = self.camera_source
 
         while self.running:
             if self.is_paused:
-                time.sleep(1)
+                self.clock.sleep(1)
                 continue
 
             if not camera_source.is_connected():
@@ -347,7 +362,7 @@ class HardwareMonitorApp:
             else:
                 self.hide_alert("camera")
 
-            time.sleep(3)
+            self.clock.sleep(3)
 
     def keep_room_busy(self):
         """Quiet-period watchdog: if no popup has appeared for
@@ -355,22 +370,22 @@ class HardwareMonitorApp:
         (no popup open, not cooling down, a screen slot free), so there is at
         least one alert a minute. A break doesn't count as quiet time."""
         while self.running:
-            time.sleep(1)
+            self.clock.sleep(1)
             if self.is_paused:
-                self._last_popup_at = time.time()
+                self._last_popup_at = self.clock.time()
                 continue
-            if time.time() - self._last_popup_at < MAX_QUIET_SECONDS:
+            if self.clock.time() - self._last_popup_at < MAX_QUIET_SECONDS:
                 continue
             with self._popup_lock:
                 slot_free = len(self._popup_slots) < MAX_VISIBLE_ALERTS
                 eligible = [
                     source for key, source in (("mic_conn", self.mic_source), ("camera", self.camera_source))
                     if self.active_alerts.get(key) is None
-                    and time.time() - self._closed_at.get(key, 0) >= ALERT_COOLDOWN_SECONDS
+                    and self.clock.time() - self._closed_at.get(key, 0) >= ALERT_COOLDOWN_SECONDS
                 ]
             if slot_free and eligible:
                 random.choice(eligible).force_fault()
-                self._last_popup_at = time.time()  # give the monitor a moment to notice before forcing again
+                self._last_popup_at = self.clock.time()  # give the monitor a moment to notice before forcing again
 
     def run_monitor(self, name, loop):
         """Runs one monitoring loop for as long as the dashboard is open. A loop
@@ -382,12 +397,12 @@ class HardwareMonitorApp:
             except Exception as error:
                 logger.error(f"{name} monitoring stopped by an error ({type(error).__name__}: {error}); "
                       f"restarting in {MONITOR_RESTART_SECONDS} s.")
-                time.sleep(MONITOR_RESTART_SECONDS)
+                self.clock.sleep(MONITOR_RESTART_SECONDS)
 
     def start(self):
         for name, loop in (("Microphone", self.monitor_mic), ("Camera", self.monitor_camera),
                            ("Quiet-period watchdog", self.keep_room_busy)):
-            threading.Thread(target=partial(self.run_monitor, name, loop), daemon=True).start()
+            self.start_thread(partial(self.run_monitor, name, loop))
         self.root.mainloop()
 
     def stop(self):

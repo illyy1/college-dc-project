@@ -463,16 +463,17 @@ def gemini():
 @pytest.fixture
 def dash(monkeypatch, technicians, tmp_path, github):
     """A real dashboard, built by its own constructor, with only its external
-    dependencies replaced: Tk (fake_tk), the clock, its background threads
-    and the mic/camera (fake_dashboard), GitHub (`github`), and a token
-    encrypted with a throwaway key for the real get_github_token.
+    dependencies replaced: Tk (fake_tk, patched: the window toolkit is the
+    program's edge), and passed in through the constructor the clock, a
+    thread starter that runs each task inline and the mic/camera
+    (fake_dashboard); GitHub is `github`, and the token is encrypted with a
+    throwaway key for the real get_github_token.
 
     .app is the dashboard, .clock its clock, .github the mocked GitHub
-    (.github.posted: the issues sent); .build(technicians=..., log_path=...)
-    builds another one."""
-    import threading
+    (.github.posted: the issues sent); .build(technicians=..., log_path=...,
+    **dependencies) builds another one."""
     from types import SimpleNamespace
-    from fake_dashboard import FakeClock, RunNow, ScriptedCamera, ScriptedMic
+    from fake_dashboard import FakeClock, ScriptedCamera, ScriptedMic, run_now
     from fake_tk import FAKE_TK, FakeToplevel
     from hardware_monitor.dashboard import HardwareMonitorApp
 
@@ -482,13 +483,12 @@ def dash(monkeypatch, technicians, tmp_path, github):
     monkeypatch.setenv("GITHUB_TOKEN", token)
     monkeypatch.setenv("ENCRYPTION_KEY", key)
     monkeypatch.setattr("hardware_monitor.dashboard.tk", FAKE_TK)
-    monkeypatch.setattr("hardware_monitor.dashboard.time", clock)
-    monkeypatch.setattr("hardware_monitor.dashboard.threading", SimpleNamespace(Lock=threading.Lock, Thread=RunNow))
 
-    def build(technicians=technicians, log_path=tmp_path / "maintenance.jsonl"):
+    def build(technicians=technicians, log_path=tmp_path / "maintenance.jsonl", **dependencies):
+        """Another dashboard; any constructor argument given replaces the fixture's."""
         desk = MaintenanceDesk(technicians, log_path=str(log_path), report_csv_path=None)
-        app = HardwareMonitorApp(maintenance_desk=desk)
-        app.mic_source, app.camera_source = ScriptedMic(), ScriptedCamera()
+        injected = dict(clock=clock, start_thread=run_now, mic_source=ScriptedMic(), camera_source=ScriptedCamera())
+        app = HardwareMonitorApp(maintenance_desk=desk, **{**injected, **dependencies})
         clock.app = app
         return app
 

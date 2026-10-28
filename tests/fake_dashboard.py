@@ -24,14 +24,9 @@ class FakeClock:
         self.now += seconds
 
 
-class RunNow:
-    """Stands in for threading.Thread: the target runs inline when started."""
-
-    def __init__(self, target, daemon=None):
-        self.target = target
-
-    def start(self):
-        self.target()
+def run_now(task):
+    """Stands in for the dashboard's start_thread: the task runs inline, at once."""
+    task()
 
 
 class ScriptedMic:

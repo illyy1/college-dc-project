@@ -15,7 +15,8 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 
-from .api_client import IssueResult, Triage, create_issue, find_open_issues, triage_fault
+from . import api_client
+from .api_client import IssueResult, Triage
 from .config import COMPUTER_NAME, GITHUB_REPO
 
 
@@ -32,7 +33,9 @@ class FaultReport:
     lookup_error: str | None = None  # why the open issues couldn't be checked (posted anyway)
 
 
-def report_fault(desk, github_token, gemini_api_key, alert_key, title, message, request=None):
+def report_fault(desk, github_token, gemini_api_key, alert_key, title, message, request=None, *,
+                 create_issue=api_client.create_issue, find_open_issues=api_client.find_open_issues,
+                 triage_fault=api_client.triage_fault):
     """Reports a fault as a GitHub issue, unless this computer's issue for
     the same fault is still open: then nothing is posted and Gemini is not
     asked. If the open issues can't be checked, the issue is posted anyway (a
