@@ -4,7 +4,7 @@
 
 | Tool | Used for | Link / record |
 |---|---|---|
-| **Gemini** | Generating the synthetic data: `data/sample_data.jsonl` (16 component records) and `data/technicians.jsonl` (4 technicians) | **[Gemini chat with the final data prompt and answer](https://share.gemini.google/EGqCdrGbD0GU)** |
+| **Gemini** | Generating the synthetic data: `data/sample_data.jsonl` (16 component records) and `data/technicians.jsonl` (the first 4 technicians; later extended to 10 with Claude Code, `f1019a7`) | **[Gemini chat with the final data prompt and answer](https://share.gemini.google/EGqCdrGbD0GU)** |
 | Claude (Sonnet 5 / Opus 5.5, via Claude Code) | Code changes, reviews against the brief, and later additions to the data files (`installed_on`, `workstation_ids`) | Every commit carries a `Co-Authored-By: Claude` trailer; see section 2 |
 
 > **Gemini data chat:** https://share.gemini.google/EGqCdrGbD0GU
@@ -185,3 +185,18 @@ All JSONL loaders in `hardware_monitor/repository.py` read with
 `.readlines()`. The only `.read(1)` in the file is in `append_jsonl_record`.
 When writing, it reads the last byte of the log to check whether the log ends
 with a newline. It does not parse data.
+
+---
+
+## 4. Responsible use of AI: how we worked
+
+The rules from the Stage 2 brief (7.3), and where each one shows in the project:
+
+*   **Plan and test cases first, no code.** Every change started with a request for a plan or a check, with no code edits; code was written only after we approved it. Section 2 shows this: "Checked first" (`aa8cdeb`, `0b5ea66`), "Asked first" (`0d916da`), "Suggested four uses; the user chose #1" (`5c400c5`), and every Stage 2 feature started from a `RED:` commit of failing tests.
+*   **Expected results we set ourselves.** We decided these answers before the code existed. The tests check the numbers directly; they don't compute them with the code under test:
+    1. **Each technician's share of the calls** (`tests/test_stats.py::test_shares_are_percentages_of_all_calls`). In a log of 7 calls where Dana has 3, Yossi 2, Noa 1 and Avi 1, the shares must be 3/7 ≈ 42.9%, 2/7 ≈ 28.6%, 1/7 ≈ 14.3% and 1/7 ≈ 14.3%, adding up to 100%.
+    2. **A call counts once, by its latest state** (`tests/test_stats.py::test_load_stats_uses_the_latest_state_of_each_call`). The maintenance log is append-only, so a call logged as `IN_PROGRESS` and later as `RESOLVED` must count as 1 call: 0 open, 1 resolved (not 2 calls).
+*   **Changes reviewed, existing tests run.** Each change was read before it was committed and run with `python main.py --no-dashboard`, and the whole `pytest` suite was run, not only the new tests. GitHub Actions (`.github/workflows/tests.yml`) runs the full suite again on every push and pull request.
+*   **Expected results never changed just to pass.** When a test and the code disagreed, the code was fixed. The one time tests were edited in a GREEN commit (`d167ff7` → `b974784`), the tests themselves were wrong, not the code: one still described the old assignment rule that the same change replaced, and one read the random draw one call too early. The behaviour they check was not changed.
+*   **What the tool suggested, what we checked, what we changed or kept.** Recorded per commit in section 2 ("Request" and "Result / corrections").
+
