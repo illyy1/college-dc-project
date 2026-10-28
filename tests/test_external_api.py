@@ -267,12 +267,12 @@ def test_every_retry_sends_the_same_request(github):
                (first.url, first.json, first.headers, first.timeout)
 
 
-def test_each_retry_is_reported_while_it_happens(github, capsys):
+def test_each_retry_is_reported_while_it_happens(github, logged):
     github.reply = [api_response(503, {"message": "Service Unavailable"}), created()]
     send()
 
     assert (f"GitHub attempt 1/{MAX_ATTEMPTS} failed (GitHub returned HTTP 503: Service Unavailable.) "
-            f"Retrying in {RETRY_BACKOFF_SECONDS} s.") in capsys.readouterr().out
+            f"Retrying in {RETRY_BACKOFF_SECONDS} s.") in logged()
 
 
 # --- retry: stopping after the maximum number of attempts ---
@@ -355,7 +355,7 @@ def test_a_permanent_error_after_a_temporary_one_stops_the_retries(github):
 
 # --- the dashboard's use of the client (the shared `dash` fixture) ---
 
-def test_dashboard_posts_the_call_and_technician(dash, github, capsys, alerts):
+def test_dashboard_posts_the_call_and_technician(dash, github, logged, alerts):
     github.reply = api_response(201, CREATED)
     request = dash.app.maintenance_desk.open_request_for_alert(
         alerts.make(component_id="CAM-LOCAL", workstation_id="PC", message="no frame"))
@@ -367,7 +367,7 @@ def test_dashboard_posts_the_call_and_technician(dash, github, capsys, alerts):
     assert call.json["title"].endswith("Camera Disconnected")
     assert call.json["labels"] == ["hardware-alert", "camera"]
     assert f"`{request.request_id}`" in call.json["body"] and technician.name in call.json["body"]
-    assert "issue #42 (https://github.com/owner/repo/issues/42)" in capsys.readouterr().out
+    assert "issue #42 (https://github.com/owner/repo/issues/42)" in logged()
 
 
 @pytest.mark.parametrize("reply, message", [
@@ -375,31 +375,31 @@ def test_dashboard_posts_the_call_and_technician(dash, github, capsys, alerts):
     (requests.exceptions.ReadTimeout(), TIMED_OUT),
     (api_response(201, {"number": 42}), "missing 'html_url'"),
 ], ids=["http-error", "timeout", "incomplete-reply"])
-def test_dashboard_reports_failures_without_crashing(dash, github, capsys, reply, message):
+def test_dashboard_reports_failures_without_crashing(dash, github, logged, reply, message):
     github.reply = reply
     dash.app.send_github_alert("mic_conn", "Microphone Disconnected", "unplugged")
 
-    output = capsys.readouterr().out
+    output = logged()
     assert "GitHub alert for mic_conn not sent:" in output and message in output
 
 
-def test_dashboard_reports_a_recovered_alert(dash, github, capsys):
+def test_dashboard_reports_a_recovered_alert(dash, github, logged):
     github.reply = [requests.exceptions.ReadTimeout(), created()]
     dash.app.send_github_alert("camera", "Camera Disconnected", "no frame")
-    assert "Alert posted to GitHub for camera after 2 attempts: issue #42" in capsys.readouterr().out
+    assert "Alert posted to GitHub for camera after 2 attempts: issue #42" in logged()
 
 
-def test_dashboard_reports_when_retries_are_exhausted(dash, github, capsys):
+def test_dashboard_reports_when_retries_are_exhausted(dash, github, logged):
     github.reply = api_response(503, NOT_JSON)
     dash.app.send_github_alert("camera", "Camera Disconnected", "no frame")
 
     assert len(github.calls) == MAX_ATTEMPTS
-    assert f"GitHub alert for camera not sent: Gave up after {MAX_ATTEMPTS} attempt(s)." in capsys.readouterr().out
+    assert f"GitHub alert for camera not sent: Gave up after {MAX_ATTEMPTS} attempt(s)." in logged()
 
 
-def test_dashboard_without_token_does_not_call_github(dash, github, capsys):
+def test_dashboard_without_token_does_not_call_github(dash, github, logged):
     dash.app.github_token = None
     dash.app.send_github_alert("camera", "Camera Disconnected", "no frame")
 
     assert github.calls == []
-    assert "token missing" in capsys.readouterr().out
+    assert "token missing" in logged()

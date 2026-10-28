@@ -223,11 +223,11 @@ def test_open_calls_survive_a_restart_and_resolved_ones_do_not(desk, alerts, tec
     assert restarted.resolve_request(still_open.request_id).status == "RESOLVED"
 
 
-def test_log_naming_an_unknown_technician_is_reported_not_fatal(technicians, make_call, write_jsonl, capsys, alerts):
+def test_log_naming_an_unknown_technician_is_reported_not_fatal(technicians, make_call, write_jsonl, logged, alerts):
     log_path = write_jsonl("log.jsonl", make_call(5, "CAMERA_FAILURE", "T42", "IN_PROGRESS", "10:00"))
     desk = MaintenanceDesk(technicians, log_path=log_path, report_csv_path=None)
 
-    assert "unknown technician 'T42'" in capsys.readouterr().out
+    assert "unknown technician 'T42'" in logged()
     assert [r.request_id for r in desk.open_requests()] == ["MR-0005"]
     assert desk.open_request_for_alert(alerts.camera()).request_id == "MR-0006"
 

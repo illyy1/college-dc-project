@@ -1,5 +1,8 @@
+import logging
 import os
 import socket
+
+logger = logging.getLogger(__name__)
 
 # --- Live monitoring tuning ---
 SILENCE_THRESHOLD = 0.01
@@ -24,6 +27,8 @@ MAINTENANCE_REPORT_CSV_PATH = os.path.join(_PROJECT_ROOT, "logs", "maintenance_r
 # the main.py demo writes its alerts and calls here so they never mix with the real history
 DEMO_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "demo_hardware_history.jsonl")
 DEMO_MAINTENANCE_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "demo_maintenance_requests.jsonl")
+# what the program did, as text: actions, events and failures (safe_logging.configure_logging)
+MONITOR_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "monitor.log")
 
 
 def get_github_token():
@@ -33,22 +38,27 @@ def get_github_token():
     because only the live dashboard needs them: the demo runs without them."""
     from dotenv import load_dotenv
     from cryptography.fernet import Fernet
+    from .safe_logging import register_secret
 
     load_dotenv()
     encrypted_token = os.getenv("GITHUB_TOKEN")
     crypt_key = os.getenv("ENCRYPTION_KEY")
+    register_secret(encrypted_token)
+    register_secret(crypt_key)
 
     if not encrypted_token or not crypt_key:
-        print("Warning: GITHUB_TOKEN or ENCRYPTION_KEY not found in .env file.")
+        logger.warning("GITHUB_TOKEN or ENCRYPTION_KEY not found in .env file.")
         return None
 
     try:
         cipher_suite = Fernet(crypt_key.encode("utf-8"))
         # a token saved with a trailing newline would be rejected by requests as a header value
-        return cipher_suite.decrypt(encrypted_token.encode("utf-8")).decode("utf-8").strip()
+        token = cipher_suite.decrypt(encrypted_token.encode("utf-8")).decode("utf-8").strip()
     except Exception as e:
-        print(f"Decryption failed. Check your .env file and key. Error: {e}")
+        logger.error("Decryption failed. Check your .env file and key. Error: %s", e)
         return None
+    register_secret(token)
+    return token
 
 
 def get_gemini_api_key():
@@ -56,7 +66,10 @@ def get_gemini_api_key():
     None if it isn't set: the GitHub issues are then sent without AI
     suggestions."""
     from dotenv import load_dotenv
+    from .safe_logging import register_secret
 
     load_dotenv()
     # stripped: a key saved with a trailing newline would be rejected as a header value
-    return (os.getenv("GEMINI_API_KEY") or "").strip() or None
+    key = (os.getenv("GEMINI_API_KEY") or "").strip() or None
+    register_secret(key)
+    return key

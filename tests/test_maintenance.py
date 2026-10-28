@@ -267,13 +267,13 @@ def saved_bad_call(make_call, make_bad_call, write_jsonl):
 
 @pytest.mark.parametrize("bad_field", BAD_FIELDS)
 def test_the_desk_starts_on_a_log_with_a_wrongly_typed_call(bad_field, make_desk, team, picker, saved_bad_call,
-                                                            alerts, capsys):
+                                                            alerts, logged):
     saved_bad_call(bad_field)
 
     desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))  # must not crash
 
-    output = capsys.readouterr().out
-    assert "skipping" in output and "line 2" in output
+    output = logged()
+    assert "Skipping" in output and "line 2" in output
     assert desk.open_requests() == []        # the unreadable call isn't restored
     take_calls(desk, alerts, 1)
     assert picker.favoured == [["B", "C"]]   # only A's readable call counts

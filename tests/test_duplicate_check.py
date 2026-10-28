@@ -223,20 +223,20 @@ def test_a_failed_lookup_still_posts_the_alert(desk, github, gemini, retry_waits
 
 # --- the dashboard ---
 
-def test_dashboard_reports_the_issue_still_open(dash, github, capsys):
+def test_dashboard_reports_the_issue_still_open(dash, github, logged):
     github.search.reply = open_issues(open_issue(7, CAMERA_TITLE))
     dash.app.send_github_alert("camera", "Camera Disconnected", "no frame")
 
     assert github.calls == []
     assert ("GitHub issue #7 for camera is still open (https://github.com/owner/repo/issues/7); "
-            "not posting another.") in capsys.readouterr().out
+            "not posting another.") in logged()
 
 
-def test_dashboard_reports_a_failed_lookup_and_still_posts(dash, github, capsys, retry_waits):
+def test_dashboard_reports_a_failed_lookup_and_still_posts(dash, github, logged, retry_waits):
     github.search.reply = requests.exceptions.ReadTimeout()
     github.reply = created()
     dash.app.send_github_alert("camera", "Camera Disconnected", "no frame")
 
-    output = capsys.readouterr().out
+    output = logged()
     assert "Could not check GitHub for an open camera issue: Gave up after 3 attempt(s)." in output
     assert f"issue #{CREATED['number']}" in output

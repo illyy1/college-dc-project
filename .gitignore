@@ -10,3 +10,4 @@ __pycache__/
 *.egg-info/
 logs/*.jsonl
 logs/*.csv
+logs/*.log

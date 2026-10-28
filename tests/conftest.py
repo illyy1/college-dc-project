@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import socket
 import sys
@@ -308,6 +309,35 @@ def no_real_secrets(monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def no_real_monitor_log(monkeypatch, tmp_path):
+    """configure_logging() (main.main() calls it) writes under tmp_path, never
+    logs/monitor.log, and the handlers it adds are removed after the test."""
+    monkeypatch.setattr("hardware_monitor.safe_logging.MONITOR_LOG_PATH", str(tmp_path / "monitor.log"))
+    logger = logging.getLogger("hardware_monitor")
+    handlers, level = list(logger.handlers), logger.level
+    yield
+    for handler in logger.handlers:
+        if handler not in handlers:
+            handler.close()
+    logger.handlers[:] = handlers
+    logger.setLevel(level)
+
+
+@pytest.fixture
+def logged(caplog):
+    """What the package logged (INFO and up) since the last call, one message
+    per line: the logging counterpart of capsys.readouterr().out."""
+    caplog.set_level(logging.INFO, logger="hardware_monitor")
+
+    def read():
+        text = "\n".join(r.getMessage() for r in caplog.records if r.name.startswith("hardware_monitor"))
+        caplog.clear()
+        return text
+
+    return read
 
 
 @pytest.fixture(autouse=True)

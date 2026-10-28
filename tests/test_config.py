@@ -42,12 +42,12 @@ def test_a_token_of_only_whitespace_gives_no_token(env_vars):
 
 
 @pytest.mark.parametrize("present",["token_only", "key_only", "neither"])
-def test_a_missing_value_gives_no_token(env_vars, capsys, present):
+def test_a_missing_value_gives_no_token(env_vars, logged, present):
     token, key = encrypt_token("ghp_example_token")
     env_vars(token=token if present == "token_only" else None, key=key if present == "key_only" else None)
 
     assert get_github_token() is None
-    assert "GITHUB_TOKEN or ENCRYPTION_KEY not found" in capsys.readouterr().out
+    assert "GITHUB_TOKEN or ENCRYPTION_KEY not found" in logged()
 
 
 def test_an_empty_value_counts_as_missing(env_vars):
@@ -56,7 +56,7 @@ def test_an_empty_value_counts_as_missing(env_vars):
 
 
 @pytest.mark.parametrize("problem", ["wrong_key", "malformed_key", "tampered_token"])
-def test_a_token_that_cannot_be_decrypted_gives_no_token(env_vars, capsys, problem):
+def test_a_token_that_cannot_be_decrypted_gives_no_token(env_vars, logged, problem):
     token, key = encrypt_token("ghp_example_token")
     if problem == "wrong_key":
         key = Fernet.generate_key().decode()
@@ -67,7 +67,7 @@ def test_a_token_that_cannot_be_decrypted_gives_no_token(env_vars, capsys, probl
     env_vars(token=token, key=key)
 
     assert get_github_token() is None
-    assert "Decryption failed" in capsys.readouterr().out
+    assert "Decryption failed" in logged()
 
 
 def test_load_dotenv_is_what_reads_the_file(env_vars, monkeypatch):

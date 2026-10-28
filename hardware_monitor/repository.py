@@ -2,11 +2,14 @@
 technicians from data/technicians.jsonl, and the maintenance request history
 from logs/maintenance_requests.jsonl."""
 
+import logging
 import json
 import os
 
 from .models import HardwareComponent, MaintenanceRequest, Workstation, Technician
 from .retry import retry
+
+logger = logging.getLogger(__name__)
 
 # a data file, log or report another program holds for a moment (antivirus,
 # OneDrive, the search indexer; on Windows that is a PermissionError) is tried
@@ -128,7 +131,7 @@ def load_maintenance_history(path, reported=None):
             request = MaintenanceRequest.from_dict(record)
         except ValueError as error:
             _warn_once(reported, path, line_number,
-                       f"Warning: skipping unreadable call on line {line_number} in {path} ({error})")
+                       f"Skipping unreadable call on line {line_number} in {path} ({error})")
             continue
         latest[request.request_id] = request
 
@@ -216,7 +219,7 @@ def _numbered_records(path, reported):
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
-                _warn_once(reported, path, line_number, f"Warning: skipping corrupt line {line_number} in {path}.")
+                _warn_once(reported, path, line_number, f"Skipping corrupt line {line_number} in {path}.")
                 continue
             if isinstance(record, dict):
                 yield line_number, record
@@ -225,6 +228,6 @@ def _numbered_records(path, reported):
 def _warn_once(reported, path, line_number, message):
     """Prints the warning for this line, unless `reported` says it already was."""
     if reported is None or (path, line_number) not in reported:
-        print(message)
+        logger.warning(message)
         if reported is not None:
             reported.add((path, line_number))

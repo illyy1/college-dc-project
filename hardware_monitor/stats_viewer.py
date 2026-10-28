@@ -5,6 +5,7 @@ dashboard opens and resolves. It shows a summary, two pie charts (each
 technician's share of the calls and each alert type's share), the
 per-technician spread, and the recent calls with who took each one."""
 
+import logging
 import colorsys
 import os
 import subprocess
@@ -14,6 +15,8 @@ from dataclasses import dataclass
 
 from .config import MAINTENANCE_LOG_PATH, TECHNICIANS_PATH
 from .stats import load_stats
+
+logger = logging.getLogger(__name__)
 
 REFRESH_SECONDS = 2
 BAR, BAR_WIDTH = "█", 20  # the busiest technician's bar is BAR_WIDTH blocks long
@@ -266,7 +269,7 @@ def launch_in_background():
     try:
         return subprocess.Popen([sys.executable, MAIN_SCRIPT, "--stats"])
     except OSError as error:
-        print(f"Could not open the statistics window ({error}); the dashboard runs without it.")
+        logger.warning(f"Could not open the statistics window ({error}); the dashboard runs without it.")
         return None
 
 

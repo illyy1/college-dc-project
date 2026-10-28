@@ -3,7 +3,10 @@ and the CSV report all retry through retry(), so the attempt limit, the
 doubling wait and what is reported behave the same everywhere. Each caller
 decides which of its errors are temporary."""
 
+import logging
 from time import sleep
+
+logger = logging.getLogger(__name__)
 
 
 def retry(operation, *, retry_on, max_attempts, backoff_seconds, label):
@@ -21,6 +24,6 @@ def retry(operation, *, retry_on, max_attempts, backoff_seconds, label):
             return operation()
         except retry_on as error:
             delay = backoff_seconds * 2 ** (attempt - 1)
-            print(f"{label} attempt {attempt}/{max_attempts} failed ({error}) Retrying in {delay} s.")
+            logger.warning(f"{label} attempt {attempt}/{max_attempts} failed ({error}) Retrying in {delay} s.")
             sleep(delay)
     return operation()  # the final attempt: whatever it raises is raised
