@@ -98,7 +98,7 @@ def aging_fleet():
     ], start=1):
         workstation = Workstation(f"WS-{number}", f"Desk {number}")
         workstation.add_component(Camera(f"CAM-{number}", "Cam", f"WS-{number}",
-                                          connection_status=status, installed_on=years_ago(age)))
+                                         connection_status=status, installed_on=years_ago(age)))
         fleet.append(workstation)
     return fleet
 

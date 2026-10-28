@@ -67,12 +67,12 @@ class HardwareComponent(ABC):
     def from_dict(cls, record):
         """Validates a parsed JSONL record and builds this class from it.
         Called on HardwareComponent itself, it hands the record to the
-        Factory (factory.create_component), which picks Camera/Microphone
+        Factory (factories.create_component), which picks Camera/Microphone
         from record["component_type"]. Raises ValueError on a missing field,
         unknown type or bad value."""
         if cls is HardwareComponent:
-            from . import factory  # imported here: factory imports this module
-            return factory.create_component(record)
+            from . import factories  # imported here: factories imports this module
+            return factories.create_component(record)
         _require_fields(record, cls.REQUIRED_FIELDS, "Component")
 
         component_type = str(record["component_type"])
@@ -309,6 +309,7 @@ class Workstation:
         return f"<Workstation {self.workstation_id} '{self.name}' components={len(self._components)}>"
 
 # ( חבר 4: רחל )
+
 
 class Technician:
     """A technician. There are no specialists: every technician can take any

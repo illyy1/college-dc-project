@@ -9,10 +9,13 @@ description = "Tracks workstation cameras and microphones, raises alerts and ass
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "cryptography",   # decrypts the GitHub token stored in .env (live dashboard only)
+    "cryptography",   # decrypts the GitHub token stored in .env (--live and --dashboard only)
     "python-dotenv",  # loads .env
-    "requests",       # opens GitHub issues for dashboard alerts
+    "requests",       # GitHub issues and the Gemini triage
 ]
+
+[project.optional-dependencies]
+test = ["pytest"]     # pip install -e ".[test]", then: pytest
 
 [tool.setuptools]
 packages = ["hardware_monitor"]

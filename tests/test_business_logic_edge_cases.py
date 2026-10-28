@@ -67,7 +67,7 @@ def test_lazy_pipeline_age_boundary_is_inclusive():
     for number, days_old in enumerate((1096, 1095), start=1):  # just over / just under 3 years
         workstation = Workstation(f"WS-{number}", "Desk")
         workstation.add_component(Camera(f"CAM-{number}", "Cam", f"WS-{number}", connection_status="DISCONNECTED",
-                                          installed_on=(today - timedelta(days=days_old)).isoformat()))
+                                         installed_on=(today - timedelta(days=days_old)).isoformat()))
         fleet.append(workstation)
     no_date = Workstation("WS-3", "Desk")
     no_date.add_component(Camera("CAM-3", "Cam", "WS-3", connection_status="DISCONNECTED"))
@@ -282,5 +282,3 @@ def test_async_overview_matches_sequential(no_latency, tmp_path, technicians_fil
                                  "components_by_status": {"ACTIVE": 11, "ERROR": 2, "DISCONNECTED": 3}}
     assert overview["technicians"] == [t.name for t in load_technicians_from_jsonl(technicians_file).values()]
     assert overview["maintenance"] == {"total_calls": 0, "open_calls": []}  # missing log = no calls
-
-

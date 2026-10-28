@@ -378,5 +378,3 @@ def test_a_missing_tkinter_is_explained(monkeypatch, capsys):
 def test_a_bug_is_not_reported_as_a_data_problem(run_main):
     with pytest.raises(ValueError, match="a bug"):
         run_main("--no-dashboard", demo_error=ValueError("a bug"))
-
-

@@ -30,7 +30,6 @@ from hardware_monitor.repository import load_maintenance_history
 from conftest import BAD_FIELDS, as_requests
 
 
-
 # --- test data (make_call and history are in conftest.py) ---
 
 @pytest.fixture
@@ -215,7 +214,7 @@ def test_a_call_with_a_wrongly_typed_field_is_skipped(bad_field, history, make_b
 
 
 def test_a_wrongly_typed_call_is_reported_once_when_read_again(history, make_bad_call, write_log,
-                                                              technicians_file, logged):
+                                                               technicians_file, logged):
     path = write_log([*history, make_bad_call(8, "T1")])
     reported = set()
     for _ in range(3):

@@ -202,7 +202,7 @@ def test_a_technician_with_no_saved_calls_counts_as_zero():
 
 
 def test_the_default_desk_draws_with_pythons_random(roster_desk, roster, alerts):
-    with mock.patch("hardware_monitor.assignment.random.choices",
+    with mock.patch("hardware_monitor.strategies.random.choices",
                     side_effect=lambda population, weights, k=1: [population[-1]]) as choices:
         request = roster_desk.open_request_for_alert(alerts.camera())
 

@@ -153,7 +153,6 @@ def test_recent_calls_section_with_no_calls(technicians):
 # --- the live window ---
 
 
-
 @pytest.fixture
 def log(write_jsonl, history):
     """A temporary maintenance log holding `history`; .append(record) adds a
@@ -389,7 +388,7 @@ def test_the_whole_team_fits_in_the_window(make_team, write_jsonl, make_call, mo
     team = make_team(12)
     technicians_path = write_jsonl("big_team.jsonl", *({"tech_id": t, "name": tech.name} for t, tech in team.items()))
     log_path = write_jsonl("big_log.jsonl", *(make_call(n, "CAMERA_FAILURE", f"T{n}", "RESOLVED")
-                                               for n in range(1, 13)))
+                                              for n in range(1, 13)))
     monkeypatch.setattr("hardware_monitor.stats_viewer.tk", FAKE_TK)
     viewer = StatsViewer(log_path, technicians_path)
 
