@@ -391,6 +391,17 @@ def test_when_gemini_fails_the_issue_is_still_posted(ai_dash, capsys, failure, r
     assert "Gemini" in output and reason in output and KEY not in output
 
 
+def test_the_dashboard_reports_when_gemini_s_retries_are_exhausted(ai_dash, capsys, retry_waits):
+    ai_dash.gemini.reply = api_error(503, "The model is overloaded.")
+    body = send_camera_alert(ai_dash)
+
+    assert len(ai_dash.gemini.calls) == MAX_ATTEMPTS
+    output = capsys.readouterr().out
+    assert (f"No Gemini triage for camera: Gave up after {MAX_ATTEMPTS} attempt(s). "
+            "Last error: Gemini returned HTTP 503: The model is overloaded.") in output
+    assert "AI-generated" not in body and "Alert posted to GitHub for camera" in output
+
+
 def test_without_a_key_gemini_is_not_asked(dash, gemini):
     body = send_camera_alert(dash)
     assert gemini.calls == [] and "AI-generated" not in body

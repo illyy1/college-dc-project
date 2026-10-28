@@ -157,12 +157,15 @@ def test_permanent_http_errors_are_not_retried(github, retry_waits, status):
     (api_response(204, NOT_JSON), "HTTP"),
 ], ids=["html-body", "json-object", "item-not-an-object", "missing-number", "number-zero",
         "link-to-another-issue", "plain-http-link", "missing-title", "title-not-text", "204-instead-of-200"])
-def test_replies_that_cannot_be_trusted_are_failures(github, reply, expected):
+def test_replies_that_cannot_be_trusted_are_failures(github, retry_waits, reply, expected):
     github.search.reply = reply
     result = find()
 
     assert not result.ok and result.issues == ()
     assert result.category is api_client.ErrorCategory[expected]
+    # GitHub would send the same reply again: no retry, so no "Gave up"
+    assert result.attempts == 1 and len(github.search.calls) == 1 and retry_waits == []
+    assert not result.error.startswith("Gave up")
 
 
 # --- services.report_fault: no second issue for a fault already open ---
