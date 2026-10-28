@@ -364,6 +364,17 @@ def test_a_file_problem_is_explained(run_main, capsys, problem):
     assert capsys.readouterr().err == f"Cannot start: {problem}\n"
 
 
+def test_a_missing_tkinter_is_explained(monkeypatch, capsys):
+    # Python installed without Tk (some Linux builds): --dashboard explains instead of a traceback
+    monkeypatch.setitem(sys.modules, "tkinter", None)  # what a missing module looks like to import
+    monkeypatch.delitem(sys.modules, "hardware_monitor.dashboard", raising=False)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--dashboard"])
+    with mock.patch("main.run_demo"), mock.patch("main.publish_maintenance_reports"):
+        assert main.main() == 1
+    error = capsys.readouterr().err
+    assert "needs tkinter" in error and "python main.py" in error
+
+
 def test_a_bug_is_not_reported_as_a_data_problem(run_main):
     with pytest.raises(ValueError, match="a bug"):
         run_main("--no-dashboard", demo_error=ValueError("a bug"))
