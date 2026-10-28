@@ -25,7 +25,7 @@ find_open_issues=api_client.find_open_issues,
 triage_fault=api_client.triage_fault): the API calls it makes go through
 these, so another client can be passed in.
 
-Only Tk is still replaced at module level (fake_tk): the window toolkit is
+Only Tk is still replaced at module level (fake_tk, by the `dash` fixture): the window toolkit is
 the edge of the program. Everything else is passed in."""
 
 import inspect
@@ -35,42 +35,18 @@ import time
 import pytest
 
 from conftest import encrypt_token, make_triage
-from fake_dashboard import FakeClock, ScriptedCamera, ScriptedMic
-from fake_tk import FAKE_TK, FakeToplevel
+from fake_dashboard import ScriptedCamera, ScriptedMic, run_now
 from hardware_monitor import api_client, dashboard, services
 from hardware_monitor.api_client import IssueResult, IssueSearchResult, OpenIssue, TriageResult
-from hardware_monitor.maintenance import MaintenanceDesk
 from hardware_monitor.processing import AlertManager
 from hardware_monitor.synthetic_sources import SyntheticCameraSource, SyntheticMicrophoneSource
 
 
-def run_now(target):
-    target()
-
-
-@pytest.fixture
-def parts(monkeypatch, technicians, tmp_path, github):
-    """What a dashboard is built from: a desk on tmp_path, a fake clock, and
-    a builder that passes everything else in. Only Tk is patched."""
-    monkeypatch.setattr("hardware_monitor.dashboard.tk", FAKE_TK)
-    FakeToplevel.created = []
-    clock = FakeClock()
-    desk = MaintenanceDesk(technicians, log_path=str(tmp_path / "maintenance.jsonl"), report_csv_path=None)
-
-    def build(**deps):
-        injected = dict(clock=clock, start_thread=run_now, github_token="test-token", gemini_api_key=None,
-                        mic_source=ScriptedMic(), camera_source=ScriptedCamera(),
-                        alert_manager=AlertManager(log_path=str(tmp_path / "alerts.jsonl")))
-        app = dashboard.HardwareMonitorApp(maintenance_desk=desk, **{**injected, **deps})
-        clock.app = app
-        return app
-
-    class Parts:
-        pass
-
-    built = Parts()
-    built.clock, built.desk, built.github, built.build = clock, desk, github, build
-    return built
+def build(dash, **dependencies):
+    """A dashboard from the shared `dash` fixture (Tk patched, clock, inline
+    threads and scripted sources passed in), with these dependencies passed
+    in too; the keys are given, so .env is never read."""
+    return dash.build(**{"github_token": "test-token", "gemini_api_key": None, **dependencies})
 
 
 def run_loop(app, clock, loop, iterations):
@@ -93,48 +69,50 @@ class RecordingReporter:
 
 # --- the dashboard: every dependency passed in is the one used ---
 
-def test_each_dependency_is_kept_as_given(parts):
+def test_each_dependency_is_kept_as_given(dash):
     mic, camera, manager, reporter = ScriptedMic(), ScriptedCamera(), AlertManager(), RecordingReporter()
-    app = parts.build(mic_source=mic, camera_source=camera, alert_manager=manager, report_fault=reporter)
+    app = build(dash, mic_source=mic, camera_source=camera, alert_manager=manager, report_fault=reporter)
 
     assert app.mic_source is mic and app.camera_source is camera
     assert app.alert_manager is manager and app.report_fault is reporter
-    assert app.clock is parts.clock and app.start_thread is run_now
+    assert app.clock is dash.clock and app.start_thread is run_now
 
 
-def test_the_monitors_read_the_injected_sources(parts):
-    app = parts.build()
-    run_loop(app, parts.clock, app.monitor_mic, 1)
-    run_loop(app, parts.clock, app.monitor_camera, 1)
+def test_the_monitors_read_the_injected_sources(dash):
+    app = build(dash)
+    run_loop(app, dash.clock, app.monitor_mic, 1)
+    run_loop(app, dash.clock, app.monitor_camera, 1)
     assert app.mic_source.calls > 0 and app.camera_source.calls > 0
 
 
-def test_alerts_are_logged_through_the_injected_alert_manager(parts):
-    app = parts.build()
+def test_alerts_are_logged_through_the_injected_alert_manager(dash, tmp_path):
+    manager = AlertManager(log_path=str(tmp_path / "alerts.jsonl"))
+    app = build(dash, alert_manager=manager)
     app.open_maintenance_call("camera", "no frame")
-    assert [a.component_id for a in app.alert_manager.alert_history] == ["CAM-LOCAL"]
+    assert [a.component_id for a in manager.alert_history] == ["CAM-LOCAL"]
+    assert (tmp_path / "alerts.jsonl").exists()  # written where the injected manager writes
 
 
-def test_time_comes_from_the_injected_clock(parts):
-    app = parts.build()
-    assert app.silence_start == parts.clock.now  # 1000.0, not the real time
-    run_loop(app, parts.clock, app.monitor_mic, 2)
-    assert parts.clock.sleeps == 2  # the waits went to the clock, not time.sleep
+def test_time_comes_from_the_injected_clock(dash):
+    app = build(dash)
+    assert app.silence_start == dash.clock.now  # 1000.0, not the real time
+    run_loop(app, dash.clock, app.monitor_mic, 2)
+    assert dash.clock.sleeps == 2  # the waits went to the clock, not time.sleep
 
 
-def test_faults_are_reported_through_the_injected_reporter(parts):
+def test_faults_are_reported_through_the_injected_reporter(dash):
     reporter = RecordingReporter()
-    app = parts.build(report_fault=reporter, github_token="injected-token", gemini_api_key="injected-key")
+    app = build(dash, report_fault=reporter, github_token="injected-token", gemini_api_key="injected-key")
     app.send_github_alert("camera", "Camera Disconnected", "no frame")
 
-    assert reporter.faults == [(parts.desk, "injected-token", "injected-key", "camera", "Camera Disconnected",
+    assert reporter.faults == [(app.maintenance_desk, "injected-token", "injected-key", "camera", "Camera Disconnected",
                                 "no frame", None)]
-    assert parts.github.calls == []  # the real reporter was not used
+    assert dash.github.calls == []  # the real reporter was not used
 
 
-def test_background_work_is_started_through_start_thread(parts):
+def test_background_work_is_started_through_start_thread(dash):
     started, reporter = [], RecordingReporter()
-    app = parts.build(report_fault=reporter, start_thread=started.append)
+    app = build(dash, report_fault=reporter, start_thread=started.append)
     app.send_github_alert("camera", "Camera Disconnected", "no frame")
 
     assert len(started) == 1 and reporter.faults == []  # handed over, not run yet
@@ -144,17 +122,17 @@ def test_background_work_is_started_through_start_thread(parts):
 
 @pytest.mark.parametrize("token, key", [("injected-token", "injected-key"), (None, None)],
                          ids=["keys-given", "no-keys"])
-def test_passed_keys_are_used_and_env_is_not_read(parts, monkeypatch, token, key):
+def test_passed_keys_are_used_and_env_is_not_read(dash, monkeypatch, token, key):
     def must_not_read():
         raise AssertionError(".env was read although the keys were passed in")
 
     monkeypatch.setattr("hardware_monitor.dashboard.get_github_token", must_not_read)
     monkeypatch.setattr("hardware_monitor.dashboard.get_gemini_api_key", must_not_read)
-    app = parts.build(github_token=token, gemini_api_key=key)
+    app = build(dash, github_token=token, gemini_api_key=key)
     assert (app.github_token, app.gemini_api_key) == (token, key)
 
 
-def test_a_new_kind_of_source_works_without_changing_the_dashboard(parts):
+def test_a_new_kind_of_source_works_without_changing_the_dashboard(dash):
     class UnpluggedUsbCamera:
         """Not one of the project's sources: anything with these two methods will do."""
 
@@ -164,8 +142,8 @@ def test_a_new_kind_of_source_works_without_changing_the_dashboard(parts):
         def read_frame_ok(self):
             return False
 
-    app = parts.build(camera_source=UnpluggedUsbCamera())
-    run_loop(app, parts.clock, app.monitor_camera, 1)
+    app = build(dash, camera_source=UnpluggedUsbCamera())
+    run_loop(app, dash.clock, app.monitor_camera, 1)
 
     assert [(r.component_id, r.error_type) for r in app.maintenance_desk.open_requests()] == \
         [("CAM-LOCAL", "CAMERA_FAILURE")]
@@ -173,12 +151,12 @@ def test_a_new_kind_of_source_works_without_changing_the_dashboard(parts):
 
 # --- the dashboard's defaults: the real implementations ---
 
-def test_without_arguments_the_real_implementations_are_used(parts, monkeypatch):
+def test_without_arguments_the_real_implementations_are_used(dash, monkeypatch):
     token, key = encrypt_token("token-from-env")
     monkeypatch.setenv("GITHUB_TOKEN", token)
     monkeypatch.setenv("ENCRYPTION_KEY", key)
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key-from-env")
-    app = dashboard.HardwareMonitorApp(maintenance_desk=parts.desk)
+    app = dashboard.HardwareMonitorApp(maintenance_desk=dash.app.maintenance_desk)
 
     assert isinstance(app.mic_source, SyntheticMicrophoneSource)
     assert isinstance(app.camera_source, SyntheticCameraSource)

@@ -470,10 +470,10 @@ def dash(monkeypatch, technicians, tmp_path, github):
     throwaway key for the real get_github_token.
 
     .app is the dashboard, .clock its clock, .github the mocked GitHub
-    (.github.posted: the issues sent); .build(technicians=..., log_path=...)
-    builds another one."""
+    (.github.posted: the issues sent); .build(technicians=..., log_path=...,
+    **dependencies) builds another one."""
     from types import SimpleNamespace
-    from fake_dashboard import FakeClock, ScriptedCamera, ScriptedMic
+    from fake_dashboard import FakeClock, ScriptedCamera, ScriptedMic, run_now
     from fake_tk import FAKE_TK, FakeToplevel
     from hardware_monitor.dashboard import HardwareMonitorApp
 
@@ -484,10 +484,11 @@ def dash(monkeypatch, technicians, tmp_path, github):
     monkeypatch.setenv("ENCRYPTION_KEY", key)
     monkeypatch.setattr("hardware_monitor.dashboard.tk", FAKE_TK)
 
-    def build(technicians=technicians, log_path=tmp_path / "maintenance.jsonl"):
+    def build(technicians=technicians, log_path=tmp_path / "maintenance.jsonl", **dependencies):
+        """Another dashboard; any constructor argument given replaces the fixture's."""
         desk = MaintenanceDesk(technicians, log_path=str(log_path), report_csv_path=None)
-        app = HardwareMonitorApp(maintenance_desk=desk, clock=clock, start_thread=lambda task: task(),
-                                 mic_source=ScriptedMic(), camera_source=ScriptedCamera())
+        injected = dict(clock=clock, start_thread=run_now, mic_source=ScriptedMic(), camera_source=ScriptedCamera())
+        app = HardwareMonitorApp(maintenance_desk=desk, **{**injected, **dependencies})
         clock.app = app
         return app
 
