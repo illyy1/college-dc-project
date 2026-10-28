@@ -392,10 +392,15 @@ def slow_requests(monkeypatch):
 
 @pytest.fixture
 def github():
-    """requests.post, mocked: see fake_github.MockedGitHub."""
-    from fake_github import MockedGitHub
-    with mock.patch("hardware_monitor.api_client.requests.post", autospec=True) as post:
-        yield MockedGitHub(post)
+    """requests.post, mocked: see fake_github.MockedGitHub. Its .search is
+    requests.get, mocked too (fake_github.MockedGitHubSearch): by default no
+    issue is open."""
+    from fake_github import MockedGitHub, MockedGitHubSearch
+    with mock.patch("hardware_monitor.api_client.requests.post", autospec=True) as post, \
+            mock.patch("hardware_monitor.api_client.requests.get", autospec=True) as get:
+        github = MockedGitHub(post)
+        github.search = MockedGitHubSearch(get)
+        yield github
 
 
 GEMINI_KEY = "secret-gemini-key"
