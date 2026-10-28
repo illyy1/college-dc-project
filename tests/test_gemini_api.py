@@ -381,22 +381,22 @@ def test_nothing_identifying_a_person_is_sent_to_gemini(ai_dash, alerts):
     (api_response(200, {"promptFeedback": {"blockReason": "SAFETY"}}), "SAFETY"),
     (triage_answer(cause="magic"), "triage is invalid"),
 ], ids=["bad-key", "timeout", "blocked", "invalid-triage"])
-def test_when_gemini_fails_the_issue_is_still_posted(ai_dash, capsys, failure, reason):
+def test_when_gemini_fails_the_issue_is_still_posted(ai_dash, logged, failure, reason):
     ai_dash.gemini.reply = failure
     body = send_camera_alert(ai_dash)
 
     assert "Hardware Alert Triggered" in body and "AI-generated" not in body
-    output = capsys.readouterr().out
+    output = logged()
     assert "Alert posted to GitHub for camera" in output
     assert "Gemini" in output and reason in output and KEY not in output
 
 
-def test_the_dashboard_reports_when_gemini_s_retries_are_exhausted(ai_dash, capsys, retry_waits):
+def test_the_dashboard_reports_when_gemini_s_retries_are_exhausted(ai_dash, logged, retry_waits):
     ai_dash.gemini.reply = api_error(503, "The model is overloaded.")
     body = send_camera_alert(ai_dash)
 
     assert len(ai_dash.gemini.calls) == MAX_ATTEMPTS
-    output = capsys.readouterr().out
+    output = logged()
     assert (f"No Gemini triage for camera: Gave up after {MAX_ATTEMPTS} attempt(s). "
             "Last error: Gemini returned HTTP 503: The model is overloaded.") in output
     assert "AI-generated" not in body and "Alert posted to GitHub for camera" in output

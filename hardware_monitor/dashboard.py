@@ -4,6 +4,7 @@ via synthetic_sources.py (rather than real hardware) so the full alert
 pipeline can be exercised and tested on demand. See README.md > Future
 Expansion for swapping this back to real hardware monitoring."""
 
+import logging
 import random
 import time
 import threading
@@ -21,6 +22,8 @@ from .processing import Alert, AlertManager
 from .repository import load_technicians_from_jsonl
 from .services import report_fault
 from .synthetic_sources import SyntheticMicrophoneSource, SyntheticCameraSource
+
+logger = logging.getLogger(__name__)
 
 # alert_key -> (component_id, error_type, priority) used when opening a maintenance call.
 # Priorities follow Camera/Microphone.alert_priority(): 1 lost camera, 3 lost microphone,
@@ -103,7 +106,7 @@ class HardwareMonitorApp:
             self.open_requests[alert_key] = leftovers[0]
             for duplicate in leftovers[1:]:
                 self.maintenance_desk.resolve_request(duplicate.request_id)
-                print(f"Closed duplicate maintenance call {duplicate.request_id} "
+                logger.info(f"Closed duplicate maintenance call {duplicate.request_id} "
                       f"(same fault as {leftovers[0].request_id}).")
 
     def open_maintenance_call(self, alert_key, message):
@@ -127,11 +130,11 @@ class HardwareMonitorApp:
                 self.alert_manager.log_alert(alert)
             except OSError as e:
                 # the alert is still in this run's history; the fault still gets its call
-                print(f"Could not save the {alert_key} alert to the alert log: {e}")
+                logger.warning(f"Could not save the {alert_key} alert to the alert log: {e}")
             try:
                 request = self.maintenance_desk.open_request_for_alert(alert)
             except ValueError as e:
-                print(f"Could not open a maintenance call for {alert_key}: {e}")
+                logger.error(f"Could not open a maintenance call for {alert_key}: {e}")
                 return None, True
 
             self.open_requests[alert_key] = request
@@ -144,8 +147,8 @@ class HardwareMonitorApp:
             return
         self.maintenance_desk.resolve_request(request.request_id)
         technician = self.maintenance_desk.technician_for(request)
-        print(f"Maintenance call {request.request_id} resolved "
-              f"(handled by {technician.name if technician else 'unassigned'}).")
+        logger.info(f"Maintenance call {request.request_id} resolved "
+              f"(handled by {technician.tech_id if technician else 'unassigned'}).")  # the id: no names in the log
 
     def send_github_alert(self, alert_key, title, message, request=None):
         """Sends the alert payload to GitHub Issues in a background thread."""
@@ -155,19 +158,19 @@ class HardwareMonitorApp:
             outcome = report_fault(self.maintenance_desk, self.github_token, self.gemini_api_key,
                                    alert_key, title, message, request)
             if outcome.lookup_error:
-                print(f"Could not check GitHub for an open {alert_key} issue: {outcome.lookup_error}")
+                logger.warning(f"Could not check GitHub for an open {alert_key} issue: {outcome.lookup_error}")
             if outcome.already_open:
-                print(f"GitHub issue #{outcome.issue.issue_number} for {alert_key} is still open "
+                logger.info(f"GitHub issue #{outcome.issue.issue_number} for {alert_key} is still open "
                       f"({outcome.issue.url}); not posting another.")
                 return
             if outcome.triage_error:
-                print(f"No Gemini triage for {alert_key}: {outcome.triage_error}")
+                logger.warning(f"No Gemini triage for {alert_key}: {outcome.triage_error}")
             result = outcome.issue
             if result.ok:
                 retried = f" after {result.attempts} attempts" if result.attempts > 1 else ""
-                print(f"Alert posted to GitHub for {alert_key}{retried}: issue #{result.issue_number} ({result.url})")
+                logger.info(f"Alert posted to GitHub for {alert_key}{retried}: issue #{result.issue_number} ({result.url})")
             else:
-                print(f"GitHub alert for {alert_key} not sent: {result.error}")
+                logger.error(f"GitHub alert for {alert_key} not sent: {result.error}")
 
         threading.Thread(target=_post, daemon=True).start()
 
@@ -199,7 +202,7 @@ class HardwareMonitorApp:
             last = self._last_issue_at.get(alert_key, float("-inf"))  # never posted: as if long ago
             if time.time() - last < GITHUB_ISSUE_COOLDOWN_SECONDS:
                 minutes_left = (GITHUB_ISSUE_COOLDOWN_SECONDS - (time.time() - last)) / 60
-                print(f"GitHub issue for {alert_key} skipped: one was posted recently "
+                logger.info(f"GitHub issue for {alert_key} skipped: one was posted recently "
                       f"(next allowed in {minutes_left:.0f} min). The maintenance call was still opened.")
                 return False
             self._last_issue_at[alert_key] = time.time()
@@ -377,7 +380,7 @@ class HardwareMonitorApp:
             try:
                 loop()
             except Exception as error:
-                print(f"{name} monitoring stopped by an error ({type(error).__name__}: {error}); "
+                logger.error(f"{name} monitoring stopped by an error ({type(error).__name__}: {error}); "
                       f"restarting in {MONITOR_RESTART_SECONDS} s.")
                 time.sleep(MONITOR_RESTART_SECONDS)
 

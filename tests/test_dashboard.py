@@ -183,7 +183,7 @@ def test_the_same_fault_cannot_pop_up_again_during_the_cooldown(dash):
     assert popup(app, "camera") is not None
 
 
-def test_at_most_one_github_issue_per_fault_within_the_cooldown(dash, capsys):
+def test_at_most_one_github_issue_per_fault_within_the_cooldown(dash, logged):
     app = dash.app
 
     def new_camera_fault():
@@ -194,7 +194,7 @@ def test_at_most_one_github_issue_per_fault_within_the_cooldown(dash, capsys):
     dash.clock.advance(GITHUB_ISSUE_COOLDOWN_SECONDS - 1)
     new_camera_fault()
     assert len(dash.github.posted) == 1
-    assert "GitHub issue for camera skipped" in capsys.readouterr().out
+    assert "GitHub issue for camera skipped" in logged()
 
     dash.clock.advance(1)  # exactly the cooldown
     new_camera_fault()
@@ -214,12 +214,12 @@ def test_the_decrypted_token_is_sent_to_github(dash):
     assert dash.github.posted[0].token == "Bearer test-token"
 
 
-def test_alerts_still_show_when_no_technician_can_take_the_call(dash, capsys):
+def test_alerts_still_show_when_no_technician_can_take_the_call(dash, logged):
     app = dash.build(technicians={})
     app.show_alert("camera", "Camera Disconnected", "test")
     app.root.flush()
 
-    assert "Could not open a maintenance call for camera" in capsys.readouterr().out
+    assert "Could not open a maintenance call for camera" in logged()
     assert popup(app, "camera") is not None and len(dash.github.posted) == 1
 
 
@@ -369,7 +369,7 @@ def test_a_ui_error_during_shutdown_is_ignored(dash):
 
 # --- calls left open by a previous run ---
 
-def test_leftover_calls_are_adopted_and_duplicates_closed(dash, make_call, write_jsonl, capsys):
+def test_leftover_calls_are_adopted_and_duplicates_closed(dash, make_call, write_jsonl, logged):
     this_machine = {"workstation_id": COMPUTER_NAME, "component_id": "CAM-LOCAL"}
     log_path = write_jsonl("leftover.jsonl",
                            make_call(1, "CAMERA_FAILURE", "T1", "IN_PROGRESS", "09:00", **this_machine),
@@ -377,7 +377,7 @@ def test_leftover_calls_are_adopted_and_duplicates_closed(dash, make_call, write
 
     app = dash.build(log_path=log_path)
     assert app.open_requests["camera"].request_id == "MR-0001"  # the oldest is kept
-    assert "Closed duplicate maintenance call MR-0002" in capsys.readouterr().out
+    assert "Closed duplicate maintenance call MR-0002" in logged()
     assert [r.request_id for r in app.maintenance_desk.open_requests()] == ["MR-0001"]
 
     run_loop(dash, app.monitor_camera, 1)  # camera healthy: the adopted call is resolved

@@ -57,24 +57,24 @@ def desk(make_desk):
     return make_desk(csv_report=True)
 
 
-def test_a_locked_csv_does_not_stop_a_call_being_opened(desk, capsys, alerts):
+def test_a_locked_csv_does_not_stop_a_call_being_opened(desk, logged, alerts):
     with excel_has_the_csv_open():
         request = desk.open_request_for_alert(alerts.camera())
 
     assert request.status == "IN_PROGRESS"
     assert [r.request_id for r in load_maintenance_history(desk.log_path)] == [request.request_id]
-    output = capsys.readouterr().out
+    output = logged()
     assert "could not update" in output and "is it open in Excel?" in output
     assert "The call was still saved" in output
 
 
-def test_a_locked_csv_does_not_stop_a_call_being_resolved(desk, capsys, alerts):
+def test_a_locked_csv_does_not_stop_a_call_being_resolved(desk, logged, alerts):
     request = desk.open_request_for_alert(alerts.camera())
     with excel_has_the_csv_open():
         desk.resolve_request(request.request_id)
 
     assert load_maintenance_history(desk.log_path)[0].status == "RESOLVED"
-    assert "is it open in Excel?" in capsys.readouterr().out
+    assert "is it open in Excel?" in logged()
 
 
 def test_the_csv_catches_up_once_it_is_closed(desk, alerts):
@@ -92,7 +92,7 @@ def test_the_csv_catches_up_once_it_is_closed(desk, alerts):
 
 # --- 2. a component's diagnostic crashes ---
 
-def test_a_crashing_diagnostic_is_marked_error_and_alerted(tmp_path, capsys, alert_manager):
+def test_a_crashing_diagnostic_is_marked_error_and_alerted(tmp_path, logged, alert_manager):
     workstation = Workstation("WS-1", "Desk")
     camera = Camera("CAM-1", "Cam", "WS-1")
     microphone = Microphone("MIC-1", "Mic", "WS-1")
@@ -107,7 +107,7 @@ def test_a_crashing_diagnostic_is_marked_error_and_alerted(tmp_path, capsys, ale
     assert (alert.component_id, alert.error_type, alert.priority) == ("CAM-1", "CAMERA_FAILURE", 1)
     assert camera.connection_status == "ERROR"
     assert microphone.connection_status == "ACTIVE"
-    assert "Session failed with error (OSError): USB device not responding" in capsys.readouterr().out
+    assert "Session failed with error (OSError): USB device not responding" in logged()
     assert DiagnosticConnection.available_ports() == list(DiagnosticConnection.PORT_POOL)
 
 
@@ -149,11 +149,11 @@ def test_appending_to_a_clean_log_adds_no_blank_line(make_call, write_jsonl):
         assert len(f.read().splitlines()) == 2
 
 
-def test_the_desk_keeps_working_after_a_killed_run(technicians, make_call, write_jsonl, capsys, alerts):
+def test_the_desk_keeps_working_after_a_killed_run(technicians, make_call, write_jsonl, logged, alerts):
     log = write_jsonl("maintenance.jsonl", make_call(1, "CAMERA_FAILURE", "T1", "IN_PROGRESS"), fragment=CUT_OFF)
 
     desk = MaintenanceDesk(technicians, log_path=log, report_csv_path=None)
-    assert "skipping corrupt line 2" in capsys.readouterr().out
+    assert "skipping corrupt line 2" in logged()
     request = desk.open_request_for_alert(alerts.camera())
 
     assert request.request_id == "MR-0002"  # numbering ignores the unreadable fragment
@@ -260,12 +260,12 @@ def test_a_report_held_for_a_moment_is_still_written(reports_log, tmp_path):
 
 # --- 6. the maintenance log cannot be written ---
 
-def test_a_call_is_kept_when_the_log_cannot_be_written_and_saved_on_its_next_change(desk, alerts, capsys):
+def test_a_call_is_kept_when_the_log_cannot_be_written_and_saved_on_its_next_change(desk, alerts, logged):
     with file_locked("repository", desk.log_path):
         request = desk.open_request_for_alert(alerts.camera())
 
     assert request.status == "IN_PROGRESS" and desk.open_requests() == [request]
-    assert f"could not save call {request.request_id}" in capsys.readouterr().out
+    assert f"could not save call {request.request_id}" in logged()
 
     desk.resolve_request(request.request_id)  # the log works again
     (saved,) = load_maintenance_history(desk.log_path)
@@ -273,24 +273,24 @@ def test_a_call_is_kept_when_the_log_cannot_be_written_and_saved_on_its_next_cha
     assert saved.assigned_tech_name == desk.technician_for(request).name
 
 
-def test_a_csv_that_cannot_be_written_for_another_reason_does_not_stop_the_call(desk, alerts, capsys, retry_waits):
+def test_a_csv_that_cannot_be_written_for_another_reason_does_not_stop_the_call(desk, alerts, logged, retry_waits):
     with file_locked("reports", desk.report_csv_path, error=DISK_FULL):
         request = desk.open_request_for_alert(alerts.camera())
 
     assert retry_waits == []  # a full disk is not a moment's lock: not retried
     assert [r.request_id for r in load_maintenance_history(desk.log_path)] == [request.request_id]
-    output = capsys.readouterr().out
+    output = logged()
     assert "could not update" in output and "No space left" in output and "Excel" not in output
 
 
 # --- 7. the live dashboard keeps monitoring ---
 
-def test_a_fault_still_gets_its_call_when_the_alert_log_cannot_be_written(dash, capsys):
+def test_a_fault_still_gets_its_call_when_the_alert_log_cannot_be_written(dash, logged):
     with file_locked("repository", processing.LOG_PATH):
         dash.app.show_alert("camera", "Camera Disconnected", "no frame")
 
     assert dash.app.open_requests["camera"].status == "IN_PROGRESS"
-    assert "Could not save the camera alert" in capsys.readouterr().out
+    assert "Could not save the camera alert" in logged()
 
 
 class MicThatVanishesOnce(ScriptedMic):
@@ -303,14 +303,14 @@ class MicThatVanishesOnce(ScriptedMic):
         return True
 
 
-def test_a_crashed_monitor_is_restarted(dash, capsys):
+def test_a_crashed_monitor_is_restarted(dash, logged):
     dash.app.mic_source = mic = MicThatVanishesOnce()
     dash.clock.stop_after = 3
     dash.app.start()
 
     assert mic.calls > 1  # still checked after the crash
     assert ("Microphone monitoring stopped by an error (OSError: device vanished mid-read); "
-            f"restarting in {MONITOR_RESTART_SECONDS} s.") in capsys.readouterr().out
+            f"restarting in {MONITOR_RESTART_SECONDS} s.") in logged()
 
 
 # --- 8. main.py explains a failure instead of a traceback ---

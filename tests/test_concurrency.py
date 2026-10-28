@@ -390,7 +390,7 @@ def test_popup_slots_are_never_shared_or_overbooked(dash):
     assert len(set(rows)) == len(rows)                             # each in its own place on screen
 
 
-def test_only_one_github_issue_per_fault_within_the_cooldown(dash, capsys):
+def test_only_one_github_issue_per_fault_within_the_cooldown(dash, logged):
     # threads keep opening and resolving the same fault, so new calls race each other;
     # within the cooldown only one of them may open a GitHub issue
     app = dash.app
@@ -404,7 +404,7 @@ def test_only_one_github_issue_per_fault_within_the_cooldown(dash, capsys):
     new_calls = len(app.maintenance_desk.requests)
 
     assert new_calls > 1 and len(dash.github.posted) == 1
-    assert capsys.readouterr().out.count("GitHub issue for camera skipped") == new_calls - 1
+    assert logged().count("GitHub issue for camera skipped") == new_calls - 1
 
 
 def test_mixed_dashboard_operations_finish_without_deadlock(dash):

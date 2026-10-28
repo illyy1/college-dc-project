@@ -1,5 +1,9 @@
 """Resource management: a custom context manager guarding diagnostic sessions."""
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class DiagnosticConnection:
     """Opens a simulated diagnostic port to a component for the duration of a
@@ -29,7 +33,7 @@ class DiagnosticConnection:
         self.port = free[0]
         DiagnosticConnection._ports_in_use.add(self.port)
         if self.verbose:
-            print(f"[DIAGNOSTICS] Opening diagnostic channel {self.port} for component "
+            logger.info(f"[DIAGNOSTICS] Opening diagnostic channel {self.port} for component "
                   f"'{self.component.component_id}'...")
         try:
             self.component.begin_test()
@@ -40,11 +44,11 @@ class DiagnosticConnection:
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.verbose:
-            print(f"[DIAGNOSTICS] Closing diagnostic channel {self.port} for component "
+            logger.info(f"[DIAGNOSTICS] Closing diagnostic channel {self.port} for component "
                   f"'{self.component.component_id}'.")
         try:
             if exc_type is not None:
-                print(f"[DIAGNOSTICS] Session failed with error ({exc_type.__name__}): {exc_value}")
+                logger.error(f"[DIAGNOSTICS] Session failed with error ({exc_type.__name__}): {exc_value}")
                 self.component.end_test(final_status="ERROR")
             else:
                 self.component.end_test()

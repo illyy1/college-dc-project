@@ -534,7 +534,7 @@ def test_refreshing_while_lines_arrive_in_pieces(open_viewer, log, make_call):
     assert viewer.displayed()["summary"] == "27 calls: 23 open, 4 resolved"
 
 
-def test_a_broken_line_is_reported_once_not_on_every_refresh(open_viewer, log, make_call, capsys):
+def test_a_broken_line_is_reported_once_not_on_every_refresh(open_viewer, log, make_call, logged):
     # a run killed mid-write left a fragment; later runs appended after it
     with open(log.path, "a", encoding="utf-8") as f:
         f.write('{"request_id": "MR-0050", "sta\n')
@@ -544,12 +544,12 @@ def test_a_broken_line_is_reported_once_not_on_every_refresh(open_viewer, log, m
     for _ in range(5):
         viewer.root.run_next()
 
-    output = capsys.readouterr().out
+    output = logged()
     assert output.count("skipping corrupt line 8") == 1
     assert viewer.displayed()["summary"] == "8 calls: 4 open, 4 resolved"  # the calls around it still count
 
 
-def test_a_new_broken_line_is_still_reported(open_viewer, log, capsys):
+def test_a_new_broken_line_is_still_reported(open_viewer, log, logged):
     viewer = open_viewer()
     viewer.root.run_next()
     with open(log.path, "a", encoding="utf-8") as f:
@@ -557,12 +557,12 @@ def test_a_new_broken_line_is_still_reported(open_viewer, log, capsys):
     for _ in range(3):
         viewer.root.run_next()
 
-    assert capsys.readouterr().out.count("skipping corrupt line 8") == 1
+    assert logged().count("skipping corrupt line 8") == 1
 
 
 @pytest.mark.parametrize("bad_field", BAD_FIELDS)
 def test_a_wrongly_typed_call_doesnt_stop_the_refreshes(bad_field, open_viewer, log, make_call, make_bad_call,
-                                                        capsys):
+                                                        logged):
     viewer = open_viewer()
     before = viewer.displayed()
     log.append(make_bad_call(8, "T3", bad_field))  # line 8
@@ -575,7 +575,7 @@ def test_a_wrongly_typed_call_doesnt_stop_the_refreshes(bad_field, open_viewer, 
     log.append(make_call(9, "CAMERA_FAILURE", "T3", "IN_PROGRESS", "10:20"))
     viewer.root.run_next()
     assert viewer.displayed()["summary"] == "8 calls: 4 open, 4 resolved"  # later calls still appear
-    assert capsys.readouterr().out.count("line 8") == 1  # reported once, not on every refresh
+    assert logged().count("line 8") == 1  # reported once, not on every refresh
 
 
 def test_the_viewer_opens_on_a_log_that_already_has_a_wrongly_typed_call(open_viewer, log, make_bad_call, stats):
@@ -636,10 +636,10 @@ def test_the_launched_script_is_this_projects_main_py():
     assert os.path.samefile(stats_viewer.MAIN_SCRIPT, main.__file__)
 
 
-def test_a_viewer_that_cannot_start_is_reported_not_fatal(popen, capsys):
+def test_a_viewer_that_cannot_start_is_reported_not_fatal(popen, logged):
     popen.side_effect = OSError("no such file")
     assert stats_viewer.launch_in_background() is None
-    assert "Could not open the statistics window" in capsys.readouterr().out
+    assert "Could not open the statistics window" in logged()
 
 
 def test_stopping_closes_a_running_viewer(popen):

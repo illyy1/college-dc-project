@@ -206,21 +206,21 @@ def test_load_stats_with_no_log_yet(tmp_path, technicians_file, technicians):
 
 @pytest.mark.parametrize("bad_field", BAD_FIELDS)
 def test_a_call_with_a_wrongly_typed_field_is_skipped(bad_field, history, make_bad_call, write_log,
-                                                      technicians_file, capsys):
+                                                      technicians_file, logged):
     with_bad_call = load_stats(write_log([*history, make_bad_call(8, "T1", bad_field)]), technicians_file)  # line 8
 
     assert with_bad_call == load_stats(write_log(history), technicians_file)  # as if it weren't there
-    output = capsys.readouterr().out
+    output = logged()
     assert "skipping" in output and "line 8" in output
 
 
 def test_a_wrongly_typed_call_is_reported_once_when_read_again(history, make_bad_call, write_log,
-                                                              technicians_file, capsys):
+                                                              technicians_file, logged):
     path = write_log([*history, make_bad_call(8, "T1")])
     reported = set()
     for _ in range(3):
         load_stats(path, technicians_file, reported=reported)
-    assert capsys.readouterr().out.count("line 8") == 1
+    assert logged().count("line 8") == 1
 
 
 def test_load_stats_skips_a_half_written_line(history, write_jsonl, capsys, technicians_file):

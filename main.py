@@ -19,6 +19,7 @@ import sys
 from hardware_monitor.demo import run_demo
 from hardware_monitor.reports import publish_maintenance_reports
 from hardware_monitor.repository import DataFileError
+from hardware_monitor.safe_logging import configure_logging
 
 
 def main():
@@ -46,6 +47,7 @@ def main():
     args = parser.parse_args()
 
     try:
+        configure_logging()  # the console and logs/monitor.log, secrets redacted
         return _run(args)
     except (OSError, DataFileError) as error:
         print(f"Cannot start: {error}", file=sys.stderr)
