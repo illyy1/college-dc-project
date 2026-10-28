@@ -1,38 +1,255 @@
-* aabe438 Add a link to the original Gemini conversation for the technician data
-*   e66c139 Merge pull request #29 from illyy1/claude/project-thread-i6yexw
+*   763812f Merge branch 'feature/joint-process-demo': the demo shows the joint process through the external services (TDD)
 |\  
-| * a98c58e List the latest Claude-assisted commits in AI_USAGE.md
-| * 922ec22 Put the Gemini data chat link at the top of AI_USAGE.md
-| * 21aaa7f Document the new id, specialty and add_component checks
-| * b41e2c3 Validate technician specialty against Camera, Microphone and General
-| * ef0478d Stop a workstation from holding duplicate or foreign components
-| * a5647f3 Reject ids and names that are not text when loading records
-| * a7ef2d2 Skip the UTF-8 stdout switch when the console can't be reconfigured
-| * 140a5be Give a disconnected microphone priority 3 on the dashboard
-| * a9b9331 Assign maintenance calls only to technicians who cover the workstation
+| * eea680f Document the joint-process demo: README שלב 2 and AI_USAGE
+| * 7920043 REFACTOR: simulated links that can't pass for real issues
+| * 817e918 GREEN: the demo shows the joint process through the external services
+| * 5887bd7 RED: the demo shows the joint process through the external services
 |/  
-* 7a3b1c8 Create the logs folder before writing the CSV report
-* a920565 Reject null required fields and non-string installed_on when loading records
-* d243017 Print UTF-8 so redirected output with Hebrew doesn't crash on Windows
-* 9662d0f Show the unused Workstation methods and unresolved_alerts in the demo
-* 1277ac1 Document pyproject.toml, GitHub alert setup and log files in README
+*   93c9cb8 Merge branch 'feature/factory-injection': the Factory injected into the workstation loader (TDD)
+|\  
+| * 2517997 Log the factory-injection work in AI_USAGE.md
+| * a932065 REFACTOR: the README and factory.py say both patterns are injected
+| * 6176869 GREEN: inject the Factory into the workstation loader
+| * 52cf52b RED: inject the Factory into the workstation loader
+* |   c9c918a Merge pull request #50 from illyy1/claude/project-thread-f2ukt4
+|\ \  
+| |/  
+|/|   
+| * 12f8511 AI_USAGE: the Stage 2 responsible-use rules, with two expected results we set
+| * 0ac3fa3 README: the team's division of work in the Stage 2 section
+| * 51c5f95 README: the real Gemini/GitHub run in the Stage 2 proof
+| * 6d69406 README: add the Stage 2 (שלב 2) section required by the Part 2 brief
+|/  
+* 2f9a0c9 Rename safe_logging.py to logging_module.py
+* a4ef5b2 Prove the tests can't reach Gemini or read its real key
+*   81b6bc6 Merge branch 'feature/pattern-modules': the Strategy and the Factory in their own modules (TDD)
+|\  
+| * c01bc39 Log the pattern-modules work in AI_USAGE.md
+| * 233c51e REFACTOR: the pattern tests and README point at the pattern modules
+| * fb5dd3b GREEN: the Strategy and the Factory in their own modules
+| * 8a08f65 RED: give the Strategy and the Factory their own modules
+|/  
+*   61c3ad0 Merge branch 'feature/dependency-injection': the dashboard and report_fault get their dependencies from outside (TDD)
+|\  
+| * a55a1c9 Log the dependency-injection work in AI_USAGE.md
+| * 5835209 REFACTOR: one inline thread starter, one dashboard fixture
+| * eccaa05 GREEN: pass the dashboard's and report_fault's dependencies in
+| * 23e4777 RED: pass the dashboard's and report_fault's dependencies in
+|/  
+*   f8cadfd Merge branch 'feature/safe-logging': actions, events and failures logged with logging, secrets and names kept out (TDD)
+|\  
+| * f5499e5 Log the safe-logging work in AI_USAGE.md
+| * 3ff03d9 REFACTOR: one set of secret patterns, no home folder in the log
+| * a45b7bf GREEN: log actions, events and failures safely with logging
+| * b4632d2 RED: document actions, events and failures with logging, safely
+|/  
+* 8b8a231 Keep every .env variant out of git and test the repository's safety
+* c9aec13 Test that failures are reported clearly and invalid data is never retried
+*   ba15b32 Merge branch 'feature/duplicate-check': a GET with its own retry finds the open issue before a duplicate is posted (TDD)
+|\  
+| * 8f5ff1c Log the duplicate-check work in AI_USAGE.md
+| * ca7a640 REFACTOR: one issue title, one header set, one field check
+| * 928f7b7 GREEN: check GitHub for an open issue before posting a duplicate
+| * fc3b566 RED: check GitHub for an open issue before posting a duplicate
+|/  
+*   00502fd Merge branch 'feature/error-categories': every failed API call names its error category (TDD)
+|\  
+| * acafa2b Log the error-categorization work in AI_USAGE.md
+| * 50939bc REFACTOR: each check names its own error category
+| * 199452c GREEN: every failed API call names its error category
+| * 5c86a78 RED: every failed API call names its error category
+|/  
+* 5e5be4d Add .env.example listing the GitHub and Gemini settings
+*   a00d89d Merge branch 'feature/separation-of-concerns': api_client.py for the network, services.py for the decisions (TDD)
+|\  
+| * eef83b0 Log the separation-of-concerns work in AI_USAGE.md
+| * d8d87eb REFACTOR: report_fault builds its outcome once; names and README follow the split
+| * 33733df GREEN: api_client.py for the network, services.py for the decisions
+| * e5b08c8 RED: network code only in api_client.py, decisions only in services.py
+|/  
+*   8192444 Merge branch 'feature/ai-triage': Gemini's triage drives priority, labels and the report (TDD)
+|\  
+| * be6a6e5 Log the AI triage work in AI_USAGE.md
+| * 5c0627c REFACTOR: one triage stand-in, one sample triage, one ranking
+| * 86e044d GREEN: Gemini's triage drives the call's priority, the issue label and the report
+| * 0b5ea66 RED: Gemini's triage drives the call's priority, the issue label and the report
+|/  
+*   f5d488e Merge branch 'feature/log-to-objects': the maintenance log loads as MaintenanceRequest objects (TDD)
+|\  
+| * 941f8b5 Log the data-transformation work in AI_USAGE.md
+| * f720164 REFACTOR: one field list for a maintenance call
+| * 18bb1de GREEN: load the maintenance log as MaintenanceRequest objects
+| * aa8cdeb RED: the maintenance log becomes MaintenanceRequest objects
+|/  
+*   caafc07 Merge branch 'feature/response-validation': raise_for_status and field-value checks on API replies (TDD)
+|\  
+| * 1fe0bff Log the response-validation work in AI_USAGE.md
+| * 7a368bd REFACTOR: one status check and one JSON check for both API clients
+| * ea09e95 GREEN: raise_for_status and value checks on both API replies
+| * b41cf01 RED: validate API replies with raise_for_status and every field's value
+|/  
+*   155688c Merge branch 'feature/ai-issue-text': Gemini troubleshooting suggestions in GitHub issues (TDD)
+|\  
+| * 8968db5 Log the Gemini suggestions work in AI_USAGE.md
+| * 3235fa6 REFACTOR: share the API clients' retry loop and the fakes' mocked post
+| * 452f119 Use gemini-3.1-flash-lite: checked against the real Gemini API
+| * c8bcaaa GREEN: Gemini troubleshooting suggestions in the GitHub issues
+| * 5c400c5 RED: AI troubleshooting suggestions from Gemini in the GitHub issues
+|/  
+*   99770f4 Merge branch 'fix/unresolved-references': PyCharm's unresolved references and warnings cleared
+|\  
+| * f04536a Clear the shadowing and unused-parameter warnings in the package
+| * fdf690b Clear PyCharm's type warnings with declared types and plainer code
+| * 908001e Suppress PyCharm's 'Unexpected argument' on the from_dict factory call
+| * 97e9b9c Fix the remaining unresolved references PyCharm's inspector found
+| * 4895556 Fix PyCharm's unresolved references in the tests
+|/  
+* fbcd82a Point AI_USAGE.md at today's commits after their authorship was rewritten
+*   eecd731 Merge branch 'feature/retry-reads': retry file reads; clearer --report failure message (TDD)
+|\  
+| * 9baa4a8 GREEN: say 'create', and blame Excel only for the CSV, when --report fails
+| * 963b884 RED: say 'create', and blame Excel only for the CSV, when --report fails
+| * b2f5873 Log the read retries in AI_USAGE.md
+| * 493637d GREEN: retry reading a file another program holds for a moment
+| * c2efddb RED: a file held for a moment by another program is still read
+| * 95cedd5 Say 'installation date' in HardwareComponent.age_years' docstring
+|/  
+*   d07d2c9 Merge branch 'fix/close-error-gaps': trimmed tests, editor-warning fixes, demo and main.py error gaps closed
+|\  
+| * fc35f56 Declare _PROJECT_ROOT as str so PyCharm accepts the paths built from it
+| * f995ed3 Let editors see the lazily imported HardwareMonitorApp
+| * 7be187d Log the error-gap fixes in AI_USAGE.md
+| * 9f49f5f GREEN: retry resetting a demo log; explain any file problem in main.py
+| * 27193fd RED: retry resetting a demo log; explain any file problem in main.py
+| * 8044884 Make retry()'s final attempt a plain return
+| * 20b2e8c Patch main.py's steps by name so PyCharm stops flagging them
+| * abcc625 Log the test trimming in AI_USAGE.md
+| * 61c32e5 REFACTOR: remove duplicate tests; trim the error-handling tests
+|/  
+*   0b2f9b7 Merge branch 'feature/project-error-handling': one retry mechanism and explicit error handling (TDD)
+|\  
+| * 0aa3583 Log the project-wide error handling work in AI_USAGE.md
+| * df048e8 GREEN: one retry mechanism and explicit error handling, project wide
+| * fb24b4f RED: one retry mechanism and explicit error handling, project wide
+|/  
+*   366687a Merge branch 'fix/network-error-review': key-safe request errors, no retry of permanent ones (TDD)
+|\  
+| * cd908a9 Log the network-error review fixes in AI_USAGE.md
+| * 45acbf4 GREEN: name the exception, not its message; stop on permanent request errors
+| * cba4e83 RED: never quote the key in an error; don't retry requests that would fail again
+|/  
+*   d09970e Merge branch 'feature/explicit-network-errors': catch each network error explicitly (TDD)
+|\  
+| * 0ba0cd1 GREEN: catch Timeout, ConnectionError and other request errors explicitly
+| * e1f6e09 RED: catch Timeout, ConnectionError and other request errors explicitly
+|/  
+*   4952f13 Merge branch 'feature/bad-log-records': skip saved calls with a wrongly typed field (TDD)
+|\  
+| * 6f7e69c Log the bad-log-records work in AI_USAGE.md
+| * 7130695 REFACTOR: one shared stand-in for a saved call with a bad field
+| * 55a2766 GREEN: skip a saved call with a wrongly typed field, everywhere
+| * b9e2e44 RED: a saved call with a wrongly typed field must not crash the viewer or desk
+|/  
+*   d8fe91a Merge branch 'feature/weighted-assignment': weighted random technician draw (TDD)
+|\  
+| * 13ae235 Log the weighted-assignment work in AI_USAGE.md
+| * fb43fb9 Fix a test made flaky by the weighted draw
+| * 39df8fa GREEN: a weighted random draw between every technician
+| * 38d9cd1 RED: a weighted random draw between every technician
+|/  
+*   1127ed9 Merge branch 'feature/live-stats': live alert statistics viewer (TDD)
+|\  
+| * a968237 Log the live-stats branch work in AI_USAGE.md
+| * 010c637 GREEN: pie colours never repeat, and the canvas fits the whole legend
+| * 3c3a4dc RED: pie colours never repeat, the legend always fits, a call counts once
+| * de40e60 REFACTOR: one shared test object per purpose; no private dashboard state
+| * 0e97756 REFACTOR: tests read settings from the config; defaults pinned once
+| * caa54da REFACTOR: tests no longer depend on the contents of sample_data.jsonl
+| * f1019a7 Hire six technicians: 10 in total
+| * f4802f0 REFACTOR: tests no longer depend on who is in technicians.jsonl
+| * 3289d19 REFACTOR: remove tests made redundant by the assignment changes
+| * bfa7181 GREEN: remove the workstation lists from technicians
+| * adc8e65 RED: specify that technicians no longer list workstations
+| * b974784 GREEN: every technician takes every call, fewest calls first
+| * d167ff7 RED: specify that every technician takes every call, fewest calls first
+| * 7a32294 GREEN: open the statistics viewer with the dashboard
+| * 9e2defd RED: specify opening the statistics viewer with the dashboard
+| * 0fcbd40 REFACTOR: share test fakes and data, split compute_stats
+| * f4ca3df GREEN: report each broken log line once while the viewer runs
+| * 00679fc RED: specify how the viewer runs alongside a writing dashboard
+| * 9b68c50 GREEN: implement the live alert statistics viewer with pie charts
+| * 2ed58e3 RED: specify the two pie charts in the statistics viewer
+| * 0d916da RED: specify the live alert statistics viewer with failing tests
+|/  
+* 6acaba9 Log the exception, failure-recovery, fixture and tmp_path work in AI_USAGE.md
+* 2d1954a Test exceptions and failure recovery; share fixtures; guard the project folder
+* 09a8f4b Log the test isolation and parametrize names in AI_USAGE.md
+* 16a1151 Give parametrized test cases readable names
+* ba11235 Isolate tests from external dependencies with unittest.mock
+* d1466cf Log the dashboard, synthetic source and config tests in AI_USAGE.md
+* 6e86727 Test the dashboard logic, synthetic sources and token decryption
+* 70431ca Log the retry mechanism and concurrency tests in AI_USAGE.md
+* 9fcc6b9 Add concurrency validations; document retries and concurrency tests
+* 12058d1 Retry temporary GitHub API failures
+* aa4f4b5 Log the external API tests in AI_USAGE.md
+* 1ed97b3 Move the GitHub API call into a client and test external API scenarios
+* f3ccf7f Log the edge-case tests and design patterns in AI_USAGE.md
+* af35599 Add edge-case and design-pattern tests; make technician assignment a Strategy
+* b33acda Log the Phase 1 regression tests in AI_USAGE.md
+* fd6c90e Add Phase 1 regression tests and document the test suite
+*   9a92e0b Merge pull request #21 from illyy1/claude/project-thread-npgywq
+|\  
 | * 40dbcf7 Make the General-overflow test independent of technician coverage
 | * 630c351 Test technician workstation coverage and its cross-file check
 | *   5530aaa Merge remote-tracking branch 'origin/main' into claude/project-thread-npgywq
 | |\  
-| |/  
-|/|   
-* |   5ea5872 Merge pull request #26 from illyy1/claude/project-thread-6d02b7
-|\ \  
+| * | 72599f0 Update tests to the current alert queue and ranking API
+| * |   01ba189 Merge remote-tracking branch 'origin/main' into claude/project-thread-npgywq
+| |\ \  
+| * | | 3f74856 Add pytest suite and CI workflow; stop tracking .idea/
+* | | |   a2e0dee Merge pull request #34 from illyy1/feature/async-overview
+|\ \ \ \  
+| * | | | 80d8fb4 Log the thread-locking fix and async overview in AI_USAGE.md
+| * | | | 670923c Gather three independent monitoring sources asynchronously
+|/ / / /  
+* | | |   59276b0 Merge pull request #31 from illyy1/fix/thread-locking
+|\ \ \ \  
+| * | | | 8d06852 Close thread-locking gaps in alert logging and maintenance calls
+|/ / / /  
+* | | |   e867b34 Merge pull request #30 from illyy1/feature/member3-concurrency
+|\ \ \ \  
+| * | | | 6018223 Member 3: Add async concurrency and thread lock
+|/ / / /  
+* | | | d412737 Make HardwareComponent an abstract base class
+* | | | 3b78d5e Add git-log.txt with the project's commit history
+* | | | aabe438 Add a link to the original Gemini conversation for the technician data
+* | | |   e66c139 Merge pull request #29 from illyy1/claude/project-thread-i6yexw
+|\ \ \ \  
+| * | | | a98c58e List the latest Claude-assisted commits in AI_USAGE.md
+| * | | | 922ec22 Put the Gemini data chat link at the top of AI_USAGE.md
+| * | | | 21aaa7f Document the new id, specialty and add_component checks
+| * | | | b41e2c3 Validate technician specialty against Camera, Microphone and General
+| * | | | ef0478d Stop a workstation from holding duplicate or foreign components
+| * | | | a5647f3 Reject ids and names that are not text when loading records
+| * | | | a7ef2d2 Skip the UTF-8 stdout switch when the console can't be reconfigured
+| * | | | 140a5be Give a disconnected microphone priority 3 on the dashboard
+| * | | | a9b9331 Assign maintenance calls only to technicians who cover the workstation
+|/ / / /  
+* | | | 7a3b1c8 Create the logs folder before writing the CSV report
+* | | | a920565 Reject null required fields and non-string installed_on when loading records
+* | | | d243017 Print UTF-8 so redirected output with Hebrew doesn't crash on Windows
+* | | | 9662d0f Show the unused Workstation methods and unresolved_alerts in the demo
+* | | | 1277ac1 Document pyproject.toml, GitHub alert setup and log files in README
+| |_|/  
+|/| |   
+* | |   5ea5872 Merge pull request #26 from illyy1/claude/project-thread-6d02b7
+|\ \ \  
+| |_|/  
+|/| |   
 | * | 8a9697b Document the technician-workstation link and which packages the demo needs
 | * | 4d60957 Link technicians to the workstations they cover and check the ids
 | * | 25b51d5 Import dotenv and cryptography only when the dashboard needs the token
 |/ /  
-| * 72599f0 Update tests to the current alert queue and ranking API
-| *   01ba189 Merge remote-tracking branch 'origin/main' into claude/project-thread-npgywq
-| |\  
-| |/  
-|/|   
 * |   af76058 Merge pull request #25 from illyy1/claude/project-thread-ck61rp
 |\ \  
 | * | e102cb1 Complete README: proposal entities, data-structure tables, pipeline and context-manager explanations
@@ -63,22 +280,22 @@
 | * | 135d1d2 Move the demo out of main.py into hardware_monitor/demo.py
 * | | f55351a Merge branch 'feature/maintenance-calls' into main
 |\| | 
-| * | a3a13c0 Show [DIAGNOSTICS] channel messages only in the step 3 demo
-| * |   a6bad51 Merge main into feature/maintenance-calls
-| |\ \  
-| |/ /  
-|/| |   
-| * | c9beb7e Age-filtered lazy pipeline that stops exactly, and concurrent iterator demo
-| * | e2ac8ec Demonstrate all requirements in main.py and validate cross-file data
-| * | 19eb072 Add DiagnosticConnection and __str__ methods; fix maintenance call bugs
-| | * 3f74856 Add pytest suite and CI workflow; stop tracking .idea/
+| |/  
+|/|   
+| * a3a13c0 Show [DIAGNOSTICS] channel messages only in the step 3 demo
+| *   a6bad51 Merge main into feature/maintenance-calls
+| |\  
 | |/  
 |/|   
 * | 603842e Complete Member 1 OOP requirements in models and Alert
 * | 2ee8cc2 Add requirements.txt and point README install step at it
 * | add0e3f Update HardwareDiagnosticSession per instructor feedback
-* | 6d44465 Merge pull request #20 from illyy1/feature/maintenance-calls
-|\| 
+* |   6d44465 Merge pull request #20 from illyy1/feature/maintenance-calls
+|\ \  
+| | * c9beb7e Age-filtered lazy pipeline that stops exactly, and concurrent iterator demo
+| | * e2ac8ec Demonstrate all requirements in main.py and validate cross-file data
+| | * 19eb072 Add DiagnosticConnection and __str__ methods; fix maintenance call bugs
+| |/  
 | * 94dd81d Add maintenance desk with technician assignment and persisted reports
 |/  
 * bb21a63 Add Technician and MaintenanceRequest models with reporting module
