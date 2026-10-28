@@ -44,6 +44,9 @@ def main():
                         help="only open the live alert statistics window (follows the maintenance log)")
     parser.add_argument("--no-stats", action="store_true",
                         help="open the dashboard without the statistics window next to it")
+    parser.add_argument("--live", action="store_true",
+                        help="only run the joint-process step against the real GitHub and Gemini "
+                             "(keys from .env; posts a real issue)")
     args = parser.parse_args()
 
     try:
@@ -55,6 +58,12 @@ def main():
 
 
 def _run(args):
+    if args.live:
+        from hardware_monitor.demo import run_live_joint_process
+        print("Joint process against the real GitHub and Gemini [REAL]")
+        run_live_joint_process()
+        return 0
+
     if args.report:
         return 0 if _publish_reports() else 1
 

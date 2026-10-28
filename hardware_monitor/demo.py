@@ -1,20 +1,25 @@
 """Linear demonstration of the information system: one function per step,
 each showing one requirement (OOP model, composition, encapsulation, context
 manager, data structures, queues, iterators, generator, lazy pipeline,
-maintenance workflow, async information gathering). run_demo() runs them in
-order without any interactive input."""
+maintenance workflow, async information gathering, the joint process through
+the external services). run_demo() runs them in order without any
+interactive input."""
 
 import asyncio
+import io
 import time
+from contextlib import redirect_stdout
 from itertools import islice
 
+from . import services as service_layer
+from .api_client import ErrorCategory, IssueResult, IssueSearchResult, Triage, TriageResult
 from .concurrency import SOURCE_LATENCY_SECONDS, gather_overview_sequential, gather_overview_concurrent
 from .config import SAMPLE_DATA_PATH, TECHNICIANS_PATH, DEMO_LOG_PATH, DEMO_MAINTENANCE_LOG_PATH
 from .context_managers import DiagnosticConnection
 from .iterators import AlertHistory, iter_disconnected_components, lazy_disconnected_pipeline
 from .maintenance import MaintenanceDesk
 from .models import Camera, MaintenanceRequest, Microphone, Workstation
-from .processing import AlertManager, run_diagnostics_and_log_alerts
+from .processing import Alert, AlertManager, run_diagnostics_and_log_alerts
 from .reports import (
     validate_and_assign_request,
     find_unknown_technician_references,
@@ -57,6 +62,9 @@ def run_demo():
 
     _header(11, "Async information gathering: three independent sources with create_task + gather")
     demo_async_overview()
+
+    _header(12, "Joint process: a fault reaches the maintenance subsystem through GitHub and Gemini")
+    demo_joint_process()
     print("=" * 70)
 
 
@@ -303,3 +311,132 @@ def demo_async_overview():
     print(f"  Fleet: {fleet['workstations']} workstation(s), components by status {fleet['components_by_status']}")
     print(f"  Technicians: {', '.join(overview['technicians'])}")
     print(f"  Maintenance: {maintenance['total_calls']} call(s), still open: {maintenance['open_calls'] or 'none'}")
+
+
+class SimulatedServices:
+    """Offline stand-ins for api_client's three calls, passed into
+    services.report_fault() (dependency injection): no network, no keys.
+    triage_fault answers with TRIAGE, or with a timeout when gemini_fails;
+    create_issue numbers the issues 1, 2, ... (in `issues`, which several
+    instances may share)."""
+
+    TRIAGE = Triage(priority=2, cause="cable", repair_minutes=15,
+                    steps=("Reseat the microphone's USB cable.", "Try another USB port."))
+
+    def __init__(self, gemini_fails=False, issues=None):
+        self.gemini_fails = gemini_fails
+        self.issues = issues if issues is not None else []
+
+    @property
+    def created(self):
+        return list(self.issues)
+
+    def find_open_issues(self, token, repo, labels):
+        return IssueSearchResult(True)  # nothing open
+
+    def triage_fault(self, api_key, title, details, component):
+        if self.gemini_fails:
+            return TriageResult(False, error="Gemini did not answer within 10 s.",
+                                category=ErrorCategory.COMMUNICATION)
+        return TriageResult(True, triage=self.TRIAGE)
+
+    def create_issue(self, token, repo, title, body, labels=()):
+        self.issues.append(title)
+        number = len(self.issues)
+        return IssueResult(True, issue_number=number, url=f"https://github.com/{repo}/issues/{number}")
+
+    def clients(self):
+        return dict(create_issue=self.create_issue, find_open_issues=self.find_open_issues,
+                    triage_fault=self.triage_fault)
+
+
+JOINT_TITLE = "Microphone Disconnected (joint-process demo)"
+
+
+def demo_joint_process(label="SIMULATED", services=None, failing_services=None,
+                       github_token="simulated-token", gemini_api_key="simulated-key"):
+    """The joint process, offline by default: a fault opens a call on the
+    demo desk, services.report_fault() sends it on with the injected
+    clients, Gemini's triage changes the call, and the report's figures show
+    it. A second fault shows the failure path (Gemini down). Returns the two
+    calls."""
+    working = services or SimulatedServices()
+    failing = failing_services or SimulatedServices(gemini_fails=True, issues=working.issues)
+    return _joint_process(label, working.clients(), failing.clients(), github_token, gemini_api_key)
+
+
+def run_live_joint_process():
+    """`python main.py --live`: the same step against the real GitHub and
+    Gemini, with the keys from .env (it posts a real issue). Says which key
+    is missing, and sends nothing, if one is."""
+    from .config import get_gemini_api_key, get_github_token
+
+    github_token, gemini_api_key = get_github_token(), get_gemini_api_key()
+    missing = [name for name, value in (("GITHUB_TOKEN/ENCRYPTION_KEY", github_token),
+                                        ("GEMINI_API_KEY", gemini_api_key)) if not value]
+    if missing:
+        print(f"  [REAL] Missing in .env: {', '.join(missing)}. Nothing was sent.")
+        return None
+    # report_fault's own defaults are the real api_client calls. Only the success
+    # path: a real Gemini can't be made to fail on purpose
+    return _joint_process("REAL", {}, None, github_token, gemini_api_key)
+
+
+def _joint_process(label, clients, failing_clients, github_token, gemini_api_key):
+    def say(text):
+        print(f"  [{label}] {text}")
+
+    technicians = load_technicians_from_jsonl(TECHNICIANS_PATH)
+    desk = MaintenanceDesk(technicians, log_path=DEMO_MAINTENANCE_LOG_PATH, report_csv_path=None)
+
+    say("1) Gemini answers:")
+    triaged = _report_one(desk, say, "MIC-DEMO-1", github_token, gemini_api_key, clients)
+    untriaged = None
+    if failing_clients is not None:
+        say("2) Gemini fails:")
+        untriaged = _report_one(desk, say, "MIC-DEMO-2", github_token, gemini_api_key, failing_clients)
+
+    summary = service_layer.triage_summary(load_maintenance_history(DEMO_MAINTENANCE_LOG_PATH))
+    causes = ", ".join(f"{cause}: {n}" for cause, n in summary.causes) or "none"
+    minutes = ", ".join(f"{tech}: {m} min" for tech, m in summary.minutes_by_technician.items()) or "none"
+    say("In the history report (python main.py --report), from the demo log:")
+    say(f"  triaged calls: {summary.triaged_calls}")
+    say(f"  most common causes: {causes}")
+    say(f"  estimated minutes per technician: {minutes}")
+    say(f"  open backlog: {summary.open_backlog_minutes} min")
+    return triaged, untriaged
+
+
+def _report_one(desk, say, component_id, github_token, gemini_api_key, clients):
+    """One fault, from the alert to the changed call."""
+    alert = Alert(component_id=component_id, workstation_id="WS-DEMO", error_type="MICROPHONE_DISCONNECTED",
+                  message=f"Microphone {component_id} stopped answering.", priority=3)
+    with redirect_stdout(io.StringIO()) as desk_output:  # the desk confirms the assignment; labelled below
+        call = desk.open_request_for_alert(alert)
+    for line in desk_output.getvalue().splitlines():
+        say(line)
+    before = call.priority
+    say(f"Trigger: alert #{alert.alert_id} {alert.error_type} on {component_id} (rule priority {before}) "
+        f"opened {call.request_id}, assigned to {call.assigned_tech_id}.")
+    say(f"Sent to report_fault: alert key 'mic_conn', title '{JOINT_TITLE}', details '{alert.message}', "
+        f"call {call.request_id}.")
+
+    outcome = service_layer.report_fault(desk, github_token, gemini_api_key, "mic_conn", JOINT_TITLE,
+                                         alert.message, call, **clients)
+    if outcome.already_open:
+        say(f"GitHub issue #{outcome.issue.issue_number} for this fault is still open: nothing posted, "
+            f"Gemini not asked.")
+        return call
+    if outcome.triage is not None:
+        triage = outcome.triage
+        say(f"Gemini's triage: priority {triage.priority}, cause {triage.cause}, about {triage.repair_minutes} min.")
+        say(f"Changed on {call.request_id}: priority {before} -> {call.priority}, cause none -> {call.cause}, "
+            f"estimate none -> {call.estimated_minutes} min.")
+    else:
+        say(f"No triage: {outcome.triage_error}")
+        say(f"{call.request_id} keeps priority {call.priority}: a failed triage never changes the call.")
+    if outcome.issue.ok:
+        say(f"GitHub issue #{outcome.issue.issue_number} posted: {outcome.issue.url}")
+    else:
+        say(f"GitHub issue not posted: {outcome.issue.error}")
+    return call
