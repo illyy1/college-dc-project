@@ -1,7 +1,8 @@
 """The business logic and decisions made with the data the APIs return. The
 network itself is api_client.py's job; this module never touches it.
 
-- report_fault(): reports a hardware fault to GitHub. It decides whether to
+- report_fault(): reports a hardware fault to GitHub, unless this
+  computer's issue for it is still open. It decides whether to
   ask Gemini for a triage, lets the triage set the call's final priority,
   and composes the issue's text and labels.
 - apply_triage(): the rule for a triage: the call takes the more urgent of
@@ -14,7 +15,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 
-from .api_client import IssueResult, Triage, create_issue, triage_fault
+from .api_client import IssueResult, Triage, create_issue, find_open_issues, triage_fault
 from .config import COMPUTER_NAME, GITHUB_REPO
 
 
@@ -27,15 +28,28 @@ class FaultReport:
     triage: Triage | None = None
     triage_error: str | None = None
     priority: int | None = None
+    already_open: bool = False       # this computer's issue for the fault was still open: nothing posted
+    lookup_error: str | None = None  # why the open issues couldn't be checked (posted anyway)
 
 
 def report_fault(desk, github_token, gemini_api_key, alert_key, title, message, request=None):
-    """Reports a fault as a GitHub issue. With a Gemini key, the fault is
+    """Reports a fault as a GitHub issue, unless this computer's issue for
+    the same fault is still open: then nothing is posted and Gemini is not
+    asked. If the open issues can't be checked, the issue is posted anyway (a
+    duplicate is better than a lost alert). With a Gemini key, the fault is
     triaged first: the triage is applied to the call (`request`, if there is
     one), and the issue gets a priority-N label and a Triage section. Without
     a key, or when Gemini fails, the issue goes out as before."""
-    body = issue_body(alert_key, message, request, desk.technician_for(request) if request is not None else None)
     labels = ["hardware-alert", alert_key]
+    full_title = issue_title(title)  # with the computer's name: never sent to Gemini
+    search = find_open_issues(github_token, GITHUB_REPO, tuple(labels))
+    still_open = next((issue for issue in search.issues if issue.title == full_title), None)
+    if still_open is not None:
+        return FaultReport(IssueResult(True, issue_number=still_open.number, url=still_open.url,
+                                       attempts=search.attempts), already_open=True)
+    lookup_error = search.error if search.attempts else None  # attempts 0: nothing was sent (no token)
+
+    body = issue_body(alert_key, message, request, desk.technician_for(request) if request is not None else None)
     triage, triage_error, priority = None, None, None
 
     if gemini_api_key:
@@ -48,8 +62,14 @@ def report_fault(desk, github_token, gemini_api_key, alert_key, title, message, 
         labels.append(f"priority-{priority}")
         body += triage_section(triage, priority)
 
-    issue = create_issue(github_token, GITHUB_REPO, f"\U0001f6a8 [{COMPUTER_NAME}] {title}", body, labels=labels)
-    return FaultReport(issue, triage, triage_error, priority)
+    issue = create_issue(github_token, GITHUB_REPO, full_title, body, labels=labels)
+    return FaultReport(issue, triage, triage_error, priority, lookup_error=lookup_error)
+
+
+def issue_title(title):
+    """The GitHub issue's title for a fault on this computer. The duplicate
+    check matches it exactly, so this is its one definition."""
+    return f"\U0001f6a8 [{COMPUTER_NAME}] {title}"
 
 
 def issue_body(alert_key, message, request=None, technician=None):

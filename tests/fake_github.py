@@ -1,7 +1,7 @@
-"""The GitHub API, faked at its external dependency: requests.post. One
-mocked post for every test that sends an alert (see the `github` fixture in
-conftest.py); the code that builds the request and reads the reply runs
-for real."""
+"""The GitHub API, faked at its external dependencies: requests.post (new
+issues) and requests.get (the open issues). One mocked pair for every test
+that sends an alert (see the `github` fixture in conftest.py); the code
+that builds the request and reads the reply runs for real."""
 
 from types import SimpleNamespace
 
@@ -28,3 +28,22 @@ class MockedGitHub(MockedPost):
         """Every issue sent: its alert key, title, body and the token used."""
         return [SimpleNamespace(key=c.json["labels"][1], title=c.json["title"], body=c.json["body"],
                                 token=c.headers["Authorization"]) for c in self.calls]
+
+
+def open_issue(number, title, url=None):
+    """One open issue, as GitHub lists it."""
+    return {"number": number, "title": title, "state": "open",
+            "html_url": url or f"https://github.com/owner/repo/issues/{number}"}
+
+
+def open_issues(*issues):
+    """GitHub's 200 reply listing these open issues."""
+    return api_response(200, list(issues))
+
+
+class MockedGitHubSearch(MockedPost):
+    """The mocked requests.get (see fake_http.MockedPost; it fakes any
+    request function). By default no issue is open."""
+
+    def default_reply(self):
+        return open_issues()
