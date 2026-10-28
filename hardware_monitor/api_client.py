@@ -2,7 +2,10 @@
 the network. It sends the requests to GitHub Issues (create_issue) and to
 Gemini (triage_fault), checks each reply (the HTTP status, the JSON, every
 field) and turns it into a plain result: IssueResult, or TriageResult with
-a Triage. It decides nothing about the business: what to do with a result
+a Triage. A failed result names its ErrorCategory: no reply
+(COMMUNICATION), an error status (HTTP), a reply that isn't JSON
+(INVALID_JSON), or JSON with the wrong structure or values (VALIDATION).
+It decides nothing about the business: what to do with a result
 (the call's priority, the issue's text and labels, the report) is in
 services.py. From the package it uses only the generic retry loop.
 
@@ -35,35 +38,36 @@ class ErrorCategory(Enum):
 # ======================================================================
 
 def request_failure(error, service, timeout):
-    """(message, worth retrying) for a requests exception raised by one attempt.
+    """(message, ErrorCategory.COMMUNICATION, worth retrying) for a requests
+    exception raised by one attempt.
 
     Most specific first: ConnectTimeout is both a Timeout and a
     ConnectionError, and every requests error is a RequestException. Only the
     exception's name is reported: requests quotes the headers or URL in its
     messages, and with them the key."""
     if isinstance(error, requests.exceptions.Timeout):
-        return f"{service} did not answer within {timeout} s.", True
+        return f"{service} did not answer within {timeout} s.", ErrorCategory.COMMUNICATION, True
     if isinstance(error, requests.exceptions.ConnectionError):  # DNS failure, refused/reset connection, SSL, proxy
-        return f"Could not connect to {service} ({type(error).__name__}).", True
+        return f"Could not connect to {service} ({type(error).__name__}).", ErrorCategory.COMMUNICATION, True
     # any other request problem (redirects, a bad URL or header, ...): only a reply
     # cut off mid-way may work next time; the rest would fail the same way again
-    return f"{service} request failed ({type(error).__name__}).", \
+    return f"{service} request failed ({type(error).__name__}).", ErrorCategory.COMMUNICATION, \
         isinstance(error, requests.exceptions.ChunkedEncodingError)
 
 
 def status_failure(response, service, expected_status, api_message):
-    """(message, worth retrying) if the reply's status isn't expected_status,
-    else None. The status is checked with requests' raise_for_status() (any
+    """(message, ErrorCategory.HTTP, worth retrying) if the reply's status
+    isn't expected_status, else None. The status is checked with requests' raise_for_status() (any
     4xx/5xx); it lets every other code through, so the exact success code is
     checked after it. api_message(response) gives the API's own explanation,
     as ': <message>' or ''."""
     try:
         response.raise_for_status()
     except requests.exceptions.HTTPError:
-        return (f"{service} returned HTTP {response.status_code}{api_message(response)}.",
+        return (f"{service} returned HTTP {response.status_code}{api_message(response)}.", ErrorCategory.HTTP,
                 response.status_code in RETRYABLE_STATUS_CODES)
     if response.status_code != expected_status:
-        return f"{service} returned HTTP {response.status_code}{api_message(response)}.", False
+        return f"{service} returned HTTP {response.status_code}{api_message(response)}.", ErrorCategory.HTTP, False
     return None
 
 
@@ -166,13 +170,13 @@ def _github_try_once(token, repo, title, body, labels, timeout):
             timeout=timeout,
         )
     except requests.exceptions.RequestException as e:
-        error, retryable = request_failure(e, "GitHub", timeout)
-        return IssueResult(False, error=error, category=ErrorCategory.COMMUNICATION), retryable
+        error, category, retryable = request_failure(e, "GitHub", timeout)
+        return IssueResult(False, error=error, category=category), retryable
 
     failure = status_failure(response, "GitHub", 201, _github_message)  # a new issue is 201 Created
     if failure:
-        error, retryable = failure
-        return IssueResult(False, error=error, category=ErrorCategory.HTTP), retryable
+        error, category, retryable = failure
+        return IssueResult(False, error=error, category=category), retryable
     return _parse_created_issue(response), False
 
 
@@ -198,14 +202,17 @@ def _parse_created_issue(response):
         elif isinstance(value, bool) or not isinstance(value, expected):
             problems.append(f"'{field}' should be {expected.__name__}, got {value!r}")
     if problems:
-        return IssueResult(False, error=f"GitHub's reply is incomplete: {', '.join(problems)}.",
-                           category=ErrorCategory.VALIDATION)
+        return _invalid_issue(f"GitHub's reply is incomplete: {', '.join(problems)}.")
 
     problems = _impossible_issue_values(data["number"], data["html_url"])
     if problems:
-        return IssueResult(False, error=f"GitHub's reply is invalid: {', '.join(problems)}.",
-                           category=ErrorCategory.VALIDATION)
+        return _invalid_issue(f"GitHub's reply is invalid: {', '.join(problems)}.")
     return IssueResult(True, issue_number=data["number"], url=data["html_url"])
+
+
+def _invalid_issue(error):
+    """A GitHub reply whose JSON has the wrong structure or values."""
+    return IssueResult(False, error=error, category=ErrorCategory.VALIDATION)
 
 
 def _impossible_issue_values(number, url):
@@ -315,13 +322,13 @@ def _gemini_try_once(api_key, prompt, timeout):
             timeout=timeout,
         )
     except requests.exceptions.RequestException as e:
-        error, retryable = request_failure(e, "Gemini", timeout)
-        return TriageResult(False, error=error, category=ErrorCategory.COMMUNICATION), retryable
+        error, category, retryable = request_failure(e, "Gemini", timeout)
+        return TriageResult(False, error=error, category=category), retryable
 
     failure = status_failure(response, "Gemini", 200, _gemini_message)  # an answer is 200 OK
     if failure:
-        error, retryable = failure
-        return TriageResult(False, error=error, category=ErrorCategory.HTTP), retryable
+        error, category, retryable = failure
+        return TriageResult(False, error=error, category=category), retryable
     return _parse_gemini_reply(response), False
 
 
@@ -342,21 +349,19 @@ def _parse_gemini_reply(response):
 
     blocked = (data.get("promptFeedback") or {}).get("blockReason")
     if blocked:
-        return TriageResult(False, error=f"Gemini blocked the prompt ({blocked}).", category=ErrorCategory.VALIDATION)
+        return _invalid_triage(f"Gemini blocked the prompt ({blocked}).")
 
     candidate = _first_candidate(data.get("candidates"))
     text = _candidate_text(candidate).strip()
     if not text:
-        return TriageResult(False, error="Gemini's reply had no answer.", category=ErrorCategory.VALIDATION)
+        return _invalid_triage("Gemini's reply had no answer.")
 
     finish = candidate.get("finishReason")
     if finish is None:
-        return TriageResult(False, error="Gemini's reply is incomplete: missing 'finishReason'.",
-                            category=ErrorCategory.VALIDATION)
+        return _invalid_triage("Gemini's reply is incomplete: missing 'finishReason'.")
     if finish != "STOP":
         # cut off at the length limit or stopped for safety: the JSON may be half-written
-        return TriageResult(False, error=f"Gemini stopped before finishing the triage ({finish}).",
-                            category=ErrorCategory.VALIDATION)
+        return _invalid_triage(f"Gemini stopped before finishing the triage ({finish}).")
     return _parse_triage(text)
 
 
@@ -367,14 +372,18 @@ def _parse_triage(text):
     except ValueError:
         return TriageResult(False, error="Gemini's answer was not valid JSON.", category=ErrorCategory.INVALID_JSON)
     if not isinstance(answer, dict):
-        return TriageResult(False, error="Gemini's answer was not a JSON object.", category=ErrorCategory.VALIDATION)
+        return _invalid_triage("Gemini's answer was not a JSON object.")
 
     problems = _triage_problems(answer)
     if problems:
-        return TriageResult(False, error=f"Gemini's triage is invalid: {', '.join(problems)}.",
-                            category=ErrorCategory.VALIDATION)
+        return _invalid_triage(f"Gemini's triage is invalid: {', '.join(problems)}.")
     steps = tuple(step.strip()[:MAX_STEP_CHARS].rstrip() for step in answer["steps"][:MAX_STEPS])
     return TriageResult(True, triage=Triage(answer["priority"], answer["cause"], answer["repair_minutes"], steps))
+
+
+def _invalid_triage(error):
+    """A Gemini reply, or its answer, whose JSON has the wrong structure or values."""
+    return TriageResult(False, error=error, category=ErrorCategory.VALIDATION)
 
 
 def _triage_problems(answer):
