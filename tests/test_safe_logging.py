@@ -76,19 +76,6 @@ def no_registered_secrets():
         pass
 
 
-@pytest.fixture
-def package_logger():
-    """configure_logging changes the "hardware_monitor" logger: put it back afterwards."""
-    logger = logging.getLogger("hardware_monitor")
-    handlers, level = list(logger.handlers), logger.level
-    yield logger
-    for handler in logger.handlers:
-        if handler not in handlers:
-            handler.close()
-    logger.handlers[:] = handlers
-    logger.setLevel(level)
-
-
 def records_from(caplog, module):
     return [r for r in caplog.records if r.name == f"hardware_monitor.{module}"]
 
@@ -116,6 +103,14 @@ def test_values_too_short_to_be_secrets_are_not_registered(value):
     assert safe_logging().redact("a short status line") == "a short status line"
 
 
+def test_redact_hides_the_home_folder_and_with_it_the_user_name():
+    home = os.path.expanduser("~")
+    path = os.path.join(home, "project", "logs", "x.jsonl")
+    for shown in (path, repr(path)):  # an OSError quotes the path with repr()
+        assert home not in safe_logging().redact(f"Could not save to {shown}")
+    assert safe_logging().redact(f"at {path}") == "at " + os.path.join("~", "project", "logs", "x.jsonl")
+
+
 def test_forget_secrets_clears_them():
     safe_logging().register_secret("plain-old-password")
     safe_logging().forget_secrets()
@@ -124,7 +119,7 @@ def test_forget_secrets_clears_them():
 
 # --- configure_logging(): the console and the log file, both redacted ---
 
-def test_records_go_to_the_log_file_with_time_level_and_module(package_logger, tmp_path):
+def test_records_go_to_the_log_file_with_time_level_and_module(tmp_path):
     log_file = tmp_path / "monitor.log"
     safe_logging().configure_logging(log_path=str(log_file))
     logging.getLogger("hardware_monitor.dashboard").warning("camera alert not sent")
@@ -134,7 +129,7 @@ def test_records_go_to_the_log_file_with_time_level_and_module(package_logger, t
     assert line[:4].isdigit()  # starts with the time
 
 
-def test_info_is_recorded_and_debug_is_not_by_default(package_logger, tmp_path):
+def test_info_is_recorded_and_debug_is_not_by_default(tmp_path):
     log_file = tmp_path / "monitor.log"
     safe_logging().configure_logging(log_path=str(log_file))
     logging.getLogger("hardware_monitor.maintenance").info("call resolved")
@@ -143,7 +138,7 @@ def test_info_is_recorded_and_debug_is_not_by_default(package_logger, tmp_path):
     assert log_file.read_text(encoding="utf-8").count("\n") == 1
 
 
-def test_configuring_twice_does_not_write_each_record_twice(package_logger, tmp_path):
+def test_configuring_twice_does_not_write_each_record_twice(tmp_path):
     log_file = tmp_path / "monitor.log"
     safe_logging().configure_logging(log_path=str(log_file))
     safe_logging().configure_logging(log_path=str(log_file))
@@ -152,7 +147,7 @@ def test_configuring_twice_does_not_write_each_record_twice(package_logger, tmp_
     assert log_file.read_text(encoding="utf-8").count("once") == 1
 
 
-def test_secrets_in_messages_and_arguments_never_reach_the_file(package_logger, tmp_path):
+def test_secrets_in_messages_and_arguments_never_reach_the_file(tmp_path):
     log_file = tmp_path / "monitor.log"
     safe_logging().configure_logging(log_path=str(log_file))
     safe_logging().register_secret("plain-old-password")
@@ -166,7 +161,7 @@ def test_secrets_in_messages_and_arguments_never_reach_the_file(package_logger, 
     assert not any(s in text for s in [*SAMPLE_SECRETS.values(), "plain-old-password"])
 
 
-def test_secrets_in_a_traceback_never_reach_the_file(package_logger, tmp_path):
+def test_secrets_in_a_traceback_never_reach_the_file(tmp_path):
     log_file = tmp_path / "monitor.log"
     safe_logging().configure_logging(log_path=str(log_file))
     try:
@@ -179,7 +174,7 @@ def test_secrets_in_a_traceback_never_reach_the_file(package_logger, tmp_path):
     assert SAMPLE_SECRETS["github-token"] not in text
 
 
-def test_the_console_is_redacted_too(package_logger, tmp_path, capsys):
+def test_the_console_is_redacted_too(tmp_path, capsys):
     safe_logging().configure_logging(log_path=str(tmp_path / "monitor.log"))
     logging.getLogger("hardware_monitor.retry").warning(f"retrying with {SAMPLE_SECRETS['fernet-key']}")
 
@@ -298,7 +293,7 @@ def test_a_skipped_log_line_is_a_warning(tmp_path, caplog):
         assert list(iter_jsonl_records(str(log))) == [{"alert_id": 1}]
 
     (record,) = records_from(caplog, "repository")
-    assert record.levelno == logging.WARNING and "skipping corrupt line 2" in record.getMessage()
+    assert record.levelno == logging.WARNING and "Skipping corrupt line 2" in record.getMessage()
 
 
 def test_a_call_that_cannot_be_saved_is_a_warning(desk, alerts, caplog, monkeypatch):
@@ -310,7 +305,7 @@ def test_a_call_that_cannot_be_saved_is_a_warning(desk, alerts, caplog, monkeypa
         request = desk.open_request_for_alert(alerts.camera())
 
     (record,) = records_from(caplog, "maintenance")
-    assert record.levelno == logging.WARNING and f"could not save call {request.request_id}" in record.getMessage()
+    assert record.levelno == logging.WARNING and f"Could not save call {request.request_id}" in record.getMessage()
 
 
 def test_a_failed_diagnostic_session_is_an_error(caplog):

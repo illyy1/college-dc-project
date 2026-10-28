@@ -273,7 +273,7 @@ def test_the_desk_starts_on_a_log_with_a_wrongly_typed_call(bad_field, make_desk
     desk = make_desk(team, assignment_strategy=FewestCallsStrategy(rng=picker))  # must not crash
 
     output = logged()
-    assert "skipping" in output and "line 2" in output
+    assert "Skipping" in output and "line 2" in output
     assert desk.open_requests() == []        # the unreadable call isn't restored
     take_calls(desk, alerts, 1)
     assert picker.favoured == [["B", "C"]]   # only A's readable call counts

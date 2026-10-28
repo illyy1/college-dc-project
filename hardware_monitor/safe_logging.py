@@ -4,7 +4,8 @@ Python's logging module, and nothing secret reaches a log.
 Every module logs through `logging.getLogger(__name__)`. configure_logging()
 (called once by main.py) sends those records to the console and to
 logs/monitor.log, both through a RedactingFilter: anything shaped like a
-token or key, and every secret config registered, becomes [REDACTED]."""
+token or key, and every secret config registered, becomes [REDACTED], and
+the home folder (which holds the user's name) becomes ~."""
 
 import logging
 import os
@@ -25,6 +26,9 @@ SECRET_PATTERNS = [
 _SECRET_RE = re.compile("|".join(f"(?:{p})" for p in SECRET_PATTERNS))
 MIN_SECRET_LENGTH = 8  # masking a shorter value would wreck ordinary messages
 REDACTED = "[REDACTED]"
+HOME = os.path.expanduser("~")
+# how a path under it can appear: as is, with forward slashes, or quoted by repr() (an OSError)
+_HOME_FORMS = sorted({HOME, HOME.replace("\\", "/"), HOME.replace("\\", "\\\\")}, key=len, reverse=True)
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 CONSOLE_FORMAT = "%(levelname)s: %(message)s"
 
@@ -49,7 +53,11 @@ def redact(text):
         secrets = sorted(_secrets, key=len, reverse=True)  # longest first: one secret may contain another
     for secret in secrets:
         text = text.replace(secret, REDACTED)
-    return _SECRET_RE.sub(REDACTED, text)
+    text = _SECRET_RE.sub(REDACTED, text)
+    if len(HOME) > 3:  # not a bare "/" or "C:\\"
+        for home in _HOME_FORMS:
+            text = text.replace(home, "~")
+    return text
 
 
 class RedactingFilter(logging.Filter):

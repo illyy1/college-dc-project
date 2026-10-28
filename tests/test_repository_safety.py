@@ -13,17 +13,10 @@ from pathlib import Path
 import pytest
 
 from conftest import PROJECT_ROOT
+from hardware_monitor.safe_logging import SECRET_PATTERNS  # what real secrets look like
 
 ROOT = Path(PROJECT_ROOT)
 EXAMPLE = ROOT / ".env.example"
-# what real secrets look like: GitHub tokens, Google API keys, Fernet tokens and Fernet keys
-SECRET_PATTERNS = [
-    r"ghp_[A-Za-z0-9]{20,}",
-    r"github_pat_[A-Za-z0-9_]{20,}",
-    r"AIza[0-9A-Za-z_-]{30,}",
-    r"gAAAAA[A-Za-z0-9_=-]{20,}",
-    r"[A-Za-z0-9_-]{43}=",
-]
 
 needs_git = pytest.mark.skipif(
     shutil.which("git") is None or not (ROOT / ".git").exists(), reason="needs git and the repository")

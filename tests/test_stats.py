@@ -211,7 +211,7 @@ def test_a_call_with_a_wrongly_typed_field_is_skipped(bad_field, history, make_b
 
     assert with_bad_call == load_stats(write_log(history), technicians_file)  # as if it weren't there
     output = logged()
-    assert "skipping" in output and "line 8" in output
+    assert "Skipping" in output and "line 8" in output
 
 
 def test_a_wrongly_typed_call_is_reported_once_when_read_again(history, make_bad_call, write_log,

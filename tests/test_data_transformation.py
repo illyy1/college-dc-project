@@ -128,4 +128,4 @@ def test_a_line_that_cant_become_a_call_is_skipped_with_a_warning(make_call, mak
                       make_bad_call(2, "T2", bad_field))
 
     assert [call.request_id for call in load_maintenance_history(log)] == ["MR-0001"]
-    assert "skipping" in logged()
+    assert "Skipping" in logged()

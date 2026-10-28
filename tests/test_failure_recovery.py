@@ -64,7 +64,7 @@ def test_a_locked_csv_does_not_stop_a_call_being_opened(desk, logged, alerts):
     assert request.status == "IN_PROGRESS"
     assert [r.request_id for r in load_maintenance_history(desk.log_path)] == [request.request_id]
     output = logged()
-    assert "could not update" in output and "is it open in Excel?" in output
+    assert "Could not update" in output and "is it open in Excel?" in output
     assert "The call was still saved" in output
 
 
@@ -153,7 +153,7 @@ def test_the_desk_keeps_working_after_a_killed_run(technicians, make_call, write
     log = write_jsonl("maintenance.jsonl", make_call(1, "CAMERA_FAILURE", "T1", "IN_PROGRESS"), fragment=CUT_OFF)
 
     desk = MaintenanceDesk(technicians, log_path=log, report_csv_path=None)
-    assert "skipping corrupt line 2" in logged()
+    assert "Skipping corrupt line 2" in logged()
     request = desk.open_request_for_alert(alerts.camera())
 
     assert request.request_id == "MR-0002"  # numbering ignores the unreadable fragment
@@ -265,7 +265,7 @@ def test_a_call_is_kept_when_the_log_cannot_be_written_and_saved_on_its_next_cha
         request = desk.open_request_for_alert(alerts.camera())
 
     assert request.status == "IN_PROGRESS" and desk.open_requests() == [request]
-    assert f"could not save call {request.request_id}" in logged()
+    assert f"Could not save call {request.request_id}" in logged()
 
     desk.resolve_request(request.request_id)  # the log works again
     (saved,) = load_maintenance_history(desk.log_path)
@@ -280,7 +280,7 @@ def test_a_csv_that_cannot_be_written_for_another_reason_does_not_stop_the_call(
     assert retry_waits == []  # a full disk is not a moment's lock: not retried
     assert [r.request_id for r in load_maintenance_history(desk.log_path)] == [request.request_id]
     output = logged()
-    assert "could not update" in output and "No space left" in output and "Excel" not in output
+    assert "Could not update" in output and "No space left" in output and "Excel" not in output
 
 
 # --- 7. the live dashboard keeps monitoring ---

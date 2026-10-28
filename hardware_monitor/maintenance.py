@@ -119,7 +119,7 @@ class MaintenanceDesk:
                 technician.assigned_requests.append(request)
             else:
                 # cross-file check: the log names a technician missing from technicians.jsonl
-                logger.warning(f"Warning: open call {request.request_id} is assigned to unknown technician "
+                logger.warning(f"Open call {request.request_id} is assigned to unknown technician "
                       f"'{request.assigned_tech_id}' (not in the technician data file).")
             self.requests[request.request_id] = request
 
@@ -202,7 +202,7 @@ class MaintenanceDesk:
         except OSError as error:
             # the call is still open in this run and its technician keeps it; every
             # line holds the call's whole state, so its next change saves it in full
-            logger.warning(f"Warning: could not save call {request.request_id} to {self.log_path} ({error}). "
+            logger.warning(f"Could not save call {request.request_id} to {self.log_path} ({error}). "
                   f"It is kept in this run, and saved in full on its next change.")
             return
 
@@ -217,5 +217,5 @@ class MaintenanceDesk:
             # usually the CSV is open in Excel; the JSONL log still has the call,
             # and the CSV catches up on the next change or `main.py --report`
             reason = "is it open in Excel?" if isinstance(error, PermissionError) else error
-            logger.warning(f"Warning: could not update {self.report_csv_path} ({reason}). "
+            logger.warning(f"Could not update {self.report_csv_path} ({reason}). "
                   f"The call was still saved to {self.log_path}.")

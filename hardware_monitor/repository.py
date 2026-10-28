@@ -131,7 +131,7 @@ def load_maintenance_history(path, reported=None):
             request = MaintenanceRequest.from_dict(record)
         except ValueError as error:
             _warn_once(reported, path, line_number,
-                       f"Warning: skipping unreadable call on line {line_number} in {path} ({error})")
+                       f"Skipping unreadable call on line {line_number} in {path} ({error})")
             continue
         latest[request.request_id] = request
 
@@ -219,7 +219,7 @@ def _numbered_records(path, reported):
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
-                _warn_once(reported, path, line_number, f"Warning: skipping corrupt line {line_number} in {path}.")
+                _warn_once(reported, path, line_number, f"Skipping corrupt line {line_number} in {path}.")
                 continue
             if isinstance(record, dict):
                 yield line_number, record

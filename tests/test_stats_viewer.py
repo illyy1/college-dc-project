@@ -545,7 +545,7 @@ def test_a_broken_line_is_reported_once_not_on_every_refresh(open_viewer, log, m
         viewer.root.run_next()
 
     output = logged()
-    assert output.count("skipping corrupt line 8") == 1
+    assert output.count("Skipping corrupt line 8") == 1
     assert viewer.displayed()["summary"] == "8 calls: 4 open, 4 resolved"  # the calls around it still count
 
 
@@ -557,7 +557,7 @@ def test_a_new_broken_line_is_still_reported(open_viewer, log, logged):
     for _ in range(3):
         viewer.root.run_next()
 
-    assert logged().count("skipping corrupt line 8") == 1
+    assert logged().count("Skipping corrupt line 8") == 1
 
 
 @pytest.mark.parametrize("bad_field", BAD_FIELDS)
