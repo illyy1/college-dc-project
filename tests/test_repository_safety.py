@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from conftest import PROJECT_ROOT
-from hardware_monitor.safe_logging import SECRET_PATTERNS  # what real secrets look like
+from hardware_monitor.logging_module import SECRET_PATTERNS  # what real secrets look like
 
 ROOT = Path(PROJECT_ROOT)
 EXAMPLE = ROOT / ".env.example"

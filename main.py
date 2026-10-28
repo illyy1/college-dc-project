@@ -19,7 +19,7 @@ import sys
 from hardware_monitor.demo import run_demo
 from hardware_monitor.reports import publish_maintenance_reports
 from hardware_monitor.repository import DataFileError
-from hardware_monitor.safe_logging import configure_logging
+from hardware_monitor.logging_module import configure_logging
 
 
 def main():

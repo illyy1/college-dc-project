@@ -315,7 +315,7 @@ def no_real_secrets(monkeypatch):
 def no_real_monitor_log(monkeypatch, tmp_path):
     """configure_logging() (main.main() calls it) writes under tmp_path, never
     logs/monitor.log, and the handlers it adds are removed after the test."""
-    monkeypatch.setattr("hardware_monitor.safe_logging.MONITOR_LOG_PATH", str(tmp_path / "monitor.log"))
+    monkeypatch.setattr("hardware_monitor.logging_module.MONITOR_LOG_PATH", str(tmp_path / "monitor.log"))
     logger = logging.getLogger("hardware_monitor")
     handlers, level = list(logger.handlers), logger.level
     yield

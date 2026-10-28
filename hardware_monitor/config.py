@@ -27,7 +27,7 @@ MAINTENANCE_REPORT_CSV_PATH = os.path.join(_PROJECT_ROOT, "logs", "maintenance_r
 # the main.py demo writes its alerts and calls here so they never mix with the real history
 DEMO_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "demo_hardware_history.jsonl")
 DEMO_MAINTENANCE_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "demo_maintenance_requests.jsonl")
-# what the program did, as text: actions, events and failures (safe_logging.configure_logging)
+# what the program did, as text: actions, events and failures (logging_module.configure_logging)
 MONITOR_LOG_PATH = os.path.join(_PROJECT_ROOT, "logs", "monitor.log")
 
 
@@ -38,7 +38,7 @@ def get_github_token():
     because only the live dashboard needs them: the demo runs without them."""
     from dotenv import load_dotenv
     from cryptography.fernet import Fernet
-    from .safe_logging import register_secret
+    from .logging_module import register_secret
 
     load_dotenv()
     encrypted_token = os.getenv("GITHUB_TOKEN")
@@ -66,7 +66,7 @@ def get_gemini_api_key():
     None if it isn't set: the GitHub issues are then sent without AI
     suggestions."""
     from dotenv import load_dotenv
-    from .safe_logging import register_secret
+    from .logging_module import register_secret
 
     load_dotenv()
     # stripped: a key saved with a trailing newline would be rejected as a header value

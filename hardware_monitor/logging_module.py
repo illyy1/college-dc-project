@@ -77,7 +77,7 @@ def configure_logging(log_path=None, level=logging.INFO):
     it added, rather than adding more."""
     log_path = log_path or MONITOR_LOG_PATH
     logger = logging.getLogger("hardware_monitor")
-    for handler in [h for h in logger.handlers if getattr(h, "_safe_logging", False)]:
+    for handler in [h for h in logger.handlers if getattr(h, "_logging_module", False)]:
         logger.removeHandler(handler)
         handler.close()
 
@@ -87,7 +87,7 @@ def configure_logging(log_path=None, level=logging.INFO):
     log_file = logging.FileHandler(log_path, encoding="utf-8")
     log_file.setFormatter(logging.Formatter(LOG_FORMAT))
     for handler in (console, log_file):
-        handler._safe_logging = True
+        handler._logging_module = True
         handler.addFilter(RedactingFilter())
         logger.addHandler(handler)
     logger.setLevel(level)

@@ -2,7 +2,7 @@
 events and failures with Python's logging module, never exposing a secret
 or a person's details.
 
-What hardware_monitor/safe_logging.py must provide:
+What hardware_monitor/logging_module.py must provide:
 - SECRET_PATTERNS: regexes for what real secrets look like (GitHub tokens,
   Google API keys, Fernet tokens and keys).
 - redact(text) -> text with every match of SECRET_PATTERNS, and every
@@ -61,8 +61,8 @@ SAMPLE_SECRETS = {
 }
 
 
-def safe_logging():
-    from hardware_monitor import safe_logging as module
+def logging_module():
+    from hardware_monitor import logging_module as module
     return module
 
 
@@ -71,7 +71,7 @@ def no_registered_secrets():
     """Each test starts with no registered secrets, if the module exists yet."""
     yield
     try:
-        safe_logging().forget_secrets()
+        logging_module().forget_secrets()
     except (ImportError, AttributeError):
         pass
 
@@ -84,44 +84,44 @@ def records_from(caplog, module):
 
 @pytest.mark.parametrize("secret", SAMPLE_SECRETS.values(), ids=SAMPLE_SECRETS.keys())
 def test_redact_masks_anything_shaped_like_a_secret(secret):
-    assert safe_logging().redact(f"sent {secret} to GitHub") == "sent [REDACTED] to GitHub"
+    assert logging_module().redact(f"sent {secret} to GitHub") == "sent [REDACTED] to GitHub"
 
 
 def test_redact_leaves_ordinary_text_alone():
     text = "Alert posted to GitHub for camera: issue #42 (https://github.com/owner/repo/issues/42)"
-    assert safe_logging().redact(text) == text
+    assert logging_module().redact(text) == text
 
 
 def test_a_registered_secret_is_masked_whatever_its_shape():
-    safe_logging().register_secret("plain-old-password")
-    assert safe_logging().redact("login with plain-old-password failed") == "login with [REDACTED] failed"
+    logging_module().register_secret("plain-old-password")
+    assert logging_module().redact("login with plain-old-password failed") == "login with [REDACTED] failed"
 
 
 @pytest.mark.parametrize("value", [None, "", "short"], ids=["none", "empty", "under-8-chars"])
 def test_values_too_short_to_be_secrets_are_not_registered(value):
-    safe_logging().register_secret(value)
-    assert safe_logging().redact("a short status line") == "a short status line"
+    logging_module().register_secret(value)
+    assert logging_module().redact("a short status line") == "a short status line"
 
 
 def test_redact_hides_the_home_folder_and_with_it_the_user_name():
     home = os.path.expanduser("~")
     path = os.path.join(home, "project", "logs", "x.jsonl")
     for shown in (path, repr(path)):  # an OSError quotes the path with repr()
-        assert home not in safe_logging().redact(f"Could not save to {shown}")
-    assert safe_logging().redact(f"at {path}") == "at " + os.path.join("~", "project", "logs", "x.jsonl")
+        assert home not in logging_module().redact(f"Could not save to {shown}")
+    assert logging_module().redact(f"at {path}") == "at " + os.path.join("~", "project", "logs", "x.jsonl")
 
 
 def test_forget_secrets_clears_them():
-    safe_logging().register_secret("plain-old-password")
-    safe_logging().forget_secrets()
-    assert safe_logging().redact("plain-old-password") == "plain-old-password"
+    logging_module().register_secret("plain-old-password")
+    logging_module().forget_secrets()
+    assert logging_module().redact("plain-old-password") == "plain-old-password"
 
 
 # --- configure_logging(): the console and the log file, both redacted ---
 
 def test_records_go_to_the_log_file_with_time_level_and_module(tmp_path):
     log_file = tmp_path / "monitor.log"
-    safe_logging().configure_logging(log_path=str(log_file))
+    logging_module().configure_logging(log_path=str(log_file))
     logging.getLogger("hardware_monitor.dashboard").warning("camera alert not sent")
 
     (line,) = log_file.read_text(encoding="utf-8").splitlines()
@@ -131,7 +131,7 @@ def test_records_go_to_the_log_file_with_time_level_and_module(tmp_path):
 
 def test_info_is_recorded_and_debug_is_not_by_default(tmp_path):
     log_file = tmp_path / "monitor.log"
-    safe_logging().configure_logging(log_path=str(log_file))
+    logging_module().configure_logging(log_path=str(log_file))
     logging.getLogger("hardware_monitor.maintenance").info("call resolved")
     logging.getLogger("hardware_monitor.maintenance").debug("internal detail")
 
@@ -140,8 +140,8 @@ def test_info_is_recorded_and_debug_is_not_by_default(tmp_path):
 
 def test_configuring_twice_does_not_write_each_record_twice(tmp_path):
     log_file = tmp_path / "monitor.log"
-    safe_logging().configure_logging(log_path=str(log_file))
-    safe_logging().configure_logging(log_path=str(log_file))
+    logging_module().configure_logging(log_path=str(log_file))
+    logging_module().configure_logging(log_path=str(log_file))
     logging.getLogger("hardware_monitor.retry").warning("once")
 
     assert log_file.read_text(encoding="utf-8").count("once") == 1
@@ -149,8 +149,8 @@ def test_configuring_twice_does_not_write_each_record_twice(tmp_path):
 
 def test_secrets_in_messages_and_arguments_never_reach_the_file(tmp_path):
     log_file = tmp_path / "monitor.log"
-    safe_logging().configure_logging(log_path=str(log_file))
-    safe_logging().register_secret("plain-old-password")
+    logging_module().configure_logging(log_path=str(log_file))
+    logging_module().register_secret("plain-old-password")
     logger = logging.getLogger("hardware_monitor.config")
     logger.error(f"token {SAMPLE_SECRETS['github-token']} rejected")
     logger.error("key %s rejected", SAMPLE_SECRETS["google-key"])
@@ -163,7 +163,7 @@ def test_secrets_in_messages_and_arguments_never_reach_the_file(tmp_path):
 
 def test_secrets_in_a_traceback_never_reach_the_file(tmp_path):
     log_file = tmp_path / "monitor.log"
-    safe_logging().configure_logging(log_path=str(log_file))
+    logging_module().configure_logging(log_path=str(log_file))
     try:
         raise ValueError(f"bad token {SAMPLE_SECRETS['github-token']}")
     except ValueError:
@@ -175,7 +175,7 @@ def test_secrets_in_a_traceback_never_reach_the_file(tmp_path):
 
 
 def test_the_console_is_redacted_too(tmp_path, capsys):
-    safe_logging().configure_logging(log_path=str(tmp_path / "monitor.log"))
+    logging_module().configure_logging(log_path=str(tmp_path / "monitor.log"))
     logging.getLogger("hardware_monitor.retry").warning(f"retrying with {SAMPLE_SECRETS['fernet-key']}")
 
     captured = capsys.readouterr()
@@ -236,14 +236,14 @@ def test_the_github_token_and_key_are_registered_as_secrets(throwaway_token):
     assert get_github_token() == token
 
     for value in throwaway_token:
-        assert safe_logging().redact(f"x {value} y") == "x [REDACTED] y"
+        assert logging_module().redact(f"x {value} y") == "x [REDACTED] y"
 
 
 def test_the_gemini_key_is_registered_as_a_secret(monkeypatch):
     from hardware_monitor.config import get_gemini_api_key
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key-without-the-usual-shape")
     get_gemini_api_key()
-    assert safe_logging().redact("gemini-key-without-the-usual-shape") == "[REDACTED]"
+    assert logging_module().redact("gemini-key-without-the-usual-shape") == "[REDACTED]"
 
 
 def test_a_missing_token_is_a_warning(caplog):
