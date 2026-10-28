@@ -21,8 +21,8 @@
 
 ## Requirements
 - Python **3.10 or newer** (the code uses `X | None` type hints).
-- Tkinter for the live dashboard (included with the standard Python installer on Windows and macOS).
-- The demo (`python main.py --no-dashboard`) needs only the standard library. The packages in `requirements.txt` are used by the live dashboard: `requests` opens GitHub issues, and `python-dotenv` + `cryptography` read the encrypted token from `.env`.
+- The packages in `requirements.txt` (`requests`, `python-dotenv`, `cryptography`). The demo imports `requests` too, so install them before the first run.
+- Tkinter, only for the live dashboard and statistics window (included with the standard Python installer on Windows and macOS).
 
 ## Installation
 ```
@@ -30,200 +30,67 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows  (macOS/Linux: source .venv/bin/activate)
 pip install -r requirements.txt
 ```
-Alternatively, install the project as a package with `pip install -e .`. `pyproject.toml` describes the project as an installable Python package: its name (`room-hardware-monitor`), version, minimum Python version, dependencies and the `hardware_monitor` package. The `-e` (editable) flag means code changes take effect without reinstalling. `python main.py` works the same either way.
+Or `pip install -e .`, which installs the project as an editable package from `pyproject.toml` (same dependencies; keep it and `requirements.txt` in step). To build a standalone executable, also `pip install pyinstaller`.
 
-`requirements.txt` and `pyproject.toml` list the same dependencies. If you add or remove one, update both files.
-
-To build a standalone executable, also install PyInstaller: `pip install pyinstaller`
-
-### GitHub alerts (optional)
-The live dashboard can open a GitHub issue for each new fault. This needs a `.env` file in the project root (it is in `.gitignore` and is never committed). Copy `.env.example` to `.env` and fill it in; it lists every value, the GitHub ones and the Gemini key:
-```
-GITHUB_TOKEN=<GitHub personal access token, encrypted with Fernet>
-ENCRYPTION_KEY=<the Fernet key used to encrypt it>
-```
-To create the two values:
+**Keys for the real services (optional).** Copy `.env.example` to `.env` (ignored by git, never committed) and fill it in: an encrypted GitHub token and its key (`GITHUB_TOKEN`, `ENCRYPTION_KEY`) and a Gemini key from Google AI Studio (`GEMINI_API_KEY`). To create the GitHub pair:
 ```
 python -c "from cryptography.fernet import Fernet; k = Fernet.generate_key(); print('ENCRYPTION_KEY=' + k.decode()); print('GITHUB_TOKEN=' + Fernet(k).encrypt(b'<your token>').decode())"
 ```
-Without `.env`, everything still runs: the dashboard prints a warning and shows alerts and maintenance calls on screen, but posts nothing to GitHub.
-
-### AI triage (optional)
-With a Gemini API key from Google AI Studio in the same `.env`, Gemini (`gemini-3.1-flash-lite`) triages each new fault: a priority (1 = most urgent), the likely cause (cable, driver, hardware, permissions, software or other), an estimated repair time and up to five troubleshooting steps, as checked JSON. The triage drives the system:
-- **The call's priority:** it takes the more urgent of the hardware rule's and Gemini's, so Gemini can raise urgency but never lower it. The cause and the estimate are saved with the call, in the log and the CSV report.
-- **The GitHub issue:** labelled `priority-N` with the call's final priority, with a Triage section marked as AI-generated.
-- **The history report (`--report`):** the most common causes, the estimated repair time per technician, and the estimated work still open.
-
-```
-GEMINI_API_KEY=<your key from https://aistudio.google.com>
-```
-Only the alert itself is sent (its title, component and details), never the computer's name or the technician. Without the key, when Gemini is slow or fails, or when its answer is invalid, the call keeps its priority, the issue is posted without the section, and the reason is printed.
+Without `.env` everything still runs; the dashboard just posts nothing and asks Gemini nothing.
 
 ## Running the project
 | Command | What it does |
 |---|---|
-| `python main.py` | Runs the step-by-step demonstration, then opens the live monitoring dashboard with the live statistics window next to it (see `--stats`). When the dashboard closes, the statistics window closes too, and the maintenance history report is printed and exported. |
-| `python main.py --no-stats` | The same, without the statistics window. |
-| `python main.py --no-dashboard` | Runs the demonstration and the history report from start to finish without opening a window. |
-| `python main.py --report` | Only prints the maintenance history report and exports it to `logs/maintenance_report.csv`. |
-| `python main.py --stats` | Opens only the live alert statistics window. It re-reads the maintenance log every 2 seconds, so it follows a dashboard running at the same time, even in another terminal. It shows:<ul><li>a summary;</li><li>a pie chart of each technician's share of the calls, and one of each alert type's share;</li><li>alerts by type (camera, microphone, other);</li><li>each technician's calls, open and resolved, with their share and a bar;</li><li>the latest calls and who took each.</li></ul> |
-
-The dashboard drives its microphone/camera alerts off synthetic signals (`hardware_monitor/synthetic_sources.py`) rather than real hardware, so alert behaviour can be tested on demand.
-
-## Testing (regression suite)
-Run `pip install -r requirements.txt pytest`, then `pytest` from the project root. The tests never contact GitHub.
-
-**Files (`tmp_path`).** Every test that writes files (logs, CSV exports, bad or half-written data files) does it in pytest's built-in `tmp_path`, a fresh temporary folder per test. The real `data/` files are only ever read. This happens in three ways:
-- 41 tests request `tmp_path` directly;
-- the shared fixtures (`desk`, `make_desk`, `alert_manager`) put their logs there;
-- an automatic fixture sends the alert history log there in every test.
-
-A check in `conftest.py` enforces this. It records every project file before the run and fails the run if any test created, changed or deleted one, naming the file.
-
-**Shared fixtures and stand-ins** (`tests/conftest.py`, `tests/fake_*.py`). Every test uses the same object for the same purpose instead of building its own. Fixtures are rebuilt for every test, so one test's changes never leak into another.
-- **Test data the tests own:** the data files change as staff are hired and the fleet changes, so tests needing exact numbers never read `data/`.
-  - `technicians`: a fixed four-person test team. `make_team(n)` builds a team of any size, and `technicians_file` writes the team to a temporary file.
-  - `workstations`: the frozen test fleet in `tests/data/sample_fleet.jsonl`.
-  - `make_call(...)`: one maintenance-log record. `history` is a seven-call log, and `reports_log` is a saved log for the report tests.
-  - `BAD_FIELDS`: seven fields of the wrong type a damaged log could hold, such as an open time that is a number; `make_bad_call(...)` puts one in a saved call.
-- **The real files:** `real_technicians` and `real_workstations` load `data/`, and their tests check only what any valid file must hold.
-- **Mock objects:**
-  - `alerts.camera()`, `alerts.microphone()` and `alerts.make(...)` build fresh alerts.
-  - `bench_workstation` is a fake workstation. `alert_manager`, `make_desk` and `desk` work on temporary logs.
-  - `write_jsonl(...)` writes any JSONL file, including a broken or half-written line.
-- **External dependencies:**
-  - `github` (`fake_github.py`) is the mocked `requests.post`, and `gemini` (`fake_gemini.py`) the mocked Gemini request; both share `fake_http.py`, so one test can fake both services.
-  - `dash` is a real dashboard built by its own constructor, with Tk (`fake_tk.py`), the clock, threads and signals (`fake_dashboard.py`) faked.
-  - `fake_random.LikeliestPick` stands in for `random`: it records each weighted draw and takes the likeliest technician.
-- **Helpers:** `encrypt_token()` makes a throwaway encrypted token, `run_together()` starts threads at the same moment, and `slow_requests()` widens a race window.
-- **Settings:** tests read every setting from the config. One test per module pins the documented defaults, so changing a setting breaks only that test.
-
-**Isolation (mocking).** The tests run without an internet connection, without an API key, and without real waiting between retries. The rule: only external dependencies are mocked, never the function under test.
-- **Applied to every test** (`tests/conftest.py`): connecting to any non-local address fails as if the machine were offline. `load_dotenv` and the token variables are cleared, so the real `.env` is never read. The `sleep` between retries (GitHub, log and report writes) is a `unittest.mock` that records the waits instead of sleeping.
-- **`requests.post`** is patched with `mock.patch(..., autospec=True)`, so a call the real function would reject fails the test. Its replies are `Mock(spec=requests.Response)`. `create_issue`, the retry loop and the dashboard's posting code all run for real against it.
-- **Tk, the clock and the mic/camera signals** are replaced in the dashboard tests. The token is encrypted with a throwaway key and decrypted by the real `get_github_token`.
-- **Wrappers around project code** (to slow a critical section or record when something runs) always call the real function.
-- `tests/test_isolation.py` proves these guarantees:
-  - a real request fails as if offline;
-  - no token can be loaded;
-  - exhausting 6 attempts (31 s of real waits) takes no real time;
-  - the function under test is the real one;
-  - the `requests` mock rejects a call the real `requests.post` would reject.
-
-The suite guarantees that new code doesn't break the Phase 1 logic:
-- `tests/test_models.py`, `tests/test_processing.py`, `tests/test_maintenance.py` — the models and validation, alert queues and data structures, and the maintenance desk.
-- `tests/test_phase1_regression.py` — every other Phase 1 behaviour: the custom iterator, the generator, the lazy pipeline (including stopping at the limit), `DiagnosticConnection`, the abstract `HardwareComponent` and its `from_dict` factory, loader validation, the reports, and a run of the whole demo (all 11 steps).
-- `tests/test_business_logic_edge_cases.py` — business logic and edge cases:
-  - **Boundaries:** the 8000 Hz sample-rate threshold, the 3-year age cut-off, the smallest valid resolution, a limit of 0.
-  - **Empty inputs:** empty files, fleets and alert queues.
-  - **Invalid inputs:** wrong types, blank ids, impossible dates, records that aren't JSON objects, foreign or duplicate components.
-  - **Maintenance rules:** a workstation in no technician's list still gets a technician, two technicians share open calls evenly, open calls survive a restart.
-  - **Phase 2 concurrency:** threads never lose an alert record, batches stay together, and the async overview matches the sequential one.
-- `tests/test_design_patterns.py` — the two design patterns (see Design patterns):
-  - **Factory:** picks the right product, gives each product only its own fields and validation, builds the same object as direct construction, and picks up a new subclass with no changes to the factory.
-  - **Strategy:** each strategy's rule on its own, the cases where they disagree, the default, swapping on a running desk, and a custom strategy receiving only eligible technicians.
-- `tests/test_external_api.py` — the GitHub Issues API, with `requests.post` replaced by a fake so no test goes over the network:
-  - **Success:** the issue number and link are returned, and the request has the right URL, payload, token and timeout.
-  - **HTTP errors:** 401, 403, 404, 410, 422, 5xx and an unexpected 200, each reported with its status and GitHub's message when there is one.
-  - **Timeouts and network failures:** `Timeout`, `ConnectionError` and any other `RequestException` are each caught explicitly and reported as results with their own message, never raised, so a failed alert can't crash a monitoring thread. A `ConnectTimeout` counts as a timeout, and an error from outside `requests` (a bug) is not hidden. Messages name the exception but never quote it, since `requests` copies the headers or URL, and with them the key, into its messages.
-  - **Incomplete replies:** missing or wrongly typed `number`/`html_url`, a body that isn't JSON, or JSON that isn't an object.
-  - **The dashboard:** it posts the maintenance call and technician, and prints each failure instead of crashing.
-  - **Retry mechanism:** recovery after a temporary failure (timeout, connection error, a reply cut off mid-way, 429, 5xx), including on the last allowed attempt. Giving up after the maximum attempts: no extra request, no wait after the final attempt, and the last error reported. Permanent errors (401, 404, 422, …, a bad URL or header, a redirect loop) and incomplete replies are never retried.
-- `tests/test_gemini_api.py` — the Gemini triage (`api_client.triage_fault()`), written test-first (TDD, the `feature/ai-issue-text` and `feature/ai-triage` branches), with Gemini's request faked:
-  - **The client:** the request (JSON mode with the triage schema; the key in a header, never the URL), every triage field checked (a missing or impossible value rejects the triage), blocked, unfinished or empty answers, HTTP errors with Gemini's message, timeouts, and retrying only temporary failures.
-  - **In the dashboard:** the triage in the GitHub issue under an AI-generated heading; the issue still posted when Gemini fails or there is no key; nothing identifying a person sent to Gemini; one request per issue.
-- `tests/test_duplicate_check.py` — the duplicate check, written test-first (TDD, the `feature/duplicate-check` branch), with `requests.get` faked: the GET's URL, labels and headers; the retry (a `Timeout` or `ConnectionError` recovered on the 2nd or 3rd attempt, giving up after 3 with waits of 1 s and 2 s, permanent errors not retried); every unusable reply failing with its category; and `report_fault()` posting nothing for an issue still open, posting for another computer's or another fault's issue, and posting anyway when the lookup fails, as the dashboard reports.
-- `tests/test_error_categories.py` — error categorization, written test-first (TDD, the `feature/error-categories` branch): every failure path of both APIs, one parametrized row each, gets its category (communication, HTTP, unparsable JSON, failed structural validation); the category survives the retries; successes and calls with no token or key have none.
-- `tests/test_business_application.py` — the triage driving the system: the call taking the more urgent priority, the cause and estimate saved (log, restart, CSV), the issue's `priority-N` label, nothing changed when Gemini fails, and the report's calculations (common causes, minutes per technician, open backlog).
-- `tests/test_joint_process_demo.py` — the demo's joint process (step 12), written test-first (TDD, the `feature/joint-process-demo` branch), offline: a fault's call goes from priority 3 to 2 with a simulated triage (checked on the saved call), the report's triage figures include it, a failing Gemini leaves the call at 3 while the issue is still posted, every line says `[SIMULATED]`, the real `report_fault()` gets the simulated clients, nothing reaches the real services, and `--live` is parsed but never run.
-- `tests/test_factory_injection.py` — the Factory injected into the workstation loader, written test-first (TDD, the `feature/factory-injection` branch): the factory passed in builds every component, a factory for an older export loads it with no change to the loader, an injected factory's errors still name the file and line, and the default is `factory.create_component`.
-- `tests/test_pattern_modules.py` — each design pattern in its own module, written test-first (TDD, the `feature/pattern-modules` branch): `assignment.py` holds only the strategies and imports nothing from the package, `factory.py` imports only the models and defines no classes, `HardwareComponent.from_dict` hands records to the factory, and the old import paths still work.
-- `tests/test_dependency_injection.py` — dependency injection, written test-first (TDD, the `feature/dependency-injection` branch): each dependency passed to the dashboard is kept and is the one used (sources, alert manager, clock, thread starter, reporter, keys without reading `.env`), a new kind of camera works unchanged, the defaults are the real implementations, and `report_fault()` works with other GitHub/Gemini clients. The shared `dash` fixture passes its fakes through the constructor too; only Tk is patched.
-- `tests/test_logging_module.py` — safe logging, written test-first (TDD, the `feature/safe-logging` branch): the masking of secrets, registered values and the home folder (in messages, arguments and tracebacks, in the file and on the console); the log file's format; loggers instead of `print()` in the operational modules; each event at its level; no technician's or computer's name in any record. The other tests read the log with the `logged` fixture.
-- `tests/test_repository_safety.py` — no secret gets into git: `.env` and its variants are ignored and untracked, no tracked file holds anything shaped like a real token or key (failures name the file and line, never the value), and `.env.example` lists exactly the variables `config.py` reads, with `<placeholder>` values only. The real `.env` is never opened.
-- `tests/test_separation_of_concerns.py` — the split between network and decisions, read from the source: only `api_client.py` talks to the network and it knows nothing of the business; `services.py` never touches the network; the dashboard goes through `services.py`; and `services.report_fault()`'s decisions (with a key, without one, when Gemini fails).
-- `tests/test_dashboard.py` — the live dashboard's logic, run without a window. Tk is replaced by a fake, time by a clock the tests move forward exactly, the mic/camera by scripted signals, and GitHub by a stub.
-  - **Monitoring loops:** mic disconnects and silence, and camera disconnects and frame errors, each opening and then resolving a maintenance call.
-  - **Timing rules, tested exactly at their limits:** silence must last *more* than 8 s; a volume exactly at the threshold isn't silence; a popup stays at least 5 s; the same fault can't pop up again within 10 s; at most one GitHub issue per fault every 10 minutes; the watchdog forces a fault after exactly 45 quiet seconds, only on a device free to show it, and never counts a break as quiet time.
-  - **Pause/Resume, shutdown, and calls left open by a previous run:** pausing hides popups but keeps calls open; closing the window leaves no errors; leftover calls are adopted, with duplicates closed.
-- `tests/test_synthetic_sources.py` — the simulated mic and camera: how a fault starts and clears (exact chance limits), forced faults always being seen, the volume ranges, and that the default settings give a busy room whose faults clear on their own.
-- `tests/test_config.py` — decrypting the GitHub token with a throwaway key (the real `.env` is never read): a valid token, missing or empty values, a wrong or malformed key, and a tampered token.
-- `tests/test_exceptions.py` — exceptions for bad data and critical failures (`pytest.raises`), and proof that a failure never leaves things half-done:
-  - **Ports and locks released:** a diagnostic session that fails to start releases its port, and a failure inside one is re-raised after cleanup. A crashing assignment strategy or an unwritable log leaves no lock held.
-  - **Data files:** a missing data file stops loading. A bad line raises `DataFileError` (a `ValueError`) naming the file and line, with the parser's internal error hidden.
-  - **Programming errors:** an unknown package attribute raises `AttributeError`, and the abstract base methods refuse to run.
-
-  Across the suite, 49 `pytest.raises` checks verify both the exception type and its message, except where only the type matters or the message comes from the operating system.
-- `tests/test_stats.py` and `tests/test_stats_viewer.py` — the live statistics viewer, written test-first (TDD): the failing tests were committed before any of the code (the `RED:` commits on the `feature/live-stats` branch), then the code that makes them pass (`GREEN:`). They cover:
-  - **The numbers:** totals; alerts by type; each technician's spread, including idle, unassigned and removed technicians; and who took each recent call.
-  - **The text sections and the two pie charts:** slices filling exactly 360°, a single slice drawn as a circle, and legends with percentages.
-  - **The live window:** new and resolved calls appear on the next refresh, an unreadable log keeps the last numbers, and closing stops the refreshes.
-  - **A saved call with a wrongly typed field** (`feature/bad-log-records`, also TDD): the statistics skip it with one warning, the window keeps refreshing, and the desk still starts and never reuses its number.
-  - **`--stats`.**
-- `tests/test_failure_recovery.py` — real-world failures the system must survive. Each failure is caused at the external dependency, and the code that handles it runs for real:
-  - **The CSV report locked by Excel:** the call is still opened or resolved and saved, a warning is printed, and the CSV catches up on the next change.
-  - **A diagnostic that crashes:** the component is marked `ERROR` and alerted, and the sweep goes on.
-  - **A log line half-written when the program was killed:** the next record starts on a fresh line, and the desk keeps numbering correctly.
-  - **`--report` end to end:** it prints the history and exports the CSV, creating the folder if needed. Unlike the automatic refresh, it fails loudly if the CSV can't be written.
-  - **A file held for a moment by another program** (antivirus, OneDrive, the search indexer): reading a data file or log, a log or report write, and resetting a demo log are retried; a full disk is not.
-  - **A maintenance log that can't be written:** the call is still opened and kept in the run, and the log catches up on the call's next change. Any CSV write error, not only Excel's lock, leaves the call alone.
-  - **The live dashboard keeps monitoring:** a fault still gets its call when the alert log can't be written, and a monitoring loop that crashes is reported and restarted.
-  - **`main.py` explains instead of a traceback:** a report it can't write, or a data file or log that is missing, broken, unreadable or still locked, gives a one-line message and exit code 1. A bug is still raised, and a dashboard crash is not hidden by a failed report.
-- `tests/test_retry.py` — the one retry mechanism the GitHub client, the log writes and the report share: recovery with a doubling wait, giving up with the last error, only the listed errors retried, and the attempt limit checked.
-- `tests/test_concurrency.py` — concurrency validations. These tests are deterministic: they hold a lock and check that callers wait for it, or slow down a critical section so that code without the lock would fail every time.
-  - **Async accuracy:** results match the data counted independently. Results stay in input order even when the tasks finish in reverse order, and repeated runs give identical results.
-  - **Really concurrent:** all three sources start before any finishes, and all 8 workstation fetches are in flight at once (the sequential versions run one at a time). Blocking file reads don't freeze the event loop, and a failing source leaves no unhandled task errors.
-  - **Locks taken:** every method of `MaintenanceDesk`, `AlertManager`, `LockedAlertLog` and the dashboard that touches shared state waits while its lock is held.
-  - **Shared state stays consistent:** batches stay together, and a control run without the lock shows them getting mixed up. Snapshots never see half a batch, and concurrent calls and resolutions keep the numbering, workloads and log consistent. A fault reported by 8 threads opens one call, popup slots are never shared or overbooked, and only one GitHub issue opens per window. Mixed dashboard operations finish without deadlock.
-
-GitHub Actions (`.github/workflows/tests.yml`) runs the suite on every pull request and every push to `main`, so a change that breaks old behaviour is caught before it is merged.
+| `python main.py` | The default, offline (no network, no keys, no window): the step-by-step demonstration (12 steps), then the maintenance history report, printed and exported to `logs/maintenance_report.csv`. `--no-dashboard` does the same. |
+| `python main.py --dashboard` | The demonstration, then the live monitoring dashboard for this computer with the live statistics window next to it. Its mic/camera signals are synthetic (`synthetic_sources.py`); with `.env` it posts real GitHub issues and asks the real Gemini. When it closes, the statistics window closes too and the report is published. |
+| `python main.py --no-stats` | The dashboard without the statistics window. |
+| `python main.py --live` | Only the joint process (demo step 12) against the real GitHub and Gemini, labelled `[REAL]`. Posts a real issue. |
+| `python main.py --report` | Only the maintenance history report and its CSV. |
+| `python main.py --stats` | Only the live statistics window: it re-reads the maintenance log every 2 s (so it follows a dashboard running in another terminal) and shows a summary, two pie charts (calls per technician, per alert type), alerts by type, each technician's calls and the latest calls. |
 
 ## Project layout
 The course template's `project_name/` package is named `hardware_monitor/` here.
-- `main.py` — entry point only: reads the command-line flags and calls the package. No business classes. Exits with 1 and a one-line message for a file problem: a report it can't write, or a data file or log that is missing, broken, unreadable or still locked.
-- `hardware_monitor/__init__.py` — package definition and public API.
-- `hardware_monitor/models.py` — `HardwareComponent`, `Camera`, `Microphone`, `Workstation`, `Technician`, `MaintenanceRequest` (OOP, validation, `from_dict` factories).
-- `hardware_monitor/repository.py` — loads `data/*.jsonl` line by line into objects and validates them (a bad line raises `DataFileError`), and reads and appends to the logs, retrying a file another program holds for a moment.
-- `hardware_monitor/processing.py` — `Alert`, `AlertManager` (list, dict, set, deque, heapq, comprehensions, sorting) and the polymorphic diagnostics sweep.
-- `hardware_monitor/iterators.py` — `AlertHistory`/`ActiveAlertIterator`, a generator and the 3-step lazy pipeline.
-- `hardware_monitor/context_managers.py` — `DiagnosticConnection`.
-- `hardware_monitor/demo.py` — the step-by-step demonstration that `main.py` runs, one function per requirement.
-- `hardware_monitor/maintenance.py` — `MaintenanceDesk`: opens a maintenance call for each alert, assigns it to a technician and saves every change.
-- `hardware_monitor/assignment.py` — the Strategy pattern: `AssignmentStrategy` and `FewestCallsStrategy` (the default), `LeastBusyStrategy`, `RoundRobinStrategy`. It depends on nothing else in the package; `maintenance.py` re-exports them.
-- `hardware_monitor/factory.py` — the Factory pattern: `create_component(record)` builds the `HardwareComponent` subclass named by the record's `component_type`, and `component_types()` lists them; a new subclass is picked up without changes. It depends only on `models.py`.
-- `hardware_monitor/reports.py` — technician workload report, maintenance history report (with the triage figures from `services.triage_summary()`), CSV export, cross-file technician validation.
-- `hardware_monitor/concurrency.py` — async information gathering (`gather_overview_concurrent` starts three independent sources — fleet status, technician roster, maintenance history — with `asyncio.create_task` and collects them with `asyncio.gather`; demo step 11 times it against awaiting them one by one) and a lock-protected alert log for threads.
-- `hardware_monitor/dashboard.py` — the live Tkinter UI, monitoring threads and GitHub alerting. A monitoring loop that crashes is restarted after 3 s.
-- `hardware_monitor/stats.py` — `compute_stats()` / `load_stats()`: the numbers behind the statistics window, computed from the maintenance log. Covers totals, alerts by type, the per-technician spread and the recent calls.
-- `hardware_monitor/stats_viewer.py` — the live statistics window (`python main.py --stats`): text sections, two pie charts drawn on Tk canvases, and a refresh every 2 seconds.
-- `hardware_monitor/logging_module.py` — safe logging. Every module logs through `logging.getLogger(__name__)` (INFO for actions, WARNING for problems worked around, ERROR for failures); `configure_logging()`, called by `main.py`, sends it to the console and `logs/monitor.log` through a filter that masks anything shaped like a token or key, every secret `config.py` read (the GitHub token, encrypted and decrypted, the encryption key, the Gemini key) and the home folder, which holds the user's name. Technicians are logged by id, never by name.
-- `hardware_monitor/retry.py` — `retry()`: the one retry loop the project uses (a doubling wait, no wait after the last attempt, only the errors the caller lists as temporary are retried). Reading the data files and logs, log appends, the CSV report and resetting the demo logs retry a `PermissionError` 3 times, waiting 0.1 s and then 0.2 s.
-- `hardware_monitor/api_client.py` — raw network communication, and only that: the one module that talks to the network (a test reads every module's imports to keep it so), and it imports nothing from the project but the retry loop.
-  - `create_issue()` posts an alert to GitHub Issues and checks the reply. Every failure (no token, HTTP error, timeout, connection error, other request error, incomplete or invalid reply) comes back as a result instead of an exception. Temporary failures (timeouts, connection errors, a reply cut off mid-way, HTTP 429/5xx) are retried up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors (401, 404, 422, …, a bad URL or header, a redirect loop) and incomplete replies are not retried. Error messages never include the token.
-  - `triage_fault()` asks Gemini to triage a fault and returns a checked `Triage` (priority, cause, repair minutes, steps). Every failure (no key, HTTP error, timeout, a blocked or unfinished answer, an invalid triage) comes back as a result; timeouts, connection errors and HTTP 429/5xx are retried once; the key is sent in a header and never appears in an error. Each step is capped at 300 characters.
-  - `find_open_issues()` GETs the open issues with the alert's labels (pull requests left out), so the same fault isn't posted twice. It has the retry the GET requirement asks for: a `Timeout` or `ConnectionError` (or HTTP 429/5xx) is retried, up to 3 attempts in total, waiting 1 s and then 2 s; permanent errors are not retried, and every entry is checked (number, link to that issue, title).
-  - All three check the status with `raise_for_status()`, then the JSON, then every field they rely on.
-  - Every failed result names its `ErrorCategory` in `.category`: `COMMUNICATION` (no reply: a timeout, connection error or other request error), `HTTP` (an error or unexpected status), `INVALID_JSON` (the reply, or Gemini's answer in it, isn't JSON) or `VALIDATION` (JSON with the wrong structure or values). Successes, and calls with no token or key (nothing sent), have none.
-- `hardware_monitor/services.py` — the business logic and decisions made with the API data; it never touches the network itself. `report_fault()` posts nothing while this computer's issue for the same fault is still open (and posts anyway if that can't be checked), decides whether to ask Gemini, applies the triage, and composes the GitHub issue's text and labels; `apply_triage()` gives a call the more urgent of its own priority and Gemini's; `triage_summary()` computes the report's figures from the triages.
-- `hardware_monitor/synthetic_sources.py` — synthetic mic/camera signals used by the dashboard.
-- `hardware_monitor/config.py` — constants, GitHub token decryption and the Gemini key.
-- `data/sample_data.jsonl` — 16 synthetic component records. `data/technicians.jsonl` — 10 synthetic technicians (an id and a name each); any of them can take any call.
-- `tests/` — the pytest regression suite (see Testing). `.github/workflows/tests.yml` — runs it on GitHub.
-- `AI_USAGE.md` — how AI was used. `pyproject.toml`, `requirements.txt`, `.gitignore` — project settings.
+```
+main.py                  entry point only: reads the flags, calls the package; no business classes
+hardware_monitor/
+  __init__.py            package definition and public API
+  models.py              HardwareComponent (abstract), Camera, Microphone, Workstation,
+                         Technician, MaintenanceRequest: OOP, validation, from_dict factories
+  repository.py          reads data/*.jsonl line by line into objects (a bad line raises
+                         DataFileError, a ValueError); reads and appends the logs
+  processing.py          Alert, AlertManager (list, dict, set, deque, heapq, comprehensions,
+                         sorting) and the polymorphic diagnostics sweep
+  iterators.py           AlertHistory / ActiveAlertIterator, a generator, the 3-step lazy pipeline
+  context_managers.py    DiagnosticConnection
+  demo.py                the 12-step demonstration main.py runs, one function per requirement
+  maintenance.py         MaintenanceDesk: opens, assigns and saves maintenance calls  [subsystem]
+  reports.py             workload and history reports, CSV export, cross-file checks  [subsystem]
+  assignment.py          Strategy: who gets a call (depends on nothing else in the package)
+  factory.py             Factory: builds the HardwareComponent subclass a record names
+  api_client.py          Stage 2: the only module that talks to the network (GitHub, Gemini)
+  services.py            Stage 2: the business decisions made with that data
+  concurrency.py         Stage 2: async collection (asyncio) and a lock-protected log (threads)
+  retry.py               the one retry loop (GitHub, Gemini, log and report writes)
+  config.py              settings, the GitHub token from .env, the Gemini key
+  logging_module.py      safe logging to the console and logs/monitor.log, secrets masked
+  dashboard.py           the live Tk dashboard and its monitoring threads (--dashboard)
+  synthetic_sources.py   the simulated microphone and camera signals the dashboard reads
+  stats.py, stats_viewer.py   the numbers and the window behind --stats
+data/
+  sample_data.jsonl      16 synthetic component records (AI-generated, see AI_USAGE.md)
+  technicians.jsonl      10 synthetic technicians                                   [subsystem]
+tests/                   the pytest suite; what it covers: tests/README.md
+logs/                    everything the program writes (not committed)
+.github/workflows/tests.yml   runs the suite on every push and pull request
+AI_USAGE.md, pyproject.toml, requirements.txt, .env.example, .gitignore
+```
 
 ## Object-Oriented Programming (OOP)
 *   **Composition (הרכבה):** `Workstation` contains a list of `HardwareComponent` objects and offers `add_component`, `remove_component`, `find_component` and `run_all_diagnostics`.
 *   **Inheritance (הורשה):** `HardwareComponent` is the base class. `Camera` and `Microphone` are kinds of component and add their own fields (resolution, sample rate).
 *   **Polymorphism (פולימורפיזם):** `run_diagnostics()` and `alert_priority()` are defined in the base class and overridden in each subclass. The diagnostics sweep calls them through the common type, with no `if/elif` on the object's class. A camera fault outranks a microphone fault, and a lost device outranks a misconfigured one.
-*   **Validation:** `connection_status` and `MaintenanceRequest.status` are properties that raise `ValueError` with an explanation for an illegal value. `Workstation.add_component` refuses a component of another workstation or a reused id. The `from_dict` factories reject missing fields and wrong types.
+*   **Validation:** `connection_status`, `MaintenanceRequest.status` and `MaintenanceRequest.priority` (a whole number from 1 to 5) are properties that raise `ValueError` with an explanation for an illegal value, and a resolved call can't be reopened. `Workstation.add_component` refuses a component of another workstation or a reused id. The `from_dict` factories reject missing fields and wrong types.
 *   **Other tools:** `@classmethod` factories (`from_dict`), a `@staticmethod` (`Camera.parse_resolution`), a computed property (`age_years`) and `__len__` on `AlertHistory`.
-
-## Design patterns
-| Pattern | Where | What it gives us |
-|---|---|---|
-| **Factory** (injected) | `factory.py`: `create_component()`, injected into `repository.load_workstations_from_jsonl(path, component_factory=...)`; `HardwareComponent.from_dict` also reaches it (and `Workstation.from_dict`, `Technician.from_dict` build their own classes) | The loader passes each JSONL record to the factory it was given and gets back the right subclass (`Camera`, `Microphone`, …) without any `if/elif` on the type. Passing in another factory loads another kind of data: an older export that says "webcam" and "mic" needs only a factory that understands those names, not a change to the loader. The factory finds the subclasses through `__subclasses__()`, so adding a new kind of component needs no change to the factory. Each subclass validates its own fields. |
-| **Dependency injection** | `HardwareMonitorApp(...)` in `dashboard.py`, `MaintenanceDesk(...)`, `services.report_fault(...)` | Components get what they depend on from outside instead of creating it: the dashboard takes its alert manager, mic and camera sources, keys, fault reporter, clock and thread starter through its constructor; the desk takes its technicians, files and assignment strategy; `report_fault()` takes the GitHub and Gemini calls. Each defaults to the real one, so `main.py` still calls `HardwareMonitorApp()`, while tests and new parts (another kind of camera, another client) are passed in without changing the component. |
-| **Strategy** (injected) | `assignment.py`: `AssignmentStrategy` and its implementations, injected into `MaintenanceDesk(..., assignment_strategy=...)` | Every technician can take any call, so the `MaintenanceDesk` hands all of them to a strategy object, with how many calls each has saved in the log. `FewestCallsStrategy` (default: a random draw between everyone, someone k calls ahead of the least-loaded weighing 1 / (1 + k)), `LeastBusyStrategy` (fewest open calls, then whoever waited longest) and `RoundRobinStrategy` (strict turns, whatever the load) are interchangeable: `MaintenanceDesk(..., assignment_strategy=RoundRobinStrategy())`, or swap `desk.assignment_strategy` on a running desk. |
 
 ## מבני נתונים (Data Structures)
 | Need | Structure chosen | Why it fits |
@@ -299,21 +166,13 @@ The course template's `project_name/` package is named `hardware_monitor/` here.
 *   **New report metric:** the estimated open backlog in minutes, the estimated minutes per technician, and the most common causes (`services.triage_summary()`, printed by `python main.py --report`). It shows management how much repair work is still waiting and who carries it.
 
 ### How to run it
-*   **Python 3.10+.** Install with `pip install -r requirements.txt` (or `pip install -e .`), see [Installation](#installation).
-*   **Environment variables** (all optional, in `.env`; copy `.env.example`): `GITHUB_TOKEN` + `ENCRYPTION_KEY` for GitHub, `GEMINI_API_KEY` for the triage. No secrets are in the repository.
-*   **Without network or keys:** `python main.py --no-dashboard` runs the demonstration and the report offline. Step 12, **the joint process**, shows a fault reaching the maintenance subsystem through the external services, with simulated GitHub and Gemini clients passed into `services.report_fault()`. Every line it prints is labelled `[SIMULATED]`.
-*   **The joint process against the real services:** fill in `.env`, then `python main.py --live`. It runs only that step, with the real GitHub and Gemini clients, labelled `[REAL]`, and **posts a real issue** for a demo call (on the demo maintenance log, never the real one). With a key missing it says which one, sends nothing and exits cleanly. Only the success path runs live: a real Gemini can't be made to fail on purpose.
-*   **Against the real services, continuously:** fill in `.env`, then `python main.py`. The live dashboard posts each new fault to GitHub (GET for open issues, then POST) and asks Gemini for a triage.
-*   **Tests:** `pip install pytest`, then `pytest` from the project root. They run offline, with no key and no real retry waits.
+*   **Python 3.10+**, `pip install -r requirements.txt` ([Installation](#installation)). Environment variables, all optional and only for the real services: `GITHUB_TOKEN` + `ENCRYPTION_KEY`, `GEMINI_API_KEY`, in `.env` (copy `.env.example`; no secrets in the repository).
+*   **Without network or keys (the default):** `python main.py`. Step 12, **the joint process**, sends a fault to the maintenance subsystem through simulated GitHub and Gemini clients passed into `services.report_fault()`; every line it prints says `[SIMULATED]`.
+*   **Against the real services:** `python main.py --live` runs the joint process once with the real clients, labelled `[REAL]`, and posts a real issue for a demo call (never on the real maintenance log; with a key missing it says which and sends nothing). `python main.py --dashboard` runs the live dashboard, which does the same for every new fault.
+*   **Tests:** `pip install pytest`, then `pytest` from the project root: offline, no key, no real retry waits.
 
 ### How the code is organised
-The full module list is in [Project layout](#project-layout). The Stage 2 parts:
-*   `hardware_monitor/api_client.py` — the network only: the GitHub GET/POST and the Gemini request, response checks, error categories, retry.
-*   `hardware_monitor/services.py` — the business decisions made with that data (`report_fault`, `apply_triage`, `triage_summary`).
-*   `hardware_monitor/assignment.py` (Strategy) and `hardware_monitor/factory.py` (Factory) — the two design patterns.
-*   `hardware_monitor/concurrency.py` — the async collection (`asyncio`) and a lock-protected shared log (threads).
-*   `hardware_monitor/config.py`, `hardware_monitor/logging_module.py`, `hardware_monitor/retry.py` — keys from `.env`, safe logging, the shared retry loop.
-*   **The subsystem:** `hardware_monitor/maintenance.py` (`MaintenanceDesk`), `models.py` (`Technician`, `MaintenanceRequest`), `reports.py`.
+The tree, with a line for every module, is in [Project layout](#project-layout): the Stage 2 modules are `api_client.py`, `services.py`, `assignment.py`, `factory.py`, `concurrency.py`, `retry.py`, `config.py` and `logging_module.py`. **The subsystem** is `maintenance.py` (`MaintenanceDesk`), `Technician` and `MaintenanceRequest` in `models.py`, and `reports.py`.
 *   **The four extra team-of-four tests** (all in `tests/test_business_application.py`):
     1. joint process succeeds: `test_the_dashboard_applies_the_triage_to_the_call`;
     2. external service fails: `test_when_gemini_fails_the_call_and_the_labels_are_unchanged`;
@@ -326,15 +185,15 @@ The full module list is in [Project layout](#project-layout). The Stage 2 parts:
     *   **Dania** — subsystem integration: the Gemini triage driving maintenance calls, the extended report in `reports.py`, the four extra tests above and the end-to-end demo in `main.py`.
 
 ### Key design decisions
-*   **External services:** the [GitHub REST API, Issues](https://docs.github.com/en/rest/issues/issues) (a GET lists the open issues with the alert's labels, a POST opens one) and the [Gemini API](https://ai.google.dev/gemini-api/docs) (the triage, as checked JSON). Every reply goes through `raise_for_status()`, JSON parsing and a check of every field it relies on. A timeout or connection error is retried (GitHub up to 3 attempts in total, waiting 1 s and then 2 s); bad data and auth errors are never retried.
+*   **External services:** the [GitHub REST API, Issues](https://docs.github.com/en/rest/issues/issues) (a GET with `params` and a timeout lists the open issues with the alert's labels, a POST opens one) and the [Gemini API](https://ai.google.dev/gemini-api/docs) (`gemini-3.1-flash-lite` returns a triage as checked JSON: priority, likely cause, repair minutes, up to five steps). Only the alert itself goes to Gemini, never the computer's or technician's name. Every reply goes through `raise_for_status()`, JSON parsing and a check of every field it relies on, and every failure comes back as a result with its category: communication, HTTP, invalid JSON or invalid structure. A timeout or connection error is retried (GitHub up to 3 attempts in total, waiting 1 s and then 2 s); bad data and auth errors are never retried. The triage sets the call's priority (the more urgent of the rule's and Gemini's), its cause and estimate, the issue's `priority-N` label and the report's figures.
 *   **On failure:** if the open-issue lookup fails, the issue is posted anyway (a duplicate is better than a lost alert). If Gemini fails or answers badly, the call keeps its own priority and nothing about it changes, so a bad answer can never lower urgency. The reason is logged.
-*   **Two patterns:** **Strategy** chooses which technician gets a call (`FewestCallsStrategy`, `LeastBusyStrategy`, `RoundRobinStrategy`); it serves the maintenance subsystem directly and lets the rule change without touching the desk. **Factory** builds the right `HardwareComponent` subclass from a data record, so loaders need no `if/elif` on the type. Details in [Design patterns](#design-patterns).
-*   **Dependencies from outside:** `MaintenanceDesk` gets its strategy, `report_fault()` gets its GitHub and Gemini functions, and the dashboard gets its sources, clock and reporter, all through parameters. Each part has one job, a new implementation plugs in without edits, and the tests pass fakes instead of the network.
+*   **Two patterns:** **Strategy** chooses which technician gets a call (`FewestCallsStrategy`, `LeastBusyStrategy`, `RoundRobinStrategy`); it serves the maintenance subsystem directly and lets the rule change without touching the desk. `FewestCallsStrategy` (the default) is a random draw weighted towards whoever has fewer calls: someone k calls ahead of the least-loaded technician weighs 1 / (1 + k). **Factory** (`factory.create_component`, injected into `repository.load_workstations_from_jsonl`) builds the right `HardwareComponent` subclass from a data record, so loaders need no `if/elif` on the type; it finds the subclasses through `__subclasses__()`, so a new kind of component needs no change to it, and another factory loads an older export ("webcam", "mic") with no change to the loader.
+*   **Dependencies from outside:** `MaintenanceDesk` gets its technicians, files and strategy, `report_fault()` gets its GitHub and Gemini functions, the loader gets its factory, and the dashboard gets its sources, alert manager, keys, clock and reporter, all through parameters that default to the real ones. Each part has one job, a new implementation plugs in without edits, and the tests pass fakes instead of the network.
 *   **Independent tasks (simulated):** the fleet status, the technician roster and the maintenance summary are collected with `asyncio.create_task` + `gather` (with `asyncio.sleep` as the simulated latency) and compared with a sequential version. Results are identical and in input order (demo step 11).
 *   **Shared resource and the Lock:** a fault's open maintenance call. The mic and camera threads can both see the same fault at the same time. Without a lock, both read "no open call for this fault", then both open one: two calls and two technicians for one fault. `dashboard._calls_lock` makes the check and the open one step, so 8 threads reporting one fault open exactly one call (`test_a_fault_reported_by_many_threads_opens_one_call`). The same lock in `MaintenanceDesk` stops two calls from getting the same `MR-` number. No network call is made while a lock is held.
 
 ### Proof that it works
-*   **Tests:** 881 tests pass (`pytest`), run on every push by GitHub Actions. Coverage per area is in [Testing](#testing-regression-suite).
+*   **Tests:** 901 tests pass (`pytest`), run on every push by GitHub Actions. What each test file covers, the fixtures and the offline isolation: [tests/README.md](tests/README.md).
 *   **Real run against the services** (2026-10-28, live dashboard with `.env`; the computer's name is left out here): a simulated microphone disconnect opened maintenance call `MR-0047`, Gemini returned a valid triage, and the GitHub issue was posted with it:
     ```
     Component: mic_conn · Maintenance Call: MR-0047
@@ -354,3 +213,4 @@ The full module list is in [Project layout](#project-layout). The Stage 2 parts:
     *   Gemini triage driving the call: [`0b5ea66`](../../commit/0b5ea66) → [`86e044d`](../../commit/86e044d) → [`5c0627c`](../../commit/5c0627c).
     *   Error categories: [`5c86a78`](../../commit/5c86a78) → [`199452c`](../../commit/199452c) → [`50939bc`](../../commit/50939bc).
     *   The demo's joint process (step 12 and `--live`, tested in `tests/test_joint_process_demo.py`): [`5887bd7`](../../commit/5887bd7) RED → [`817e918`](../../commit/817e918) GREEN → [`7920043`](../../commit/7920043) REFACTOR. Offline, a fake triage of priority 2 raises the call from 3 to 2 (checked on the saved call), Gemini failing leaves it at 3, every line says `[SIMULATED]`, and `--live` is parsed but never run in the tests.
+    *   The offline default run (`--dashboard` opens the window): [`adc9341`](../../commit/adc9341) RED → [`49289b4`](../../commit/49289b4) GREEN; a call's priority (1–5) and no reopening: [`7474699`](../../commit/7474699) RED → [`d5c3de5`](../../commit/d5c3de5) GREEN.
