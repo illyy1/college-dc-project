@@ -200,7 +200,8 @@ def test_a_triage_with_a_missing_or_impossible_value_is_rejected(gemini, changes
 ], ids=["plain-text", "json-list"])
 def test_an_answer_that_is_not_a_json_object_is_rejected(gemini, text, error):
     gemini.reply = answer(text)
-    assert ask() == TriageResult(False, error=error)
+    result = ask()
+    assert (result.ok, result.error) == (False, error)  # its category: test_error_categories.py
 
 
 @pytest.mark.parametrize("payload, problem", [

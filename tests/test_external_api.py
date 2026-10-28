@@ -181,7 +181,8 @@ def test_replies_missing_required_fields_are_rejected(github, payload, problem):
 ], ids=["not-json", "json-list", "json-string"])
 def test_replies_that_are_not_a_json_object_are_rejected(github, payload, error):
     github.reply = api_response(201, payload, text="OK")
-    assert send() == IssueResult(False, error=error)
+    result = send()
+    assert (result.ok, result.error) == (False, error)  # its category: test_error_categories.py
 
 
 # --- response validation: the status, then the JSON, then every field's value ---
