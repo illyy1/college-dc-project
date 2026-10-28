@@ -154,6 +154,12 @@ class HardwareMonitorApp:
             # what the issue says and whether Gemini triages it is decided in services
             outcome = report_fault(self.maintenance_desk, self.github_token, self.gemini_api_key,
                                    alert_key, title, message, request)
+            if outcome.lookup_error:
+                print(f"Could not check GitHub for an open {alert_key} issue: {outcome.lookup_error}")
+            if outcome.already_open:
+                print(f"GitHub issue #{outcome.issue.issue_number} for {alert_key} is still open "
+                      f"({outcome.issue.url}); not posting another.")
+                return
             if outcome.triage_error:
                 print(f"No Gemini triage for {alert_key}: {outcome.triage_error}")
             result = outcome.issue

@@ -230,6 +230,93 @@ def _impossible_issue_values(number, url):
     return problems
 
 
+# --- the open issues: so the same fault isn't posted twice ---
+
+@dataclass(frozen=True)
+class OpenIssue:
+    number: int
+    url: str
+    title: str
+
+
+@dataclass
+class IssueSearchResult:
+    ok: bool
+    issues: tuple = ()  # OpenIssue, in GitHub's order
+    error: str | None = None
+    attempts: int = 1
+    category: ErrorCategory | None = None  # None on success, or when nothing was sent
+
+
+def find_open_issues(token, repo, labels, timeout=GITHUB_TIMEOUT_SECONDS, max_attempts=GITHUB_MAX_ATTEMPTS):
+    """GETs the open issues that have every one of `labels` (pull requests
+    left out). A Timeout or ConnectionError (or HTTP 429/5xx) is retried, up
+    to max_attempts attempts in all, waiting 1 s, then 2 s, ... between them;
+    permanent errors are not. Never raises for API problems: every failure
+    comes back as IssueSearchResult(ok=False, error=..., category=...)."""
+    if not token:
+        return IssueSearchResult(False, error="GitHub token missing or decryption failed.", attempts=0)
+
+    return retry_api_call(lambda: _search_try_once(token, repo, labels, timeout),
+                          max_attempts=max_attempts, backoff_seconds=GITHUB_RETRY_BACKOFF_SECONDS,
+                          label="GitHub lookup")
+
+
+def _search_try_once(token, repo, labels, timeout):
+    """One GET. Returns (IssueSearchResult, whether the failure is worth retrying)."""
+    try:
+        response = requests.get(
+            f"{GITHUB_API_URL}/repos/{repo}/issues",
+            params={"state": "open", "labels": ",".join(labels), "per_page": 100},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"},
+            timeout=timeout,
+        )
+    except requests.exceptions.RequestException as e:
+        error, category, retryable = request_failure(e, "GitHub", timeout)
+        return IssueSearchResult(False, error=error, category=category), retryable
+
+    failure = status_failure(response, "GitHub", 200, _github_message)  # a list is 200 OK
+    if failure:
+        error, category, retryable = failure
+        return IssueSearchResult(False, error=error, category=category), retryable
+    return _parse_open_issues(response), False
+
+
+def _parse_open_issues(response):
+    try:
+        data = response.json()
+    except ValueError:
+        return IssueSearchResult(False, error="GitHub's reply was not valid JSON.",
+                                 category=ErrorCategory.INVALID_JSON)
+    if not isinstance(data, list):
+        return _invalid_search("GitHub's list of open issues was not a JSON list.")
+
+    issues = []
+    for item in data:
+        if not isinstance(item, dict):
+            return _invalid_search(f"GitHub's list of open issues has an entry that is not an issue: {item!r}.")
+        if "pull_request" in item:  # GitHub lists pull requests among the issues
+            continue
+        problems = []
+        for field, expected in {**REQUIRED_RESPONSE_FIELDS, "title": str}.items():
+            value = item.get(field)
+            if value is None:
+                problems.append(f"missing '{field}'")
+            elif isinstance(value, bool) or not isinstance(value, expected):
+                problems.append(f"'{field}' should be {expected.__name__}, got {value!r}")
+        if not problems:
+            problems = _impossible_issue_values(item["number"], item["html_url"])
+        if problems:
+            return _invalid_search(f"GitHub's list of open issues is invalid: {', '.join(problems)}.")
+        issues.append(OpenIssue(item["number"], item["html_url"], item["title"]))
+    return IssueSearchResult(True, issues=tuple(issues))
+
+
+def _invalid_search(error):
+    """A list of open issues whose JSON has the wrong structure or values."""
+    return IssueSearchResult(False, error=error, category=ErrorCategory.VALIDATION)
+
+
 # ======================================================================
 # Gemini (Google AI Studio): a triage of a hardware fault, as checked JSON
 # ======================================================================
