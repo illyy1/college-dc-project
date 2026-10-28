@@ -22,15 +22,18 @@ def _require_fields(record, fields, kind):
 
 
 def _parse_time(record, field, kind):
-    """`field` as a datetime, or None if it is missing or empty. Raises
-    ValueError if it is there but not an ISO date and time."""
+    """`field` as a local datetime, or None if it is missing or empty. Raises
+    ValueError if it is there but not an ISO date and time. A time with a UTC
+    offset is converted to local time: the system's times are all local, and
+    Python can't compare the two kinds."""
     value = record.get(field)
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value)
+        when = datetime.fromisoformat(value)
     except ValueError:
         raise ValueError(f"{kind} field '{field}' must be an ISO date and time, got {value!r}.") from None
+    return when.astimezone().replace(tzinfo=None) if when.tzinfo else when
 
 
 def _check_number(record, field, kind, integer=False):
