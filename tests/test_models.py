@@ -79,3 +79,45 @@ def test_maintenance_request_lifecycle():
     with pytest.raises(ValueError, match="סטטוס לא חוקי: DONE"):  # "illegal status: DONE"
         request.status = "DONE"
     assert request.status == "RESOLVED"
+
+
+# --- a maintenance call never holds an impossible priority or reopens (Part 1, section 4) ---
+
+@pytest.mark.parametrize("priority", [1, 5])
+def test_a_call_accepts_priorities_1_to_5(priority):
+    assert MaintenanceRequest("MR-0001", alert_id=1, priority=priority).priority == priority
+
+
+@pytest.mark.parametrize("priority", [0, 6, -3, 2.5, "1", True, None],
+                         ids=["zero", "six", "negative", "fraction", "text", "bool", "none"])
+def test_a_call_rejects_an_impossible_priority(priority):
+    with pytest.raises(ValueError, match=r"priority must be a whole number from 1 \(most urgent\) to 5"):
+        MaintenanceRequest("MR-0001", alert_id=1, priority=priority)
+
+
+def test_changing_the_priority_is_checked_too():
+    request = MaintenanceRequest("MR-0001", alert_id=1, priority=3)
+    request.priority = 2  # what Gemini's triage does
+    with pytest.raises(ValueError, match="got 0"):
+        request.priority = 0
+    assert request.priority == 2
+
+
+def test_a_saved_call_with_an_impossible_priority_is_rejected():
+    with pytest.raises(ValueError, match="priority must be a whole number from 1"):
+        MaintenanceRequest.from_dict({"request_id": "MR-0001", "priority": 9})
+
+
+@pytest.mark.parametrize("reopen", [lambda r: setattr(r, "status", "OPEN"),
+                                    lambda r: setattr(r, "status", "IN_PROGRESS"),
+                                    lambda r: r.assign_to("T2")],
+                         ids=["open", "in-progress", "assign"])
+def test_a_resolved_call_cannot_be_reopened(reopen):
+    request = MaintenanceRequest("MR-0001", alert_id=1, priority=2)
+    request.assign_to("T1")
+    request.resolve()
+    resolved_at = request.resolved_at
+
+    with pytest.raises(ValueError, match="MR-0001 is already resolved"):
+        reopen(request)
+    assert (request.status, request.resolved_at, request.assigned_tech_id) == ("RESOLVED", resolved_at, "T1")
