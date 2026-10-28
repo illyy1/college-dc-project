@@ -6,7 +6,8 @@ import logging
 import json
 import os
 
-from .models import HardwareComponent, MaintenanceRequest, Workstation, Technician
+from .factory import create_component
+from .models import MaintenanceRequest, Workstation, Technician
 from .retry import retry
 
 logger = logging.getLogger(__name__)
@@ -44,13 +45,15 @@ def _parse_record(path, line_number, line):
     return record
 
 
-def load_workstations_from_jsonl(path):
+def load_workstations_from_jsonl(path, component_factory=create_component):
     """Reads the JSONL file strictly line-by-line (no .read()/.readlines()),
     parses each record with json.loads, validates it and instantiates the
-    objects through the Workstation.from_dict / HardwareComponent.from_dict
-    factories. Raises DataFileError (with the line number) for a malformed
-    record, a record whose workstation details contradict an earlier line,
-    or a reused component_id."""
+    objects: the workstation with Workstation.from_dict, the component with
+    component_factory (injected; factory.create_component by default), so a
+    data source that describes its components differently is loaded by
+    passing in a factory that understands it. Raises DataFileError (with the
+    line number) for a malformed record, a record whose workstation details
+    contradict an earlier line, or a reused component_id."""
     workstations = {}
     seen_component_ids = set()
 
@@ -63,7 +66,7 @@ def load_workstations_from_jsonl(path):
             record = _parse_record(path, line_number, line)
             try:
                 workstation = Workstation.from_dict(record)
-                component = HardwareComponent.from_dict(record)
+                component = component_factory(record)
             except ValueError as error:
                 raise DataFileError(f"{path} line {line_number}: {error}") from None
 
