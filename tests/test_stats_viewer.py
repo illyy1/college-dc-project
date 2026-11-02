@@ -31,8 +31,13 @@ What the module must provide:
   `MAIN_SCRIPT --stats` with the same Python), or None if it could not start
 - stop_background_viewer(process): closes it if it is still running (kills it
   if it doesn't close within 5 s); does nothing for None or an exited process
-- main.py without flags opens the viewer next to the dashboard and closes it
+- main.py --dashboard opens the viewer next to the dashboard and closes it
   when the dashboard closes; `--no-stats` leaves it out.
+- main.py without flags (VS Code's Run button) runs the offline demo and the
+  report, then opens the viewer itself (run_stats_viewer(), in this process)
+  until its window is closed: no dashboard, no network, no keys. Without
+  tkinter it says so and still ends with exit code 0. `--no-dashboard` and
+  `--report` open no window at all.
 
 The tests replace tkinter with a fake, so no window is opened.
 """
@@ -671,15 +676,21 @@ def test_stopping_nothing_does_nothing():
 
 @pytest.fixture
 def program(monkeypatch, popen):
-    """Runs main.main() with the dashboard window and the demo mocked out."""
+    """Runs main.main() with the dashboard window, the in-process viewer and
+    the demo mocked out. .order lists what ran: "demo", "reports", "viewer"."""
     monkeypatch.setattr("hardware_monitor.stats_viewer.tk", FAKE_TK)
     calls = SimpleNamespace(popen=popen)
 
     def run(*flags, dashboard_error=None):
         monkeypatch.setattr(sys, "argv", ["main.py", *flags])
         with mock.patch("hardware_monitor.dashboard.HardwareMonitorApp") as app_class, \
+                mock.patch("hardware_monitor.stats_viewer.run_stats_viewer") as viewer, \
                 mock.patch("main.run_demo") as demo, \
                 mock.patch("main.publish_maintenance_reports") as reports:
+            calls.order = []
+            for name, step in (("demo", demo), ("reports", reports), ("viewer", viewer)):
+                step.side_effect = lambda *args, _name=name, **kwargs: calls.order.append(_name)
+            calls.viewer = viewer
             app = app_class.return_value
             calls.viewer_open_when_dashboard_started = None
 
@@ -690,7 +701,7 @@ def program(monkeypatch, popen):
 
             app.start.side_effect = start
             calls.app, calls.demo, calls.reports = app, demo, reports
-            main.main()
+            calls.exit_code = main.main()
         return calls
 
     return run
@@ -731,11 +742,33 @@ def test_no_stats_opens_only_the_dashboard(program):
     calls.app.start.assert_called_once_with()
 
 
-@pytest.mark.parametrize("flags", [(), ("--no-dashboard",), ("--report",)],
-                         ids=["no-flags", "no-dashboard", "report"])
-def test_modes_without_the_dashboard_open_no_viewer(program, flags):
+@pytest.mark.parametrize("flags", [("--no-dashboard",), ("--report",)], ids=["no-dashboard", "report"])
+def test_console_only_modes_open_no_window(program, flags):
     calls = program(*flags)
     calls.popen.assert_not_called()
+    calls.viewer.assert_not_called()
+
+
+def test_the_default_run_opens_the_viewer_after_the_demo_and_report(program):
+    # VS Code's Run button runs main.py without flags: the statistics are what it shows
+    calls = program()
+    assert calls.order == ["demo", "reports", "viewer"]
+    calls.viewer.assert_called_once_with()  # in this process, on the real log
+    calls.popen.assert_not_called()          # not a second process: closing the window ends the run
+    calls.app.start.assert_not_called()      # still no dashboard, so no network and no keys
+    assert calls.exit_code == 0
+
+
+def test_the_default_run_without_tkinter_still_finishes(monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "tkinter", None)  # what a missing module looks like to import
+    monkeypatch.delitem(sys.modules, "hardware_monitor.stats_viewer", raising=False)
+    monkeypatch.setattr(sys, "argv", ["main.py"])
+    with mock.patch("main.run_demo") as demo, mock.patch("main.publish_maintenance_reports") as reports:
+        assert main.main() == 0
+
+    demo.assert_called_once_with()
+    reports.assert_called_once_with()
+    assert "statistics window needs tkinter" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("flags", [(), ("--no-dashboard",)], ids=["no-flags", "no-dashboard"])
