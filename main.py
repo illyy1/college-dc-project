@@ -42,10 +42,10 @@ def main():
     parser.add_argument("--report", action="store_true",
                         help="only print and export the maintenance history report")
     parser.add_argument("--dashboard", action="store_true",
-                        help="after the demo, open the live dashboard (real GitHub and Gemini when .env "
-                             "has the keys) with the statistics window next to it")
+                        help="the default on this branch: after the demo, open the live dashboard (real "
+                             "GitHub and Gemini when .env has the keys) with the statistics window next to it")
     parser.add_argument("--no-dashboard", action="store_true",
-                        help="the default: run the demo and reports without opening a window")
+                        help="run the demo and reports offline, without opening a window")
     parser.add_argument("--stats", action="store_true",
                         help="only open the live alert statistics window (follows the maintenance log)")
     parser.add_argument("--no-stats", action="store_true",
@@ -81,7 +81,7 @@ def _run(args):
 
     run_demo()
 
-    if not (args.dashboard or args.no_stats) or args.no_dashboard:
+    if args.no_dashboard:  # demo/live-presentation: the default run opens the live dashboard
         return 0 if _publish_reports() else 1
 
     # imported here so the other modes work without tkinter installed
@@ -92,7 +92,7 @@ def _run(args):
         if error.name != "tkinter":
             raise
         print("The live dashboard needs tkinter, which this Python was installed without. "
-              "Run `python main.py` for the offline demo and report.", file=sys.stderr)
+              "Run `python main.py --no-dashboard` for the offline demo and report.", file=sys.stderr)
         return 1
 
     print("\nLaunching live hardware monitoring dashboard for this workstation...")
