@@ -45,7 +45,8 @@ def main():
                         help="after the demo, open the live dashboard (real GitHub and Gemini when .env "
                              "has the keys) with the statistics window next to it")
     parser.add_argument("--no-dashboard", action="store_true",
-                        help="the default: run the demo and reports without opening a window")
+                        help="run the demo and reports without opening any window (by default the "
+                             "statistics window opens after them)")
     parser.add_argument("--stats", action="store_true",
                         help="only open the live alert statistics window (follows the maintenance log)")
     parser.add_argument("--no-stats", action="store_true",
@@ -81,8 +82,14 @@ def _run(args):
 
     run_demo()
 
-    if not (args.dashboard or args.no_stats) or args.no_dashboard:
+    if args.no_dashboard:
         return 0 if _publish_reports() else 1
+
+    if not (args.dashboard or args.no_stats):
+        # the default run (VS Code's Run button): offline, then the statistics window
+        reports_ok = _publish_reports()
+        _open_stats_viewer()
+        return 0 if reports_ok else 1
 
     # imported here so the other modes work without tkinter installed
     try:
@@ -106,6 +113,22 @@ def _run(args):
         stop_background_viewer(viewer)
         reports_ok = _publish_reports()
     return 0 if reports_ok else 1
+
+
+def _open_stats_viewer():
+    """Opens the statistics window on the real maintenance log, in this
+    process, until it is closed. Without tkinter it says so instead: the demo
+    and the report have already run."""
+    try:
+        from hardware_monitor.stats_viewer import run_stats_viewer
+    except ImportError as error:
+        if error.name != "tkinter":
+            raise
+        print("The statistics window needs tkinter, which this Python was installed without; "
+              "the demo and the report above are complete.", file=sys.stderr)
+        return
+    print("\nOpening the statistics window (close it to finish)...")
+    run_stats_viewer()
 
 
 def _publish_reports():
