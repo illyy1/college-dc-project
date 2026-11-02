@@ -689,7 +689,7 @@ def program(monkeypatch, popen):
                     raise dashboard_error
 
             app.start.side_effect = start
-            calls.app, calls.demo, calls.reports = app, demo, reports
+            calls.app, calls.app_class, calls.demo, calls.reports = app, app_class, demo, reports
             main.main()
         return calls
 
@@ -731,21 +731,40 @@ def test_no_stats_opens_only_the_dashboard(program):
     calls.app.start.assert_called_once_with()
 
 
-@pytest.mark.parametrize("flags", [(), ("--no-dashboard",), ("--report",)],
-                         ids=["no-flags", "no-dashboard", "report"])
+@pytest.mark.parametrize("flags", [("--no-dashboard",), ("--report",)], ids=["no-dashboard", "report"])
 def test_modes_without_the_dashboard_open_no_viewer(program, flags):
     calls = program(*flags)
     calls.popen.assert_not_called()
 
 
-@pytest.mark.parametrize("flags", [(), ("--no-dashboard",)], ids=["no-flags", "no-dashboard"])
-def test_the_default_run_is_the_offline_demo_and_report(program, flags):
-    # the brief: the default run demonstrates the process without network or keys,
-    # so plain `python main.py` never opens the dashboard, which uses the real services
-    calls = program(*flags)
+def test_no_dashboard_is_the_offline_demo_and_report(program):
+    # the run with no network and no keys, for anyone without a .env
+    calls = program("--no-dashboard")
     calls.demo.assert_called_once_with()
     calls.reports.assert_called_once_with()
     calls.app.start.assert_not_called()
+
+
+# demo/live-presentation branch: the default run is the live demonstration
+# (main keeps the brief's offline default; this branch is for presenting)
+
+def test_the_default_run_is_the_live_demonstration(program):
+    # VS Code's Run button runs main.py without flags: the demo, then the dashboard with
+    # its fake (synthetic) alerts popping up, and the statistics window next to it
+    calls = program()
+    calls.demo.assert_called_once_with()
+    calls.popen.assert_called_once_with([sys.executable, stats_viewer.MAIN_SCRIPT, "--stats"])
+    assert calls.viewer_open_when_dashboard_started is True
+    calls.app.start.assert_called_once_with()
+    calls.reports.assert_called_once_with()  # the history report still follows when it closes
+
+
+def test_the_default_run_connects_to_the_real_services(program):
+    # no keys passed in: the dashboard reads them from .env (its READ_FROM_ENV default),
+    # so each new fault goes to the real GitHub and Gemini. The tests stay offline:
+    # the autouse guards in conftest.py hide .env and block the network
+    calls = program()
+    calls.app_class.assert_called_once_with()
 
 
 @pytest.mark.parametrize("flag", ["--stats", "--no-stats", "--dashboard"])
