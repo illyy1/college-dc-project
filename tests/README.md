@@ -88,7 +88,7 @@ The suite guarantees that new code doesn't break the Phase 1 logic:
   - **The text sections and the two pie charts:** slices filling exactly 360°, a single slice drawn as a circle, and legends with percentages.
   - **The live window:** new and resolved calls appear on the next refresh, an unreadable log keeps the last numbers, and closing stops the refreshes.
   - **A saved call with a wrongly typed field** (`feature/bad-log-records`, also TDD): the statistics skip it with one warning, the window keeps refreshing, and the desk still starts and never reuses its number.
-  - **`--stats`, and the default run:** plain `python main.py` runs the offline demo and report; only `--dashboard` (or `--no-stats`) opens the dashboard and the viewer.
+  - **`--stats`, and the default run:** plain `python main.py` runs the offline demo and report, then opens the statistics viewer in the same process (no dashboard; without tkinter it says so and still exits 0); `--no-dashboard` and `--report` open no window; only `--dashboard` (or `--no-stats`) opens the dashboard, with the viewer next to it.
 - `tests/test_failure_recovery.py` — real-world failures the system must survive. Each failure is caused at the external dependency, and the code that handles it runs for real:
   - **The CSV report locked by Excel:** the call is still opened or resolved and saved, a warning is printed, and the CSV catches up on the next change.
   - **A diagnostic that crashes:** the component is marked `ERROR` and alerted, and the sweep goes on.

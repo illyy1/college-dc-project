@@ -41,7 +41,8 @@ Without `.env` everything still runs; the dashboard just posts nothing and asks 
 ## Running the project
 | Command | What it does |
 |---|---|
-| `python main.py` | The default, offline (no network, no keys, no window): the step-by-step demonstration (12 steps), then the maintenance history report, printed and exported to `logs/maintenance_report.csv`. `--no-dashboard` does the same. |
+| `python main.py` | The default, also what VS Code's Run button runs. Offline (no network, no keys): the step-by-step demonstration (12 steps), then the maintenance history report, printed and exported to `logs/maintenance_report.csv`, then the live statistics window on the real maintenance log; closing it ends the run. Without tkinter the window is skipped with a one-line note. |
+| `python main.py --no-dashboard` | The same demonstration and report, with no window at all. |
 | `python main.py --dashboard` | The demonstration, then the live monitoring dashboard for this computer with the live statistics window next to it. Its mic/camera signals are synthetic (`synthetic_sources.py`); with `.env` it posts real GitHub issues and asks the real Gemini. When it closes, the statistics window closes too and the report is published. |
 | `python main.py --no-stats` | The dashboard without the statistics window. |
 | `python main.py --live` | Only the joint process (demo step 12) against the real GitHub and Gemini, labelled `[REAL]`. Posts a real issue. |
@@ -168,7 +169,7 @@ AI_USAGE.md, pyproject.toml, requirements.txt, .env.example, .gitignore
 
 ### How to run it
 *   **Python 3.10+**, `pip install -r requirements.txt` ([Installation](#installation)). Environment variables, all optional and only for the real services: `GITHUB_TOKEN` + `ENCRYPTION_KEY`, `GEMINI_API_KEY`, in `.env` (copy `.env.example`; no secrets in the repository).
-*   **Without network or keys (the default):** `python main.py`. Step 12, **the joint process**, sends a fault to the maintenance subsystem through simulated GitHub and Gemini clients passed into `services.report_fault()`; every line it prints says `[SIMULATED]`.
+*   **Without network or keys (the default):** `python main.py` (the demonstration and the report, then the statistics window; `--no-dashboard` for no window). Step 12, **the joint process**, sends a fault to the maintenance subsystem through simulated GitHub and Gemini clients passed into `services.report_fault()`; every line it prints says `[SIMULATED]`.
 *   **Against the real services:** `python main.py --live` runs the joint process once with the real clients, labelled `[REAL]`, and posts a real issue for a demo call (never on the real maintenance log; with a key missing it says which and sends nothing). `python main.py --dashboard` runs the live dashboard, which does the same for every new fault.
 *   **Tests:** `pip install pytest` (or `pip install -e ".[test]"`), then `pytest` from the project root: offline, no key, no real retry waits.
 
