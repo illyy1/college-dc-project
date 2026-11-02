@@ -1,5 +1,7 @@
 # Room Hardware Monitor (IT Asset & Alert System)
 
+> **Branch `demo/live-presentation`: the live demonstration.** Here `python main.py` (and VS Code's Run button) runs the demonstration, then the live dashboard: synthetic faults pop up (at least one a minute), the statistics window opens next to it, and with the keys in `.env` each new fault type is checked against the real GitHub, triaged by the real Gemini and posted as a real issue (at most one per fault type every 10 minutes). `python main.py --no-dashboard` is the offline run. The tests stay offline here too. This branch is for presenting and is not merged into `main`, which keeps the offline default.
+
 ## הצעת הפרויקט (Project Proposal)
 *   **Name and description:** Room Hardware Monitor, an IT information system that tracks the cameras and microphones in meeting rooms and workstations, raises alerts when they fail, and sends a technician to fix them.
 *   **Business need:** Meeting rooms often discover a dead camera or microphone only when a meeting starts. Faults are reported late, by phone, and nobody knows which room is affected or who is handling it.
@@ -41,8 +43,8 @@ Without `.env` everything still runs; the dashboard just posts nothing and asks 
 ## Running the project
 | Command | What it does |
 |---|---|
-| `python main.py` | The default, offline (no network, no keys, no window): the step-by-step demonstration (12 steps), then the maintenance history report, printed and exported to `logs/maintenance_report.csv`. `--no-dashboard` does the same. |
-| `python main.py --dashboard` | The demonstration, then the live monitoring dashboard for this computer with the live statistics window next to it. Its mic/camera signals are synthetic (`synthetic_sources.py`); with `.env` it posts real GitHub issues and asks the real Gemini. When it closes, the statistics window closes too and the report is published. |
+| `python main.py --no-dashboard` | Offline (no network, no keys, no window): the step-by-step demonstration (12 steps), then the maintenance history report, printed and exported to `logs/maintenance_report.csv`. |
+| `python main.py` (on this branch the same as `--dashboard`) | The demonstration, then the live monitoring dashboard for this computer with the live statistics window next to it. Its mic/camera signals are synthetic (`synthetic_sources.py`); with `.env` it posts real GitHub issues and asks the real Gemini. When it closes, the statistics window closes too and the report is published. |
 | `python main.py --no-stats` | The dashboard without the statistics window. |
 | `python main.py --live` | Only the joint process (demo step 12) against the real GitHub and Gemini, labelled `[REAL]`. Posts a real issue. |
 | `python main.py --report` | Only the maintenance history report and its CSV. |
@@ -168,7 +170,7 @@ AI_USAGE.md, pyproject.toml, requirements.txt, .env.example, .gitignore
 
 ### How to run it
 *   **Python 3.10+**, `pip install -r requirements.txt` ([Installation](#installation)). Environment variables, all optional and only for the real services: `GITHUB_TOKEN` + `ENCRYPTION_KEY`, `GEMINI_API_KEY`, in `.env` (copy `.env.example`; no secrets in the repository).
-*   **Without network or keys (the default):** `python main.py`. Step 12, **the joint process**, sends a fault to the maintenance subsystem through simulated GitHub and Gemini clients passed into `services.report_fault()`; every line it prints says `[SIMULATED]`.
+*   **Without network or keys:** `python main.py --no-dashboard` (on this branch plain `python main.py` opens the live dashboard). Step 12, **the joint process**, sends a fault to the maintenance subsystem through simulated GitHub and Gemini clients passed into `services.report_fault()`; every line it prints says `[SIMULATED]`.
 *   **Against the real services:** `python main.py --live` runs the joint process once with the real clients, labelled `[REAL]`, and posts a real issue for a demo call (never on the real maintenance log; with a key missing it says which and sends nothing). `python main.py --dashboard` runs the live dashboard, which does the same for every new fault.
 *   **Tests:** `pip install pytest` (or `pip install -e ".[test]"`), then `pytest` from the project root: offline, no key, no real retry waits.
 
